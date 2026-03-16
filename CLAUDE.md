@@ -547,20 +547,20 @@ Update these as you complete each feature. Add [x] when done.
 - [ ] Auto-update configured (electron-updater)
 
 ### Phase 3 — Boards & Tasks Core
-- [ ] Sidebar with Planner, Trips, Vacations boards
-- [ ] Cards view with Group By selector
-- [ ] List view (table)
-- [ ] Task card with labels, checkbox, assignee avatars, date, priority
-- [ ] Completed tasks: fade, move to bottom, show/hide toggle
-- [ ] 3-dot menu: Duplicate, Make Recurring, Delete
-- [ ] Recurring task modal (daily/weekly/monthly/yearly/custom)
-- [ ] Task page (full modal): all properties editable
-- [ ] Subtasks checklist with progress bar
-- [ ] Comments section with @mentions
-- [ ] Activity log (append-only, auto-generated on each field change)
-- [ ] Client required field + New Client inline creation
-- [ ] Labels assignment in task
-- [ ] Empty states for all board views
+- [x] Sidebar with Planner, Trips, Vacations boards
+- [x] Cards view with Group By selector
+- [x] List view (table)
+- [x] Task card with labels, checkbox, assignee avatars, date, priority
+- [x] Completed tasks: fade, move to bottom, show/hide toggle
+- [x] 3-dot menu: Duplicate, Make Recurring, Delete
+- [x] Recurring task modal (daily/weekly/monthly/yearly/custom)
+- [x] Task page (full modal): all properties editable
+- [x] Subtasks checklist with progress bar
+- [x] Comments section with @mentions
+- [x] Activity log (append-only, auto-generated on each field change)
+- [x] Client required field + New Client inline creation
+- [x] Labels assignment in task
+- [x] Empty states for all board views
 
 ### Phase 4 — Sync & Offline
 - [ ] Firebase Persistence (enableMultiTabIndexedDbPersistence)
