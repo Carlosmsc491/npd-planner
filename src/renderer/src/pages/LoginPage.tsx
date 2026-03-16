@@ -6,7 +6,7 @@ import {
 } from 'firebase/auth'
 import { Timestamp } from 'firebase/firestore'
 import { auth } from '../lib/firebase'
-import { getUser, createUser } from '../lib/firestore'
+import { getUser, createUser, hasAnyAdmin } from '../lib/firestore'
 import { useAuthStore } from '../store/authStore'
 
 const ALLOWED_DOMAIN = import.meta.env.VITE_ALLOWED_DOMAIN || 'eliteflower.com'
@@ -47,11 +47,12 @@ export default function LoginPage() {
             .replace(/\./g, ' ')
             .replace(/\b\w/g, (c) => c.toUpperCase())
 
+          const firstAdmin = !(await hasAnyAdmin())
           await createUser(credential.user.uid, {
             email,
             name,
-            role: 'member',
-            status: 'awaiting',
+            role: firstAdmin ? 'admin' : 'member',
+            status: firstAdmin ? 'active' : 'awaiting',
             createdAt: Timestamp.now(),
             lastSeen: Timestamp.now(),
             preferences: {

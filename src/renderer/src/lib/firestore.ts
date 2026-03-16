@@ -78,6 +78,17 @@ export async function updateUserRole(uid: string, role: AppUser['role']): Promis
   }
 }
 
+export async function hasAnyAdmin(): Promise<boolean> {
+  try {
+    const snap = await getDocs(
+      query(collection(db, COLLECTIONS.USERS), where('role', '==', 'admin'), limit(1))
+    )
+    return !snap.empty
+  } catch {
+    return false
+  }
+}
+
 // ─────────────────────────────────────────
 // BOARDS
 // ─────────────────────────────────────────
