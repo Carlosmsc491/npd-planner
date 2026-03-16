@@ -32,10 +32,13 @@ export default function DashboardPage() {
     return () => unsubs.forEach((u) => u())
   }, [boards])
 
-  const active    = allTasks.filter((t) => !t.completed)
+  const plannerBoardIds = boards.filter((b) => b.type === 'planner').map((b) => b.id)
+  const plannerTasks = allTasks.filter((t) => plannerBoardIds.includes(t.boardId))
+
+  const active    = plannerTasks.filter((t) => !t.completed)
   const overdue   = active.filter((t) => isOverdue(t.dateEnd))
   const mine      = active.filter((t) => user && t.assignees.includes(user.uid))
-  const doneToday = allTasks.filter((t) => {
+  const doneToday = plannerTasks.filter((t) => {
     if (!t.completedAt) return false
     const d = t.completedAt.toDate()
     const now = new Date()
@@ -76,7 +79,8 @@ export default function DashboardPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               {boards.map((board) => {
                 const color = BOARD_COLORS[board.type] ?? board.color
-                const boardActive = active.filter((t) => t.boardId === board.id)
+                const boardCount = allTasks.filter((t) => t.boardId === board.id && !t.completed).length
+                const boardLabel = board.type === 'trips' ? 'trips' : board.type === 'vacations' ? 'vacations' : 'active tasks'
                 return (
                   <button
                     key={board.id}
@@ -86,7 +90,7 @@ export default function DashboardPage() {
                     <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
                     <div>
                       <p className="text-sm font-semibold text-gray-900 dark:text-white">{board.name}</p>
-                      <p className="text-xs text-gray-400">{boardActive.length} active tasks</p>
+                      <p className="text-xs text-gray-400">{boardCount} {boardLabel}</p>
                     </div>
                   </button>
                 )

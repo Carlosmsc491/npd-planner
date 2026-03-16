@@ -16,11 +16,27 @@ const PROPERTY_TYPES: PropertyType[] = [
   'person', 'checkbox', 'url', 'attachment', 'tags', 'email', 'phone',
 ]
 
+// Default properties seeded when a board has none yet
+const DEFAULT_PROPERTIES: BoardProperty[] = [
+  { id: 'builtin-client',    name: 'Client',      icon: 'User',          type: 'text',      order: 0 },
+  { id: 'builtin-status',    name: 'Status',      icon: 'CircleDot',     type: 'select',    order: 1 },
+  { id: 'builtin-priority',  name: 'Priority',    icon: 'Zap',           type: 'select',    order: 2 },
+  { id: 'builtin-date',      name: 'Date',        icon: 'CalendarRange', type: 'daterange', order: 3 },
+  { id: 'builtin-assignees', name: 'Assigned To', icon: 'Users',         type: 'person',    order: 4 },
+  { id: 'builtin-labels',    name: 'Labels',      icon: 'Tag',           type: 'tags',      order: 5 },
+  { id: 'builtin-bucket',    name: 'Bucket',      icon: 'Layers',        type: 'select',    order: 6 },
+  { id: 'builtin-awb',       name: 'AWB',         icon: 'Plane',         type: 'text',      order: 7 },
+  { id: 'builtin-po',        name: 'P.O. Number', icon: 'Hash',          type: 'text',      order: 8 },
+  { id: 'builtin-notes',     name: 'Notes',       icon: 'StickyNote',    type: 'text',      order: 9 },
+]
+
 interface Props {
   board: Board
   onBack: () => void
   onBoardUpdate: (updated: Board) => void
 }
+
+import { useEffect } from 'react'
 
 export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Props) {
   const [properties, setProperties] = useState<BoardProperty[]>(
@@ -37,6 +53,15 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   const [localBoard, setLocalBoard]       = useState(board)
   const dragIndex = useRef<number | null>(null)
   const [dragOverIdx, setDragOverIdx]     = useState<number | null>(null)
+
+  // Seed default properties on first open if board has none
+  useEffect(() => {
+    if ((board.customProperties ?? []).length === 0) {
+      setProperties(DEFAULT_PROPERTIES)
+      updateBoardProperties(board.id, DEFAULT_PROPERTIES)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.id])
 
   async function saveProperties(updated: BoardProperty[]) {
     setProperties(updated)
