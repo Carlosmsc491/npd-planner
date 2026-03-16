@@ -8,7 +8,7 @@ import { Timestamp } from 'firebase/firestore'
 // AUTH & USERS
 // ─────────────────────────────────────────
 
-export type UserRole = 'admin' | 'member'
+export type UserRole = 'owner' | 'admin' | 'member'
 export type UserStatus = 'active' | 'awaiting' | 'suspended'
 export type Theme = 'light' | 'dark' | 'system'
 

@@ -42,7 +42,8 @@ export function useAuth() {
     }
   }, [setUser, navigate])
 
-  const isAdmin = user?.role === 'admin'
+  const isOwner = user?.role === 'owner'
+  const isAdmin = user?.role === 'admin' || isOwner
 
-  return { user, isAdmin, isLoading, signOut }
+  return { user, isAdmin, isOwner, isLoading, signOut }
 }

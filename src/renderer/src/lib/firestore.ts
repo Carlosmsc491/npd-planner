@@ -80,11 +80,19 @@ export async function updateUserRole(uid: string, role: AppUser['role']): Promis
 export async function hasAnyAdmin(): Promise<boolean> {
   try {
     const snap = await getDocs(
-      query(collection(db, COLLECTIONS.USERS), where('role', '==', 'admin'), limit(1))
+      query(collection(db, COLLECTIONS.USERS), where('role', 'in', ['owner', 'admin']), limit(1))
     )
     return !snap.empty
   } catch {
     return false
+  }
+}
+
+export async function updateUserName(uid: string, name: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.USERS, uid), { name })
+  } catch (err) {
+    throw new Error(`Failed to update user name: ${err}`)
   }
 }
 

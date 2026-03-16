@@ -29,13 +29,20 @@ service cloud.firestore {
              getUserData().status == 'active';
     }
 
-    function isAdmin() {
-      return isActiveUser() &&
-             getUserData().role == 'admin';
+    // isSelf: the authenticated user is operating on their own document
+    function isSelf(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
     }
 
-    function isOwner(uid) {
-      return isAuthenticated() && request.auth.uid == uid;
+    // isAppOwner: user has the top-level owner role
+    function isAppOwner() {
+      return isActiveUser() && getUserData().role == 'owner';
+    }
+
+    // isAdmin: owner OR admin (owner has all admin powers)
+    function isAdmin() {
+      return isActiveUser() &&
+             (getUserData().role == 'admin' || getUserData().role == 'owner');
     }
 
     // ─────────────────────────────────────────
@@ -43,26 +50,37 @@ service cloud.firestore {
     // ─────────────────────────────────────────
 
     match /users/{uid} {
-      // Any active user can read the users list (for @mentions, assignee picker)
-      allow read: if isActiveUser();
+      // Active users can read all user docs (for @mentions, assignee picker)
+      // Any authenticated user can read their own doc (needed to check status on login)
+      allow read: if isActiveUser() || (isAuthenticated() && isSelf(uid));
 
-      // New user can create their own document (status will be 'awaiting')
+      // New user can create their own document:
+      //   - Normal registration: awaiting + member
+      //   - First user bootstrap: active + owner (client checks hasAnyAdmin first)
       allow create: if isAuthenticated() &&
                        isEliteFlowerEmail() &&
-                       isOwner(uid) &&
-                       request.resource.data.status == 'awaiting' &&
-                       request.resource.data.role == 'member';
+                       isSelf(uid) &&
+                       (
+                         (request.resource.data.status == 'awaiting' &&
+                          request.resource.data.role == 'member') ||
+                         (request.resource.data.status == 'active' &&
+                          request.resource.data.role == 'owner')
+                       );
 
-      // Users can update their own preferences (theme, DND, shortcuts, SharePoint path)
-      // Admins can update status and role
-      allow update: if isAdmin() ||
-                       (isOwner(uid) &&
+      // Owner can update anyone (except change another owner's role)
+      // Admin can update members only (not owners, not other admins)
+      // Users can update their own non-sensitive preferences
+      allow update: if isAppOwner() ||
+                       (isAdmin() &&
+                        resource.data.role == 'member' &&
+                        request.resource.data.role != 'owner') ||
+                       (isSelf(uid) &&
                         !request.resource.data.diff(resource.data)
                           .affectedKeys()
                           .hasAny(['role', 'status', 'email', 'uid']));
 
-      // Only admins can delete users (soft delete via status is preferred)
-      allow delete: if isAdmin();
+      // Only owner can delete users (soft delete via status is preferred)
+      allow delete: if isAppOwner();
     }
 
     // ─────────────────────────────────────────
