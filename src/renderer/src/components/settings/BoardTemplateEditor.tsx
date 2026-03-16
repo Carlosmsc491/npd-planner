@@ -11,19 +11,6 @@ const PRESET_COLORS = [
   '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#EF4444', '#6B7280',
 ]
 
-const BUILTIN_PROPERTIES: { name: string; icon: string; type: string }[] = [
-  { name: 'Client',      icon: 'User',          type: 'Select' },
-  { name: 'Bucket',      icon: 'FolderOpen',    type: 'Text' },
-  { name: 'Date',        icon: 'CalendarRange', type: 'Date Range' },
-  { name: 'Status',      icon: 'CheckCircle',   type: 'Select' },
-  { name: 'Priority',    icon: 'Flag',          type: 'Select' },
-  { name: 'Assigned To', icon: 'Users',         type: 'Person' },
-  { name: 'AWB',         icon: 'Plane',         type: 'Text' },
-  { name: 'P.O. Number', icon: 'Receipt',       type: 'Text' },
-  { name: 'Notes',       icon: 'AlignLeft',     type: 'Text' },
-  { name: 'Labels',      icon: 'Tags',          type: 'Tags' },
-]
-
 const PROPERTY_TYPES: PropertyType[] = [
   'text', 'number', 'select', 'multiselect', 'date', 'daterange',
   'person', 'checkbox', 'url', 'attachment', 'tags', 'email', 'phone',
@@ -187,32 +174,9 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
           Properties
         </h3>
 
-        {/* Built-in */}
-        <p className="text-[10px] font-medium text-gray-400 dark:text-gray-500 mb-1.5 px-1">BUILT-IN (always present)</p>
-        <div className="rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden mb-4">
-          {BUILTIN_PROPERTIES.map((p, i) => (
-            <div
-              key={p.name}
-              className={`flex items-center gap-3 px-3 py-2.5 bg-white dark:bg-gray-800/50 ${i < BUILTIN_PROPERTIES.length - 1 ? 'border-b border-gray-50 dark:border-gray-800' : ''}`}
-            >
-              <GripVertical size={16} className="text-gray-100 dark:text-gray-700 shrink-0" />
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-300 dark:text-gray-600 shrink-0">
-                <DynamicIcon name={p.icon} size={14} />
-              </div>
-              <span className="flex-1 text-sm text-gray-400 dark:text-gray-600">{p.name}</span>
-              <span className="rounded-full bg-gray-50 dark:bg-gray-800 px-2 py-0.5 text-[10px] font-medium text-gray-300 dark:text-gray-600">
-                {p.type}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        {/* Custom */}
         {properties.length > 0 && (
-          <>
-            <p className="text-[10px] font-medium text-gray-400 dark:text-gray-500 mb-1.5 px-1">CUSTOM</p>
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-3">
-              {properties.map((prop, i) => (
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-3">
+            {properties.map((prop, i) => (
                 <div
                   key={prop.id}
                   draggable
@@ -317,7 +281,6 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                 </div>
               ))}
             </div>
-          </>
         )}
 
         {/* Add property */}
