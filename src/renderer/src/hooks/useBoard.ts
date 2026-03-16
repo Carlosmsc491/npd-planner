@@ -21,7 +21,7 @@ export function useBoard() {
   useEffect(() => {
     const unsub = subscribeToBoards(async (loaded) => {
       setBoards(loaded)
-      if (loaded.length === 0 && user?.role === 'admin') {
+      if (loaded.length === 0 && (user?.role === 'admin' || user?.role === 'owner')) {
         for (const b of DEFAULT_BOARDS) {
           await createBoard({ ...b, createdBy: user.uid, createdAt: Timestamp.now() })
         }
