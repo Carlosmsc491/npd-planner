@@ -1,4 +1,5 @@
 import { ReactNode, useEffect } from 'react'
+import ConnectionStatus from './ConnectionStatus'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
 import { auth } from '../../lib/firebase'
@@ -142,6 +143,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
       <main className="flex-1 overflow-auto">
         {children}
       </main>
+
+      <ConnectionStatus />
     </div>
   )
 }

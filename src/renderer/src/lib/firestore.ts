@@ -11,7 +11,7 @@ import { db } from './firebase'
 import type {
   AppUser, Board, BoardType, Task, Client, Label, Comment,
   TaskHistoryEntry, AppNotification, AnnualSummary,
-  GlobalSettings, HistoryAction
+  GlobalSettings, HistoryAction, ConflictData
 } from '../types'
 
 // ─────────────────────────────────────────
@@ -178,22 +178,43 @@ export async function updateTaskField(
   updatedBy: string,
   updatedByName: string,
   oldValue?: unknown
-): Promise<void> {
+): Promise<ConflictData | null> {
   try {
+    let detectedConflict: ConflictData | null = null
+
     await runTransaction(db, async (transaction) => {
       const taskRef = doc(db, COLLECTIONS.TASKS, taskId)
       const taskSnap = await transaction.get(taskRef)
 
       if (!taskSnap.exists()) throw new Error('Task not found')
 
-      // Update the task field
+      const taskData = taskSnap.data() as Task
+      const currentValue = (taskData as unknown as Record<string, unknown>)[field]
+
+      // Conflict: Firestore value changed since user started editing
+      if (
+        oldValue !== undefined &&
+        String(currentValue) !== String(oldValue) &&
+        String(currentValue) !== String(value)
+      ) {
+        detectedConflict = {
+          taskId,
+          field,
+          fieldLabel: field,
+          localValue: String(value),
+          remoteValue: String(currentValue),
+          localUpdatedBy: updatedByName,
+          remoteUpdatedBy: taskData.updatedBy ?? 'unknown',
+        }
+        return // transaction commits with no writes
+      }
+
       transaction.update(taskRef, {
         [field]: value,
         updatedAt: serverTimestamp(),
         updatedBy,
       })
 
-      // Write history entry
       const historyRef = doc(collection(db, COLLECTIONS.HISTORY))
       transaction.set(historyRef, {
         taskId,
@@ -206,6 +227,8 @@ export async function updateTaskField(
         timestamp: serverTimestamp(),
       })
     })
+
+    return detectedConflict
   } catch (err) {
     throw new Error(`Failed to update task field "${field}": ${err}`)
   }

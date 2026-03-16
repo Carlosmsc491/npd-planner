@@ -563,11 +563,11 @@ Update these as you complete each feature. Add [x] when done.
 - [x] Empty states for all board views
 
 ### Phase 4 — Sync & Offline
-- [ ] Firebase Persistence (enableMultiTabIndexedDbPersistence)
-- [ ] Connection status indicator (bottom corner)
-- [ ] Offline mode: queue writes, sync on reconnect
-- [ ] Simultaneous edit merge with conflict resolution dialog
-- [ ] Undo toast (5 seconds) for task deletion
+- [x] Firebase Persistence (enableMultiTabIndexedDbPersistence)
+- [x] Connection status indicator (bottom corner)
+- [x] Offline mode: queue writes, sync on reconnect
+- [x] Simultaneous edit merge with conflict resolution dialog
+- [x] Undo toast (5 seconds) for task deletion
 
 ### Phase 5 — Calendar
 - [ ] FullCalendar installed and configured

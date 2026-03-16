@@ -8,7 +8,8 @@ import { STATUS_STYLES, BOARD_COLORS, getInitials, getInitialsColor } from '../.
 import SubtaskList from './SubtaskList'
 import ActivityLog from './ActivityLog'
 import CommentSection from './CommentSection'
-import type { Task, AppUser, Board, TaskStatus, TaskPriority } from '../../types'
+import ConflictDialog from '../ui/ConflictDialog'
+import type { Task, AppUser, Board, TaskStatus, TaskPriority, ConflictData } from '../../types'
 
 interface Props {
   task: Task
@@ -32,6 +33,7 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
   const [newClientName, setNewClientName] = useState('')
   const [showNewClient, setShowNewClient] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [pendingConflict, setPendingConflict] = useState<{ conflict: ConflictData; rawValue: unknown } | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { setTitleDraft(task.title) }, [task.title])
@@ -41,7 +43,8 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
 
   async function save(field: string, value: unknown, old?: unknown) {
     if (!user) return
-    await updateTaskField(task.id, field, value, user.uid, user.name, old)
+    const conflict = await updateTaskField(task.id, field, value, user.uid, user.name, old)
+    if (conflict) setPendingConflict({ conflict, rawValue: value })
   }
 
   async function saveTitle() {
@@ -333,6 +336,17 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
         {/* ── COMMENTS TAB ── */}
         {activeTab === 'comments' && <CommentSection taskId={task.id} />}
       </div>
+
+      {pendingConflict && (
+        <ConflictDialog
+          conflict={pendingConflict.conflict}
+          onKeepMine={async () => {
+            if (user) await updateTaskField(task.id, pendingConflict.conflict.field, pendingConflict.rawValue, user.uid, user.name)
+            setPendingConflict(null)
+          }}
+          onUseTheirs={() => setPendingConflict(null)}
+        />
+      )}
     </div>
   )
 }
