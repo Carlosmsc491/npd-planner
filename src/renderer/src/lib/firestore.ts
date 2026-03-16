@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type {
-  AppUser, Board, Task, Client, Label, Comment,
+  AppUser, Board, BoardType, Task, Client, Label, Comment,
   TaskHistoryEntry, AppNotification, AnnualSummary,
   GlobalSettings, HistoryAction
 } from '../types'
@@ -114,6 +114,28 @@ export async function createBoard(data: Omit<Board, 'id'>): Promise<string> {
     return ref.id
   } catch (err) {
     throw new Error(`Failed to create board: ${err}`)
+  }
+}
+
+export async function seedDefaultBoards(createdByUid: string): Promise<void> {
+  try {
+    const snap = await getDocs(query(collection(db, COLLECTIONS.BOARDS), limit(1)))
+    if (!snap.empty) return
+
+    const defaults: { name: string; color: string; type: BoardType; order: number }[] = [
+      { name: 'Planner',   color: '#1D9E75', type: 'planner',   order: 0 },
+      { name: 'Trips',     color: '#378ADD', type: 'trips',     order: 1 },
+      { name: 'Vacations', color: '#D4537E', type: 'vacations', order: 2 },
+    ]
+    for (const board of defaults) {
+      await addDoc(collection(db, COLLECTIONS.BOARDS), {
+        ...board,
+        createdBy: createdByUid,
+        createdAt: serverTimestamp(),
+      })
+    }
+  } catch (err) {
+    console.error('seedDefaultBoards failed:', err)
   }
 }
 

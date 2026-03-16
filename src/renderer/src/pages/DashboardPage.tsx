@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import AppLayout from '../components/ui/AppLayout'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
-import { subscribeToTasks } from '../lib/firestore'
+import { subscribeToTasks, seedDefaultBoards } from '../lib/firestore'
 import { BOARD_COLORS } from '../utils/colorUtils'
 import { isOverdue } from '../utils/dateUtils'
 import type { Task } from '../types'
@@ -13,6 +13,11 @@ export default function DashboardPage() {
   const { boards } = useBoardStore()
   const navigate = useNavigate()
   const [allTasks, setAllTasks] = useState<Task[]>([])
+
+  // Seed default boards on first login if none exist
+  useEffect(() => {
+    if (user) seedDefaultBoards(user.uid)
+  }, [user?.uid])
 
   useEffect(() => {
     if (boards.length === 0) return
