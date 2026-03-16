@@ -46,11 +46,10 @@ export async function getUser(uid: string): Promise<AppUser | null> {
 
 export async function createUser(uid: string, data: Omit<AppUser, 'uid'>): Promise<void> {
   try {
-    await updateDoc(doc(db, COLLECTIONS.USERS, uid), { ...data, uid })
-  } catch {
-    // Doc might not exist yet — use set
     const { setDoc } = await import('firebase/firestore')
     await setDoc(doc(db, COLLECTIONS.USERS, uid), { ...data, uid })
+  } catch (err) {
+    throw new Error(`Failed to create user profile: ${err}`)
   }
 }
 

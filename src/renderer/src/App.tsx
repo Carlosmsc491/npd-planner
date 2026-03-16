@@ -21,7 +21,9 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         const appUser = await getUser(firebaseUser.uid)
-        setUser(appUser)
+        // Only update store if we got a doc — if null, LoginPage is mid-registration
+        // and will call setUser itself after creating the doc
+        if (appUser !== null) setUser(appUser)
       } else {
         setUser(null)
       }

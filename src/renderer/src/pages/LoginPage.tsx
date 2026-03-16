@@ -35,12 +35,8 @@ export default function LoginPage() {
         credential = await signInWithEmailAndPassword(auth, email, password)
       } catch (signInErr: unknown) {
         const err = signInErr as { code?: string }
-        if (
-          err.code === 'auth/user-not-found' ||
-          err.code === 'auth/invalid-credential' ||
-          err.code === 'auth/wrong-password'
-        ) {
-          // Create new account
+        if (err.code === 'auth/user-not-found') {
+          // Account doesn't exist yet — create it
           credential = await createUserWithEmailAndPassword(auth, email, password)
           const name = email
             .split('@')[0]
@@ -85,7 +81,17 @@ export default function LoginPage() {
         navigate('/dashboard')
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Authentication failed'
+      const code = (err as { code?: string }).code
+      const message =
+        code === 'auth/wrong-password' || code === 'auth/invalid-credential'
+          ? 'Incorrect password. Try again.'
+          : code === 'auth/too-many-requests'
+          ? 'Too many failed attempts. Try again later.'
+          : code === 'auth/network-request-failed'
+          ? 'Network error. Check your connection.'
+          : err instanceof Error
+          ? err.message
+          : 'Authentication failed'
       setError(message)
     } finally {
       setIsLoading(false)
