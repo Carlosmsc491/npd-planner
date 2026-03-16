@@ -9,11 +9,12 @@ import type { Board, TaskStatus, TaskPriority } from '../../types'
 interface Props {
   board: Board
   defaultBucket?: string
+  defaultDate?: Date
   onClose: () => void
   onCreated?: (taskId: string) => void
 }
 
-export default function NewTaskModal({ board, defaultBucket, onClose, onCreated }: Props) {
+export default function NewTaskModal({ board, defaultBucket, defaultDate, onClose, onCreated }: Props) {
   const { user } = useAuthStore()
   const { clients } = useSettingsStore()
   const [title, setTitle] = useState('')
@@ -44,6 +45,7 @@ export default function NewTaskModal({ board, defaultBucket, onClose, onCreated 
     setSaving(true)
     try {
       const now = Timestamp.now()
+      const dateTs = defaultDate ? Timestamp.fromDate(defaultDate) : null
       const id = await createTask({
         boardId: board.id,
         title: title.trim(),
@@ -53,8 +55,8 @@ export default function NewTaskModal({ board, defaultBucket, onClose, onCreated 
         priority,
         assignees: [],
         labelIds: [],
-        dateStart: null,
-        dateEnd: null,
+        dateStart: dateTs,
+        dateEnd: dateTs,
         notes: '',
         poNumber: '',
         awbNumber: '',

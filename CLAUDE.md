@@ -570,13 +570,13 @@ Update these as you complete each feature. Add [x] when done.
 - [x] Undo toast (5 seconds) for task deletion
 
 ### Phase 5 — Calendar
-- [ ] FullCalendar installed and configured
-- [ ] Day / Week / Month view switcher per board
-- [ ] Events draggable + resizable (drag edge to change dates)
-- [ ] + button on day hover (top-left of cell) → board type selector
-- [ ] Master Calendar page: all boards unified
-- [ ] Board filter toggles on Master Calendar
-- [ ] Timeline (Gantt) view
+- [x] FullCalendar installed and configured
+- [x] Day / Week / Month view switcher per board
+- [x] Events draggable + resizable (drag edge to change dates)
+- [x] + button on day hover (top-left of cell) → opens NewTaskModal with date pre-filled
+- [x] Master Calendar page: all boards unified
+- [x] Board filter toggles on Master Calendar (persisted to localStorage)
+- [x] Timeline (Gantt) view
 
 ### Phase 6 — SharePoint & Files
 - [ ] First-launch SharePoint path setup wizard

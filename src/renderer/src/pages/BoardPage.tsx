@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import AppLayout from '../components/ui/AppLayout'
 import BoardView from '../components/board/BoardView'
 import ListView from '../components/board/ListView'
+import BoardCalendar from '../components/board/BoardCalendar'
+import GanttView from '../components/board/GanttView'
 import GroupBySelector from '../components/board/GroupBySelector'
 import TaskPagePanel from '../components/task/TaskPage'
 import RecurringModal from '../components/ui/RecurringModal'
@@ -28,6 +30,7 @@ export default function BoardPage() {
   const [users, setUsers] = useState<AppUser[]>([])
   const [recurringTask, setRecurringTask] = useState<Task | null>(null)
   const [newTaskBucket, setNewTaskBucket] = useState<string | undefined>()
+  const [newTaskDate, setNewTaskDate] = useState<Date | undefined>()
   const [showNewTask, setShowNewTask] = useState(false)
 
   useEffect(() => {
@@ -56,7 +59,14 @@ export default function BoardPage() {
     { value: 'cards',    label: 'Cards' },
     { value: 'list',     label: 'List' },
     { value: 'calendar', label: 'Calendar' },
+    { value: 'gantt',    label: 'Timeline' },
   ]
+
+  function handleCalendarDateClick(date: Date) {
+    setNewTaskDate(date)
+    setNewTaskBucket(undefined)
+    setShowNewTask(true)
+  }
 
   if (!activeBoard) {
     return (
@@ -142,9 +152,19 @@ export default function BoardPage() {
               />
             )}
             {view === 'calendar' && (
-              <div className="flex h-full items-center justify-center p-8">
-                <p className="text-sm text-gray-400">Calendar view — coming in Phase 5.</p>
-              </div>
+              <BoardCalendar
+                tasks={tasks}
+                board={activeBoard}
+                onOpenTask={setSelectedTask}
+                onDateClick={handleCalendarDateClick}
+              />
+            )}
+            {view === 'gantt' && (
+              <GanttView
+                tasks={tasks}
+                clients={clients}
+                onOpenTask={setSelectedTask}
+              />
             )}
           </div>
 
@@ -177,7 +197,8 @@ export default function BoardPage() {
         <NewTaskModal
           board={activeBoard}
           defaultBucket={newTaskBucket}
-          onClose={() => setShowNewTask(false)}
+          defaultDate={newTaskDate}
+          onClose={() => { setShowNewTask(false); setNewTaskDate(undefined) }}
         />
       )}
 
