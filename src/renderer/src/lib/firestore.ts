@@ -197,6 +197,16 @@ export async function seedDefaultBoards(createdByUid: string): Promise<void> {
 // TASKS
 // ─────────────────────────────────────────
 
+export function subscribeToTask(
+  taskId: string,
+  callback: (task: Task | null) => void
+): Unsubscribe {
+  return onSnapshot(doc(db, COLLECTIONS.TASKS, taskId), (snap) => {
+    if (!snap.exists()) callback(null)
+    else callback({ id: snap.id, ...snap.data() } as Task)
+  })
+}
+
 export function subscribeToTasks(
   boardId: string,
   callback: (tasks: Task[]) => void

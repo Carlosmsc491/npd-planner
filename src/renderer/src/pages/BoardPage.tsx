@@ -38,6 +38,18 @@ export default function BoardPage() {
     return unsub
   }, [])
 
+  // Set default view based on board type
+  useEffect(() => {
+    if (!activeBoard) return
+    if (activeBoard.type === 'trips' || activeBoard.type === 'vacations') {
+      setView('calendar')
+    } else if (view === 'calendar' || view === 'gantt') {
+      // switching to a planner/custom board — reset to cards if coming from calendar/gantt
+      setView('cards')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBoard?.id])
+
   async function handleDuplicate(task: Task) {
     await duplicate(task)
   }
@@ -55,12 +67,18 @@ export default function BoardPage() {
 
   const boardColor = activeBoard ? (BOARD_COLORS[activeBoard.type] ?? activeBoard.color) : '#1D9E75'
 
-  const VIEW_OPTIONS: { value: BoardViewType; label: string }[] = [
-    { value: 'cards',    label: 'Cards' },
-    { value: 'list',     label: 'List' },
-    { value: 'calendar', label: 'Calendar' },
-    { value: 'gantt',    label: 'Timeline' },
-  ]
+  const isDateBoard = activeBoard?.type === 'trips' || activeBoard?.type === 'vacations'
+  const VIEW_OPTIONS: { value: BoardViewType; label: string }[] = isDateBoard
+    ? [
+        { value: 'list',     label: 'List' },
+        { value: 'calendar', label: 'Calendar' },
+      ]
+    : [
+        { value: 'cards',    label: 'Cards' },
+        { value: 'list',     label: 'List' },
+        { value: 'calendar', label: 'Calendar' },
+        { value: 'gantt',    label: 'Timeline' },
+      ]
 
   function handleCalendarDateClick(date: Date) {
     setNewTaskDate(date)

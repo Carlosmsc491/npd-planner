@@ -1,10 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Timestamp } from 'firebase/firestore'
+import {
+  User, Calendar, CircleDot, Zap, Users, Tag,
+  Layers, Plane, Hash, StickyNote, Maximize2,
+} from 'lucide-react'
 import { updateTaskField } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useSettingsStore } from '../../store/settingsStore'
-import { STATUS_STYLES, BOARD_COLORS, getInitials, getInitialsColor } from '../../utils/colorUtils'
+import { STATUS_STYLES, BOARD_COLORS, BOARD_BUCKETS, getInitials, getInitialsColor } from '../../utils/colorUtils'
 import SubtaskList from './SubtaskList'
 import ActivityLog from './ActivityLog'
 import CommentSection from './CommentSection'
@@ -20,11 +25,13 @@ interface Props {
   onDelete: (task: Task) => void
   onRecurring: (task: Task) => void
   onDuplicate: (task: Task) => void
+  isFullPage?: boolean
 }
 
 type Tab = 'details' | 'activity' | 'comments'
 
-export default function TaskPage({ task, board, users, onClose, onDelete, onRecurring, onDuplicate }: Props) {
+export default function TaskPage({ task, board, users, onClose, onDelete, onRecurring, onDuplicate, isFullPage }: Props) {
+  const navigate = useNavigate()
   const { user } = useAuthStore()
   const { setSelectedTask } = useTaskStore()
   const { clients, labels } = useSettingsStore()
@@ -34,6 +41,7 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
   const [newClientName, setNewClientName] = useState('')
   const [showNewClient, setShowNewClient] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [showAllProps, setShowAllProps] = useState(false)
   const [pendingConflict, setPendingConflict] = useState<{ conflict: ConflictData; rawValue: unknown } | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)
 
@@ -41,6 +49,22 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
   useEffect(() => { if (editingTitle) titleRef.current?.focus() }, [editingTitle])
 
   const statusStyle = STATUS_STYLES[task.status]
+
+  // Property filled checks
+  const hasDate = !!(task.dateStart || task.dateEnd)
+  const hasAssignees = task.assignees.length > 0
+  const hasLabels = task.labelIds.length > 0
+  const hasBucket = !!task.bucket
+  const hasAwb = !!task.awbNumber
+  const hasPo = !!task.poNumber
+  const hasNotes = !!task.notes
+  const anyEmpty = !hasDate || !hasAssignees || !hasLabels || !hasBucket || !hasAwb || !hasPo || !hasNotes
+
+  function propVisible(hasValue: boolean) { return hasValue || showAllProps }
+
+  // Board buckets for the dropdown
+  const boardBuckets = board ? (BOARD_BUCKETS[board.type] ?? []) : []
+  const extraBucket = task.bucket && !boardBuckets.includes(task.bucket) ? task.bucket : null
 
   async function save(field: string, value: unknown, old?: unknown) {
     if (!user) return
@@ -80,8 +104,7 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
 
   function dateToInputValue(ts: Timestamp | null): string {
     if (!ts) return ''
-    const d = ts.toDate()
-    return d.toISOString().slice(0, 10)
+    return ts.toDate().toISOString().slice(0, 10)
   }
 
   async function handleDateChange(field: 'dateStart' | 'dateEnd', value: string) {
@@ -98,32 +121,44 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
     <div className="flex h-full flex-col bg-white dark:bg-gray-900">
       {/* Header */}
       <div className="flex items-start justify-between px-6 pt-5 pb-3 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex-1 min-w-0 pr-4">
-          {editingTitle ? (
-            <input
-              ref={titleRef}
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onBlur={saveTitle}
-              onKeyDown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { setEditingTitle(false); setTitleDraft(task.title) } }}
-              className="w-full text-xl font-bold text-gray-900 dark:text-white bg-transparent border-b-2 border-green-500 focus:outline-none pb-0.5"
-            />
-          ) : (
-            <h2
-              onClick={() => setEditingTitle(true)}
-              className={`text-xl font-bold cursor-text hover:text-gray-700 dark:hover:text-gray-300 transition-colors ${task.completed ? 'line-through text-gray-400' : 'text-gray-900 dark:text-white'}`}
+        <div className="flex items-start gap-2 flex-1 min-w-0 pr-2">
+          {/* Expand button (panel mode only) */}
+          {!isFullPage && (
+            <button
+              onClick={() => navigate(`/task/${task.id}`)}
+              className="mt-1 rounded-lg p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-300 transition-colors shrink-0"
+              title="Open full page"
             >
-              {task.title}
-            </h2>
+              <Maximize2 size={14} />
+            </button>
           )}
-          {board && (
-            <span
-              className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold text-white"
-              style={{ backgroundColor: BOARD_COLORS[board.type] ?? board.color }}
-            >
-              {board.name}
-            </span>
-          )}
+          <div className="flex-1 min-w-0">
+            {editingTitle ? (
+              <input
+                ref={titleRef}
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={saveTitle}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { setEditingTitle(false); setTitleDraft(task.title) } }}
+                className="w-full text-xl font-bold text-gray-900 dark:text-white bg-transparent border-b-2 border-green-500 focus:outline-none pb-0.5"
+              />
+            ) : (
+              <h2
+                onClick={() => setEditingTitle(true)}
+                className={`text-xl font-bold cursor-text hover:text-gray-700 dark:hover:text-gray-300 transition-colors ${task.completed ? 'line-through text-gray-400' : 'text-gray-900 dark:text-white'}`}
+              >
+                {task.title}
+              </h2>
+            )}
+            {board && (
+              <span
+                className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold text-white"
+                style={{ backgroundColor: BOARD_COLORS[board.type] ?? board.color }}
+              >
+                {board.name}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {/* 3-dot menu */}
@@ -176,8 +211,8 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
         {/* ── DETAILS TAB ── */}
         {activeTab === 'details' && (
           <>
-            {/* Client */}
-            <PropRow icon="👤" label="Client">
+            {/* Client — always visible */}
+            <PropRow icon={<User size={14} />} label="Client">
               <div className="flex-1">
                 {showNewClient ? (
                   <div className="flex items-center gap-2">
@@ -196,7 +231,7 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
                   <select
                     value={task.clientId}
                     onChange={(e) => {
-                      if (e.target.value === '__new__') { setShowNewClient(true) }
+                      if (e.target.value === '__new__') setShowNewClient(true)
                       else save('clientId', e.target.value, task.clientId)
                     }}
                     className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
@@ -209,19 +244,8 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
               </div>
             </PropRow>
 
-            {/* Dates */}
-            <PropRow icon="📅" label="Date">
-              <div className="flex items-center gap-2 flex-1">
-                <input type="date" value={dateToInputValue(task.dateStart)} onChange={(e) => handleDateChange('dateStart', e.target.value)}
-                  className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500" />
-                <span className="text-gray-400 text-xs">→</span>
-                <input type="date" value={dateToInputValue(task.dateEnd)} onChange={(e) => handleDateChange('dateEnd', e.target.value)}
-                  className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500" />
-              </div>
-            </PropRow>
-
-            {/* Status */}
-            <PropRow icon="🔵" label="Status">
+            {/* Status — always visible */}
+            <PropRow icon={<CircleDot size={14} />} label="Status">
               <select
                 value={task.status}
                 onChange={(e) => save('status', e.target.value as TaskStatus, task.status)}
@@ -232,8 +256,8 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
               </select>
             </PropRow>
 
-            {/* Priority */}
-            <PropRow icon="⚡" label="Priority">
+            {/* Priority — always visible */}
+            <PropRow icon={<Zap size={14} />} label="Priority">
               <div className="flex gap-2">
                 {(['normal', 'high'] as TaskPriority[]).map((p) => (
                   <button key={p} onClick={() => save('priority', p, task.priority)}
@@ -243,81 +267,127 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
               </div>
             </PropRow>
 
-            {/* Assigned To */}
-            <PropRow icon="👥" label="Assigned To">
-              <div className="flex flex-wrap gap-1.5">
-                {users.map((u) => {
-                  const assigned = task.assignees.includes(u.uid)
-                  return (
-                    <button key={u.uid} onClick={() => toggleAssignee(u.uid)} title={u.name}
-                      className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs transition-colors border ${assigned ? 'border-green-500 bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 dark:border-green-600' : 'border-gray-200 text-gray-500 hover:border-gray-300 dark:border-gray-700 dark:text-gray-400'}`}
-                    >
-                      <div className="h-4 w-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white" style={{ backgroundColor: getInitialsColor(u.name) }}>
-                        {getInitials(u.name)}
-                      </div>
-                      {u.name.split(' ')[0]}
-                    </button>
-                  )
-                })}
-              </div>
-            </PropRow>
+            {/* Date — hidden when empty */}
+            {propVisible(hasDate) && (
+              <PropRow icon={<Calendar size={14} />} label="Date">
+                <div className="flex items-center gap-2 flex-1">
+                  <input type="date" value={dateToInputValue(task.dateStart)} onChange={(e) => handleDateChange('dateStart', e.target.value)}
+                    className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500" />
+                  <span className="text-gray-400 text-xs">→</span>
+                  <input type="date" value={dateToInputValue(task.dateEnd)} onChange={(e) => handleDateChange('dateEnd', e.target.value)}
+                    className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500" />
+                </div>
+              </PropRow>
+            )}
 
-            {/* Labels */}
-            <PropRow icon="🏷️" label="Labels">
-              <div className="flex flex-wrap gap-1.5">
-                {labels.map((l) => {
-                  const active = task.labelIds.includes(l.id)
-                  return (
-                    <button key={l.id} onClick={() => toggleLabel(l.id)}
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold border-2 transition-colors ${active ? 'border-transparent' : 'border-dashed border-gray-300 dark:border-gray-600'}`}
-                      style={active ? { backgroundColor: l.color, color: l.textColor } : {}}
-                    >
-                      {active ? null : <span className="mr-1" style={{ color: l.color }}>●</span>}
-                      {l.name}
-                    </button>
-                  )
-                })}
-              </div>
-            </PropRow>
+            {/* Assigned To — hidden when empty */}
+            {propVisible(hasAssignees) && (
+              <PropRow icon={<Users size={14} />} label="Assigned To">
+                <div className="flex flex-wrap gap-1.5">
+                  {users.map((u) => {
+                    const assigned = task.assignees.includes(u.uid)
+                    return (
+                      <button key={u.uid} onClick={() => toggleAssignee(u.uid)} title={u.name}
+                        className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs transition-colors border ${assigned ? 'border-green-500 bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 dark:border-green-600' : 'border-gray-200 text-gray-500 hover:border-gray-300 dark:border-gray-700 dark:text-gray-400'}`}
+                      >
+                        <div className="h-4 w-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white" style={{ backgroundColor: getInitialsColor(u.name) }}>
+                          {getInitials(u.name)}
+                        </div>
+                        {u.name.split(' ')[0]}
+                      </button>
+                    )
+                  })}
+                </div>
+              </PropRow>
+            )}
 
-            {/* Bucket */}
-            <PropRow icon="📂" label="Bucket">
-              <input
-                type="text"
-                defaultValue={task.bucket}
-                onBlur={(e) => { if (e.target.value !== task.bucket) save('bucket', e.target.value, task.bucket) }}
-                className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
-              />
-            </PropRow>
+            {/* Labels — hidden when empty */}
+            {propVisible(hasLabels) && (
+              <PropRow icon={<Tag size={14} />} label="Labels">
+                <div className="flex flex-wrap gap-1.5">
+                  {labels.map((l) => {
+                    const active = task.labelIds.includes(l.id)
+                    return (
+                      <button key={l.id} onClick={() => toggleLabel(l.id)}
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-semibold border-2 transition-colors ${active ? 'border-transparent' : 'border-dashed border-gray-300 dark:border-gray-600'}`}
+                        style={active ? { backgroundColor: l.color, color: l.textColor } : {}}
+                      >
+                        {active ? null : <span className="mr-1" style={{ color: l.color }}>●</span>}
+                        {l.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </PropRow>
+            )}
 
-            {/* AWB */}
-            <PropRow icon="✈️" label="AWB">
-              <input type="text" defaultValue={task.awbNumber}
-                onBlur={(e) => { if (e.target.value !== task.awbNumber) save('awbNumber', e.target.value, task.awbNumber) }}
-                className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
-                placeholder="AWB number"
-              />
-            </PropRow>
+            {/* Bucket — hidden when empty, now a Select */}
+            {propVisible(hasBucket) && (
+              <PropRow icon={<Layers size={14} />} label="Bucket">
+                <select
+                  value={task.bucket}
+                  onChange={(e) => save('bucket', e.target.value, task.bucket)}
+                  className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
+                >
+                  <option value="">— No bucket —</option>
+                  {boardBuckets.map((b) => <option key={b} value={b}>{b}</option>)}
+                  {extraBucket && <option value={extraBucket}>{extraBucket}</option>}
+                </select>
+              </PropRow>
+            )}
 
-            {/* PO */}
-            <PropRow icon="📄" label="P.O. / Order #">
-              <input type="text" defaultValue={task.poNumber}
-                onBlur={(e) => { if (e.target.value !== task.poNumber) save('poNumber', e.target.value, task.poNumber) }}
-                className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
-                placeholder="PO number"
-              />
-            </PropRow>
+            {/* AWB — hidden when empty */}
+            {propVisible(hasAwb) && (
+              <PropRow icon={<Plane size={14} />} label="AWB">
+                <input type="text" defaultValue={task.awbNumber}
+                  onBlur={(e) => { if (e.target.value !== task.awbNumber) save('awbNumber', e.target.value, task.awbNumber) }}
+                  className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
+                  placeholder="AWB number"
+                />
+              </PropRow>
+            )}
 
-            {/* Notes */}
-            <PropRow icon="📝" label="Notes">
-              <textarea
-                defaultValue={task.notes}
-                onBlur={(e) => { if (e.target.value !== task.notes) save('notes', e.target.value, task.notes) }}
-                rows={3}
-                className="flex-1 resize-none rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
-                placeholder="Add notes…"
-              />
-            </PropRow>
+            {/* PO — hidden when empty */}
+            {propVisible(hasPo) && (
+              <PropRow icon={<Hash size={14} />} label="P.O. / Order #">
+                <input type="text" defaultValue={task.poNumber}
+                  onBlur={(e) => { if (e.target.value !== task.poNumber) save('poNumber', e.target.value, task.poNumber) }}
+                  className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
+                  placeholder="PO number"
+                />
+              </PropRow>
+            )}
+
+            {/* Notes — hidden when empty */}
+            {propVisible(hasNotes) && (
+              <PropRow icon={<StickyNote size={14} />} label="Notes">
+                <textarea
+                  defaultValue={task.notes}
+                  onBlur={(e) => { if (e.target.value !== task.notes) save('notes', e.target.value, task.notes) }}
+                  rows={3}
+                  className="flex-1 resize-none rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
+                  placeholder="Add notes…"
+                />
+              </PropRow>
+            )}
+
+            {/* Show all properties toggle */}
+            {anyEmpty && !showAllProps && (
+              <button
+                onClick={() => setShowAllProps(true)}
+                className="text-xs text-gray-400 hover:text-green-600 dark:hover:text-green-400 transition-colors"
+              >
+                + Show all properties
+              </button>
+            )}
+            {showAllProps && (
+              <button
+                onClick={() => setShowAllProps(false)}
+                className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              >
+                Hide empty properties
+              </button>
+            )}
 
             {/* Custom properties */}
             {(board?.customProperties?.length ?? 0) > 0 && (
@@ -373,10 +443,10 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
   )
 }
 
-function PropRow({ icon, label, children }: { icon: string; label: string; children: React.ReactNode }) {
+function PropRow({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-3">
-      <span className="mt-1.5 w-5 text-center text-sm shrink-0">{icon}</span>
+      <span className="mt-1.5 w-5 flex items-center justify-center text-gray-400 dark:text-gray-500 shrink-0">{icon}</span>
       <span className="mt-1.5 w-28 shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400">{label}</span>
       <div className="flex-1">{children}</div>
     </div>
