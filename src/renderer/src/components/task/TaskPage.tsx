@@ -9,6 +9,7 @@ import SubtaskList from './SubtaskList'
 import ActivityLog from './ActivityLog'
 import CommentSection from './CommentSection'
 import ConflictDialog from '../ui/ConflictDialog'
+import { CustomFieldInput } from '../settings/BoardTemplateEditor'
 import type { Task, AppUser, Board, TaskStatus, TaskPriority, ConflictData } from '../../types'
 
 interface Props {
@@ -86,6 +87,11 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
   async function handleDateChange(field: 'dateStart' | 'dateEnd', value: string) {
     const ts = value ? Timestamp.fromDate(new Date(value + 'T00:00:00')) : null
     await save(field, ts, task[field])
+  }
+
+  async function saveCustomField(propId: string, value: unknown) {
+    const current = task.customFields ?? {}
+    await save('customFields', { ...current, [propId]: value }, current)
   }
 
   return (
@@ -312,6 +318,22 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
                 placeholder="Add notes…"
               />
             </PropRow>
+
+            {/* Custom properties */}
+            {(board?.customProperties?.length ?? 0) > 0 && (
+              <>
+                <div className="border-t border-gray-100 dark:border-gray-800" />
+                {board!.customProperties!.map((prop) => (
+                  <CustomFieldInput
+                    key={prop.id}
+                    prop={prop}
+                    value={(task.customFields ?? {})[prop.id]}
+                    users={users}
+                    onChange={(val) => saveCustomField(prop.id, val)}
+                  />
+                ))}
+              </>
+            )}
 
             {/* Divider */}
             <div className="border-t border-gray-100 dark:border-gray-800" />

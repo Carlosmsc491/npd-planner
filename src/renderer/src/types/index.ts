@@ -41,6 +41,25 @@ export type BoardType = 'planner' | 'trips' | 'vacations' | 'custom'
 export type GroupByField = 'bucket' | 'client' | 'assignee' | 'date' | 'status' | 'priority'
 export type BoardView = 'cards' | 'list' | 'gantt' | 'calendar'
 
+export type PropertyType =
+  | 'text' | 'number' | 'select' | 'multiselect' | 'date' | 'daterange'
+  | 'person' | 'checkbox' | 'url' | 'attachment' | 'tags' | 'email' | 'phone'
+
+export interface SelectOption {
+  id: string
+  label: string
+  color: string
+}
+
+export interface BoardProperty {
+  id: string
+  name: string
+  type: PropertyType
+  icon: string
+  options?: SelectOption[]
+  order: number
+}
+
 export interface Board {
   id: string
   name: string
@@ -49,6 +68,7 @@ export interface Board {
   order: number
   createdBy: string
   createdAt: Timestamp
+  customProperties?: BoardProperty[]
 }
 
 // ─────────────────────────────────────────
@@ -107,6 +127,7 @@ export interface Task {
   completed: boolean
   completedAt: Timestamp | null
   completedBy: string | null
+  customFields?: Record<string, unknown>
   createdBy: string
   createdAt: Timestamp
   updatedAt: Timestamp

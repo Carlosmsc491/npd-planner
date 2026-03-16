@@ -3,6 +3,7 @@ import { Timestamp } from 'firebase/firestore'
 import { createTask } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useSettingsStore } from '../../store/settingsStore'
+import { BOARD_BUCKETS } from '../../utils/colorUtils'
 import type { Board, TaskStatus, TaskPriority } from '../../types'
 
 interface Props {
@@ -130,10 +131,19 @@ export default function NewTaskModal({ board, defaultBucket, onClose, onCreated 
           {/* Bucket */}
           <div>
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Bucket</label>
-            <input type="text" value={bucket} onChange={(e) => setBucket(e.target.value)}
-              placeholder="e.g. SAMPLES/SHIP OUT"
+            <input
+              type="text"
+              list={`buckets-${board.id}`}
+              value={bucket}
+              onChange={(e) => setBucket(e.target.value)}
+              placeholder="Select or type a bucket"
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
             />
+            <datalist id={`buckets-${board.id}`}>
+              {(BOARD_BUCKETS[board.type] ?? []).map((b) => (
+                <option key={b} value={b} />
+              ))}
+            </datalist>
           </div>
 
           {/* Priority */}

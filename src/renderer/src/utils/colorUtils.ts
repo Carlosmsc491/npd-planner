@@ -23,3 +23,10 @@ export function getInitials(name: string): string {
     .toUpperCase()
     .slice(0, 2)
 }
+
+export const BOARD_BUCKETS: Record<string, string[]> = {
+  planner:   ['SAMPLES/SHIP OUT', 'FedEx', 'IN HOUSE MEETING', 'PICTURES', 'WORKSHOPS', 'SHOWS', 'EVENTS'],
+  trips:     ['Confirmed', 'Pending', 'Completed'],
+  vacations: ['Approved', 'Pending', 'Rejected'],
+  custom:    [],
+}

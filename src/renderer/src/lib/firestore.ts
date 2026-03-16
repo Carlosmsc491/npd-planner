@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type {
-  AppUser, Board, BoardType, Task, Client, Label, Comment,
+  AppUser, Board, BoardType, BoardProperty, Task, Client, Label, Comment,
   TaskHistoryEntry, AppNotification, AnnualSummary,
   GlobalSettings, HistoryAction, ConflictData
 } from '../types'
@@ -130,6 +130,14 @@ export async function deleteBoard(id: string): Promise<void> {
     await deleteDoc(doc(db, COLLECTIONS.BOARDS, id))
   } catch (err) {
     throw new Error(`Failed to delete board: ${err}`)
+  }
+}
+
+export async function updateBoardProperties(id: string, customProperties: BoardProperty[]): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.BOARDS, id), { customProperties })
+  } catch (err) {
+    throw new Error(`Failed to update board properties: ${err}`)
   }
 }
 
