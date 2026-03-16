@@ -117,9 +117,55 @@ export async function createBoard(data: Omit<Board, 'id'>): Promise<string> {
   }
 }
 
+export async function updateBoard(id: string, data: Partial<Omit<Board, 'id'>>): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.BOARDS, id), data as Record<string, unknown>)
+  } catch (err) {
+    throw new Error(`Failed to update board: ${err}`)
+  }
+}
+
+export async function deleteBoard(id: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.BOARDS, id))
+  } catch (err) {
+    throw new Error(`Failed to delete board: ${err}`)
+  }
+}
+
+export async function deduplicateDefaultBoards(): Promise<void> {
+  try {
+    const snap = await getDocs(
+      query(collection(db, COLLECTIONS.BOARDS), where('type', 'in', ['planner', 'trips', 'vacations']))
+    )
+    const byType = new Map<string, typeof snap.docs>()
+    for (const d of snap.docs) {
+      const type = d.data().type as string
+      if (!byType.has(type)) byType.set(type, [])
+      byType.get(type)!.push(d)
+    }
+    const batch = writeBatch(db)
+    let hasDeletes = false
+    for (const docs of byType.values()) {
+      if (docs.length <= 1) continue
+      const sorted = [...docs].sort((a, b) => ((a.data().order as number) ?? 99) - ((b.data().order as number) ?? 99))
+      for (const d of sorted.slice(1)) {
+        batch.delete(d.ref)
+        hasDeletes = true
+      }
+    }
+    if (hasDeletes) await batch.commit()
+  } catch (err) {
+    console.error('deduplicateDefaultBoards failed:', err)
+  }
+}
+
 export async function seedDefaultBoards(createdByUid: string): Promise<void> {
   try {
-    const snap = await getDocs(query(collection(db, COLLECTIONS.BOARDS), limit(1)))
+    // Check by type — prevents duplicates even if called twice
+    const snap = await getDocs(
+      query(collection(db, COLLECTIONS.BOARDS), where('type', 'in', ['planner', 'trips', 'vacations']), limit(1))
+    )
     if (!snap.empty) return
 
     const defaults: { name: string; color: string; type: BoardType; order: number }[] = [
@@ -150,11 +196,36 @@ export function subscribeToTasks(
   return onSnapshot(
     query(
       collection(db, COLLECTIONS.TASKS),
-      where('boardId', '==', boardId),
-      orderBy('createdAt', 'desc')
+      where('boardId', '==', boardId)
     ),
-    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Task)),
+    (snap) => {
+      const tasks = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }) as Task)
+        .sort((a, b) => {
+          const aTime = a.createdAt?.toMillis?.() ?? 0
+          const bTime = b.createdAt?.toMillis?.() ?? 0
+          return bTime - aTime
+        })
+      callback(tasks)
+    },
     (err) => console.error('subscribeToTasks error:', err)
+  )
+}
+
+export function subscribeToAllTasks(
+  boardIds: string[],
+  callback: (tasks: Task[]) => void
+): Unsubscribe {
+  if (boardIds.length === 0) {
+    callback([])
+    return () => {}
+  }
+  // Firestore 'in' supports max 30 elements
+  const ids = boardIds.slice(0, 30)
+  return onSnapshot(
+    query(collection(db, COLLECTIONS.TASKS), where('boardId', 'in', ids)),
+    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Task)),
+    (err) => console.error('subscribeToAllTasks error:', err)
   )
 }
 

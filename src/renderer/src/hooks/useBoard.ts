@@ -1,16 +1,10 @@
 import { useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { subscribeToBoards } from '../lib/firestore'
 import { useBoardStore } from '../store/boardStore'
 
 export function useBoard() {
   const { boardId } = useParams<{ boardId?: string }>()
-  const { boards, setBoards, activeBoard, setActiveBoard } = useBoardStore()
-
-  useEffect(() => {
-    const unsub = subscribeToBoards(setBoards)
-    return unsub
-  }, [setBoards])
+  const { boards, activeBoard, setActiveBoard } = useBoardStore()
 
   useEffect(() => {
     if (boardId && boards.length > 0) {
