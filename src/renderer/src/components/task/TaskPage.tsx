@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { onSnapshot, doc } from 'firebase/firestore'
 import {
   User, Calendar, CircleDot, Zap, Users, Tag,
   Layers, Plane, Hash, StickyNote, Maximize2, ChevronDown,
 } from 'lucide-react'
+import { db } from '../../lib/firebase'
 import { updateTaskField, createNotification } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
@@ -14,10 +16,9 @@ import SubtaskList from './SubtaskList'
 import ActivityLog from './ActivityLog'
 import CommentSection from './CommentSection'
 import AttachmentPanel from './AttachmentPanel'
-import ConflictDialog from '../ui/ConflictDialog'
 import RichTextEditor from './RichTextEditor'
 import { CustomFieldInput } from '../settings/BoardTemplateEditor'
-import type { Task, AppUser, Board, TaskStatus, TaskPriority, ConflictData } from '../../types'
+import type { Task, AppUser, Board, TaskStatus, TaskPriority } from '../../types'
 
 interface Props {
   task: Task
@@ -32,18 +33,28 @@ interface Props {
 
 type Tab = 'details' | 'activity' | 'comments'
 
-export default function TaskPage({ task, board, users, onClose, onDelete, onRecurring, onDuplicate, isFullPage }: Props) {
+export default function TaskPage({ task: initialTask, board, users, onClose, onDelete, onRecurring, onDuplicate, isFullPage }: Props) {
   const navigate = useNavigate()
   const { user } = useAuthStore()
   const { setSelectedTask } = useTaskStore()
   const { clients, labels } = useSettingsStore()
+
+  // Live task state — updated by onSnapshot so properties reflect real-time changes
+  const [task, setTask] = useState<Task>(initialTask)
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'tasks', initialTask.id), (snap) => {
+      if (snap.exists()) setTask({ id: snap.id, ...snap.data() } as Task)
+    })
+    return unsub
+  }, [initialTask.id])
+
   const [activeTab, setActiveTab] = useState<Tab>('details')
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
   const [newClientName, setNewClientName] = useState('')
   const [showNewClient, setShowNewClient] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [pendingConflict, setPendingConflict] = useState<{ conflict: ConflictData; rawValue: unknown } | null>(null)
   const [labelPickerOpen, setLabelPickerOpen] = useState(false)
   const [bucketOpen, setBucketOpen] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -53,7 +64,6 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
 
   const statusStyle = STATUS_STYLES[task.status]
 
-  // Bucket options with colors (from board.customProperties Bucket property, or BOARD_BUCKETS fallback)
   const bucketOptions = useMemo(() => {
     const bucketProp = board?.customProperties?.find(
       (p) => p.id === 'builtin-bucket' || p.name === 'Bucket'
@@ -64,10 +74,10 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
   const extraBucket = task.bucket && !bucketOptions.find((o) => o.label === task.bucket) ? task.bucket : null
   const selectedBucket = bucketOptions.find((o) => o.label === task.bucket)
 
+  // Last-write-wins: just save, no conflict dialog
   async function save(field: string, value: unknown, old?: unknown) {
     if (!user) return
-    const conflict = await updateTaskField(task.id, field, value, user.uid, user.name, old)
-    if (conflict) setPendingConflict({ conflict, rawValue: value })
+    await updateTaskField(task.id, field, value, user.uid, user.name, old)
   }
 
   async function saveTitle() {
@@ -102,7 +112,6 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
       : current.filter((id) => id !== uid)
     await save('assignees', updated, current)
 
-    // Notify newly assigned user
     if (isAdding && user && uid !== user.uid) {
       const { Timestamp: Ts } = await import('firebase/firestore')
       await createNotification({
@@ -131,12 +140,17 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
     await save('customFields', { ...current, [propId]: value }, current)
   }
 
+  async function saveDescription(html: string) {
+    if (!user) return
+    // Description: last write wins, no old value passed — no conflict detection
+    await updateTaskField(task.id, 'description', html, user.uid, user.name)
+  }
+
   return (
     <div className="flex h-full flex-col bg-white dark:bg-gray-900">
       {/* Header */}
       <div className="flex items-start justify-between px-6 pt-5 pb-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-start gap-2 flex-1 min-w-0 pr-2">
-          {/* Expand button (panel mode only) */}
           {!isFullPage && (
             <button
               onClick={() => navigate(`/task/${task.id}`)}
@@ -175,7 +189,6 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          {/* 3-dot menu */}
           <div className="relative">
             <button
               onClick={() => setMenuOpen((v) => !v)}
@@ -225,15 +238,6 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
         {/* ── DETAILS TAB ── */}
         {activeTab === 'details' && (
           <>
-            {/* Description — full width rich text */}
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Description</p>
-              <RichTextEditor
-                content={task.description ?? ''}
-                onBlur={(html) => { if (html !== task.description) save('description', html, task.description) }}
-              />
-            </div>
-
             {(board?.customProperties ?? [])
               .slice()
               .sort((a, b) => a.order - b.order)
@@ -479,6 +483,15 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
             {/* Divider */}
             <div className="border-t border-gray-100 dark:border-gray-800" />
 
+            {/* Description — full width rich text */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Description</p>
+              <RichTextEditor
+                content={task.description ?? ''}
+                onBlur={saveDescription}
+              />
+            </div>
+
             {/* Subtasks */}
             <div>
               <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Subtasks</h4>
@@ -507,17 +520,6 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
           />
         )}
       </div>
-
-      {pendingConflict && (
-        <ConflictDialog
-          conflict={pendingConflict.conflict}
-          onKeepMine={async () => {
-            if (user) await updateTaskField(task.id, pendingConflict.conflict.field, pendingConflict.rawValue, user.uid, user.name)
-            setPendingConflict(null)
-          }}
-          onUseTheirs={() => setPendingConflict(null)}
-        />
-      )}
     </div>
   )
 }

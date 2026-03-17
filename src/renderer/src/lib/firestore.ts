@@ -280,7 +280,7 @@ export async function updateTaskField(
       const taskData = taskSnap.data() as Task
       const currentValue = (taskData as unknown as Record<string, unknown>)[field]
 
-      // Conflict: Firestore value changed since user started editing
+      // Conflict detection (last write wins — log only, never block the user)
       if (
         oldValue !== undefined &&
         String(currentValue) !== String(oldValue) &&
@@ -295,7 +295,8 @@ export async function updateTaskField(
           localUpdatedBy: updatedByName,
           remoteUpdatedBy: taskData.updatedBy ?? 'unknown',
         }
-        return // transaction commits with no writes
+        console.log(`Conflict detected on field "${field}" — last write wins (${updatedByName} overwrites)`)
+        // falls through — always write
       }
 
       transaction.update(taskRef, {
