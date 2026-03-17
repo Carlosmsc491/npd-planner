@@ -78,9 +78,10 @@ export default function CalendarPage() {
   }
 
   async function handleEventResize({ event }: EventResizeDoneArg) {
-    if (!user || !event.end) return
+    if (!user) return
     const task = event.extendedProps.task as Task
-    await updateTaskField(task.id, 'dateEnd', Timestamp.fromDate(event.end), user.uid, user.name, task.dateEnd)
+    if (event.start) await updateTaskField(task.id, 'dateStart', Timestamp.fromDate(event.start), user.uid, user.name, task.dateStart)
+    if (event.end)   await updateTaskField(task.id, 'dateEnd',   Timestamp.fromDate(event.end),   user.uid, user.name, task.dateEnd)
   }
 
   function handleEventClick({ event }: EventClickArg) {
@@ -144,6 +145,7 @@ export default function CalendarPage() {
             height="100%"
             editable={true}
             droppable={true}
+            eventResizableFromStart={true}
             eventDisplay="block"
             dayMaxEvents={4}
             eventTimeFormat={{ hour: 'numeric', minute: '2-digit', meridiem: 'short' }}

@@ -131,3 +131,48 @@ body {
 .dark .fc .fc-more-popover .fc-popover-body {
   background-color: #1f2937;
 }
+
+/* ─── Fix navigation prev/next icons (Electron font not loaded) ── */
+.fc .fc-icon {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+  font-style: normal !important;
+}
+.fc .fc-icon-chevron-left:before {
+  content: '‹' !important;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+.fc .fc-icon-chevron-right:before {
+  content: '›' !important;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+/* Consistent button sizing */
+.fc .fc-button {
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+}
+.fc .fc-prev-button,
+.fc .fc-next-button {
+  padding: 4px 8px !important;
+}
+/* Light mode toolbar buttons */
+.fc .fc-button-primary {
+  background-color: #f9fafb !important;
+  border-color: #e5e7eb !important;
+  color: #374151 !important;
+}
+.fc .fc-button-primary:hover {
+  background-color: #f3f4f6 !important;
+  border-color: #d1d5db !important;
+}
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active {
+  background-color: #1D9E75 !important;
+  border-color: #1D9E75 !important;
+  color: #ffffff !important;
+}

@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
 import { MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut } from 'lucide-react'
@@ -39,6 +40,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const [menuBoardId, setMenuBoardId] = useState<string | null>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [editingBoard, setEditingBoard] = useState<Board | null>(null)
   const [editName, setEditName] = useState('')
   const [editColor, setEditColor] = useState('')
@@ -62,11 +64,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
     navigate('/login')
   }
 
+  function closeMenu() {
+    setMenuBoardId(null)
+    setMenuPos(null)
+  }
+
   function openEditModal(board: Board) {
     setEditingBoard(board)
     setEditName(board.name)
     setEditColor(BOARD_COLORS[board.type] ?? board.color)
-    setMenuBoardId(null)
+    closeMenu()
   }
 
   async function handleEditSave() {
@@ -86,7 +93,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
+    <div className="flex h-screen w-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
       {/* Sidebar */}
       <aside className="w-[220px] flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 shrink-0">
         {/* Logo */}
@@ -144,36 +151,20 @@ export default function AppLayout({ children }: AppLayoutProps) {
                       <span className="flex-1 truncate">{board.name}</span>
                       {isAdmin && (
                         <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuBoardId(menuBoardId === board.id ? null : board.id) }}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            if (menuBoardId === board.id) { closeMenu(); return }
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            setMenuPos({ top: rect.bottom + 4, left: rect.left })
+                            setMenuBoardId(board.id)
+                          }}
                           className="opacity-0 group-hover:opacity-100 flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-opacity"
                         >
                           <MoreHorizontal size={13} />
                         </button>
                       )}
                     </Link>
-
-                    {/* Board context menu */}
-                    {menuBoardId === board.id && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setMenuBoardId(null)} />
-                        <div className="absolute left-full top-0 z-20 ml-1 w-36 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
-                          <button
-                            onClick={() => openEditModal(board)}
-                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
-                          >
-                            Edit
-                          </button>
-                          {canDelete && (
-                            <button
-                              onClick={() => { handleDelete(board); setMenuBoardId(null) }}
-                              className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </>
-                    )}
                   </div>
                 )
               })}
@@ -257,6 +248,42 @@ export default function AppLayout({ children }: AppLayoutProps) {
       <ConnectionStatus />
 
       {showNewBoard && <NewBoardModal onClose={() => setShowNewBoard(false)} />}
+
+      {/* Board context menu — rendered via portal to escape sidebar overflow */}
+      {menuBoardId && menuPos && createPortal(
+        <>
+          <div className="fixed inset-0 z-[100]" onClick={closeMenu} />
+          <div
+            className="fixed z-[101] w-36 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden"
+            style={{ top: menuPos.top, left: menuPos.left }}
+          >
+            {(() => {
+              const board = boards.find((b) => b.id === menuBoardId)
+              if (!board) return null
+              const canDelete = isAdmin && !PROTECTED_TYPES.has(board.type)
+              return (
+                <>
+                  <button
+                    onClick={() => openEditModal(board)}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                  >
+                    Edit
+                  </button>
+                  {canDelete && (
+                    <button
+                      onClick={() => { handleDelete(board); closeMenu() }}
+                      className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </>
+              )
+            })()}
+          </div>
+        </>,
+        document.body
+      )}
 
       {/* Edit Board modal */}
       {editingBoard && (

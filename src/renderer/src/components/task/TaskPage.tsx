@@ -43,6 +43,7 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
   const [showNewClient, setShowNewClient] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [pendingConflict, setPendingConflict] = useState<{ conflict: ConflictData; rawValue: unknown } | null>(null)
+  const [labelPickerOpen, setLabelPickerOpen] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { setTitleDraft(task.title) }, [task.title])
@@ -293,19 +294,60 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
             </PropRow>
 
             <PropRow icon={<Tag size={14} />} label="Labels">
-              <div className="flex flex-wrap gap-1.5">
-                {labels.map((l) => {
-                  const active = (task.labelIds ?? []).includes(l.id)
+              <div className="relative flex flex-wrap gap-1.5 flex-1">
+                {/* Selected label pills */}
+                {(task.labelIds ?? []).map((lid) => {
+                  const l = labels.find((x) => x.id === lid)
+                  if (!l) return null
                   return (
-                    <button key={l.id} onClick={() => toggleLabel(l.id)}
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold border-2 transition-colors ${active ? 'border-transparent' : 'border-dashed border-gray-300 dark:border-gray-600'}`}
-                      style={active ? { backgroundColor: l.color, color: l.textColor } : {}}
+                    <button
+                      key={l.id}
+                      onClick={() => toggleLabel(l.id)}
+                      title="Click to remove"
+                      className="rounded-full px-2.5 py-0.5 text-xs font-semibold transition-opacity hover:opacity-75"
+                      style={{ backgroundColor: l.color, color: l.textColor }}
                     >
-                      {active ? null : <span className="mr-1" style={{ color: l.color }}>●</span>}
                       {l.name}
                     </button>
                   )
                 })}
+                {/* Add label button */}
+                <button
+                  onClick={() => setLabelPickerOpen((v) => !v)}
+                  className="rounded-full border border-dashed border-gray-300 dark:border-gray-600 px-2.5 py-0.5 text-xs text-gray-400 hover:border-green-500 hover:text-green-600 dark:hover:border-green-600 dark:hover:text-green-400 transition-colors"
+                >
+                  {labelPickerOpen ? '✕' : '+ label'}
+                </button>
+                {/* Dropdown picker */}
+                {labelPickerOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setLabelPickerOpen(false)} />
+                    <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
+                      {labels.length === 0 ? (
+                        <p className="px-3 py-3 text-xs text-gray-400">No labels yet — create them in Settings</p>
+                      ) : (
+                        labels.map((l) => {
+                          const active = (task.labelIds ?? []).includes(l.id)
+                          return (
+                            <button
+                              key={l.id}
+                              onClick={() => { toggleLabel(l.id) }}
+                              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                            >
+                              <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
+                              <span className="flex-1 text-gray-700 dark:text-gray-300">{l.name}</span>
+                              {active && (
+                                <svg className="h-3.5 w-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </PropRow>
 
