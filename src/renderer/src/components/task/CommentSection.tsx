@@ -1,16 +1,20 @@
 import { useEffect, useState, useRef, KeyboardEvent } from 'react'
 import { Timestamp } from 'firebase/firestore'
-import { subscribeToComments, addComment, subscribeToUsers } from '../../lib/firestore'
+import { subscribeToComments, addComment, subscribeToUsers, createNotification } from '../../lib/firestore'
 import { formatRelativeTime } from '../../utils/dateUtils'
 import { getInitials, getInitialsColor } from '../../utils/colorUtils'
 import { useAuthStore } from '../../store/authStore'
-import type { Comment, AppUser } from '../../types'
+import type { Comment, AppUser, BoardType } from '../../types'
 
 interface Props {
   taskId: string
+  taskTitle: string
+  boardId: string
+  boardType: BoardType
+  assignees: string[]  // uids assigned to the task
 }
 
-export default function CommentSection({ taskId }: Props) {
+export default function CommentSection({ taskId, taskTitle, boardId, boardType, assignees }: Props) {
   const { user } = useAuthStore()
   const [comments, setComments] = useState<Comment[]>([])
   const [allUsers, setAllUsers] = useState<AppUser[]>([])
@@ -62,15 +66,53 @@ export default function CommentSection({ taskId }: Props) {
 
   async function handleSend() {
     if (!text.trim() || !user) return
+    const mentionedUids = extractMentions(text)
     await addComment({
       taskId,
       authorId: user.uid,
       authorName: user.name,
       text: text.trim(),
-      mentions: extractMentions(text),
+      mentions: mentionedUids,
       createdAt: Timestamp.now(),
     })
     setText('')
+
+    // Notify @mentioned users
+    for (const uid of mentionedUids) {
+      if (uid === user.uid) continue
+      await createNotification({
+        userId: uid,
+        taskId,
+        taskTitle,
+        boardId,
+        boardType,
+        type: 'mentioned',
+        message: `${user.name} mentioned you in a comment`,
+        read: false,
+        triggeredBy: user.uid,
+        triggeredByName: user.name,
+        createdAt: Timestamp.now(),
+      })
+    }
+
+    // Notify other task assignees about the new comment
+    for (const uid of assignees) {
+      if (uid === user.uid) continue
+      if (mentionedUids.includes(uid)) continue  // already got a mention notif
+      await createNotification({
+        userId: uid,
+        taskId,
+        taskTitle,
+        boardId,
+        boardType,
+        type: 'comment',
+        message: `${user.name} commented on a task`,
+        read: false,
+        triggeredBy: user.uid,
+        triggeredByName: user.name,
+        createdAt: Timestamp.now(),
+      })
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {

@@ -8,6 +8,8 @@ import { subscribeToBoards, updateBoard, deleteBoard } from '../../lib/firestore
 import { BOARD_COLORS, getInitials, getInitialsColor } from '../../utils/colorUtils'
 import ConnectionStatus from './ConnectionStatus'
 import NewBoardModal from './NewBoardModal'
+import NotificationBell from '../notifications/NotificationBell'
+import { useNotifications } from '../../hooks/useNotifications'
 import type { Board } from '../../types'
 
 const PROTECTED_TYPES = new Set(['planner', 'trips', 'vacations'])
@@ -27,6 +29,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const [showNewBoard, setShowNewBoard] = useState(false)
 
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
+
+  // Subscribe to notifications + fire desktop alerts
+  useNotifications()
 
   useEffect(() => {
     const unsub = subscribeToBoards(setBoards)
@@ -196,6 +201,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
             </Link>
           )}
         </nav>
+
+        {/* Notifications bell */}
+        <div className="px-2 pb-1">
+          <NotificationBell />
+        </div>
 
         {/* User at bottom */}
         {user && (

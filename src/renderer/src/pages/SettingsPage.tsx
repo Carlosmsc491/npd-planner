@@ -5,9 +5,9 @@ import BoardTemplateEditor from '../components/settings/BoardTemplateEditor'
 import SharePointSetup from '../components/settings/SharePointSetup'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
-import { updateUserName } from '../lib/firestore'
+import { updateUserName, updateUserPreferences } from '../lib/firestore'
 import { BOARD_COLORS } from '../utils/colorUtils'
-import type { AppUser, Board } from '../types'
+import type { AppUser, Board, Theme } from '../types'
 
 type SettingsTab = 'profile' | 'members' | 'boards' | 'files' | 'appearance' | 'notifications'
 
@@ -91,16 +91,12 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {activeTab === 'appearance' && (
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            Appearance settings — coming in Phase 7.
-          </div>
+        {activeTab === 'appearance' && user && (
+          <AppearancePanel user={user} onUpdate={(u) => setUser(u)} />
         )}
 
-        {activeTab === 'notifications' && (
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            Notification settings — coming in Phase 7.
-          </div>
+        {activeTab === 'notifications' && user && (
+          <NotificationsPanel user={user} onUpdate={(u) => setUser(u)} />
         )}
       </div>
     </AppLayout>
@@ -241,6 +237,168 @@ function ProfilePanel({
           className="rounded-lg bg-green-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {isSaving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+// ─── Appearance Panel ───────────────────────────────────────────────────────
+
+function AppearancePanel({ user, onUpdate }: { user: AppUser; onUpdate: (u: AppUser) => void }) {
+  const currentTheme: Theme = user.preferences?.theme ?? 'system'
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  async function handleTheme(theme: Theme) {
+    setSaving(true)
+    try {
+      await updateUserPreferences(user.uid, { theme })
+      onUpdate({ ...user, preferences: { ...user.preferences, theme } })
+      // Apply immediately
+      if (theme === 'dark') document.documentElement.classList.add('dark')
+      else if (theme === 'light') document.documentElement.classList.remove('dark')
+      else {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+        document.documentElement.classList.toggle('dark', prefersDark)
+      }
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const themes: { value: Theme; label: string; desc: string }[] = [
+    { value: 'light', label: 'Light', desc: 'Always use light mode' },
+    { value: 'dark',  label: 'Dark',  desc: 'Always use dark mode' },
+    { value: 'system', label: 'System', desc: 'Follow your OS setting' },
+  ]
+
+  return (
+    <div className="max-w-sm space-y-4">
+      <div>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">Theme</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          Choose how NPD Planner looks on your device.
+        </p>
+      </div>
+      <div className="space-y-2">
+        {themes.map((t) => (
+          <button
+            key={t.value}
+            onClick={() => !saving && handleTheme(t.value)}
+            disabled={saving}
+            className={`w-full flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
+              currentTheme === t.value
+                ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                : 'border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800'
+            }`}
+          >
+            <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+              currentTheme === t.value ? 'border-green-500' : 'border-gray-300 dark:border-gray-600'
+            }`}>
+              {currentTheme === t.value && (
+                <div className="h-2 w-2 rounded-full bg-green-500" />
+              )}
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-white">{t.label}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t.desc}</p>
+            </div>
+          </button>
+        ))}
+      </div>
+      {saved && (
+        <p className="text-xs text-green-600 dark:text-green-400">Theme saved.</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Notifications Panel ────────────────────────────────────────────────────
+
+function NotificationsPanel({ user, onUpdate }: { user: AppUser; onUpdate: (u: AppUser) => void }) {
+  const [dndStart, setDndStart] = useState(user.preferences?.dndStart ?? '22:00')
+  const [dndEnd, setDndEnd]     = useState(user.preferences?.dndEnd ?? '08:00')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved]   = useState(false)
+  const [error, setError]   = useState('')
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      await updateUserPreferences(user.uid, { dndStart, dndEnd })
+      onUpdate({ ...user, preferences: { ...user.preferences, dndStart, dndEnd } })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch {
+      setError('Failed to save. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="max-w-sm space-y-5">
+      <div>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+          Do Not Disturb
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          During these hours, desktop notifications will be silenced (no sound or popup).
+          You'll still see them in the notification center.
+        </p>
+      </div>
+
+      <form onSubmit={handleSave} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Start time
+            </label>
+            <input
+              type="time"
+              value={dndStart}
+              onChange={(e) => setDndStart(e.target.value)}
+              className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              End time
+            </label>
+            <input
+              type="time"
+              value={dndEnd}
+              onChange={(e) => setDndEnd(e.target.value)}
+              className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 dark:text-gray-500">
+          Overnight ranges are supported (e.g., 22:00 → 08:00).
+        </p>
+
+        {error && (
+          <div className="rounded-lg bg-red-50 px-3 py-2 dark:bg-red-900/30">
+            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          </div>
+        )}
+        {saved && (
+          <div className="rounded-lg bg-green-50 px-3 py-2 dark:bg-green-900/30">
+            <p className="text-sm text-green-600 dark:text-green-400">Settings saved.</p>
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-lg bg-green-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </form>
     </div>

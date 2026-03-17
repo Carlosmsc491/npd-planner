@@ -5,7 +5,7 @@ import {
   User, Calendar, CircleDot, Zap, Users, Tag,
   Layers, Plane, Hash, StickyNote, Maximize2,
 } from 'lucide-react'
-import { updateTaskField } from '../../lib/firestore'
+import { updateTaskField, createNotification } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useSettingsStore } from '../../store/settingsStore'
@@ -84,10 +84,29 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
   }
 
   async function toggleAssignee(uid: string) {
-    const updated = task.assignees.includes(uid)
-      ? task.assignees.filter((id) => id !== uid)
-      : [...task.assignees, uid]
+    const isAdding = !task.assignees.includes(uid)
+    const updated = isAdding
+      ? [...task.assignees, uid]
+      : task.assignees.filter((id) => id !== uid)
     await save('assignees', updated, task.assignees)
+
+    // Notify newly assigned user
+    if (isAdding && user && uid !== user.uid) {
+      const { Timestamp: Ts } = await import('firebase/firestore')
+      await createNotification({
+        userId: uid,
+        taskId: task.id,
+        taskTitle: task.title,
+        boardId: task.boardId,
+        boardType: board?.type ?? 'planner',
+        type: 'assigned',
+        message: `${user.name} assigned you to a task`,
+        read: false,
+        triggeredBy: user.uid,
+        triggeredByName: user.name,
+        createdAt: Ts.now(),
+      })
+    }
   }
 
   function dateToInputValue(ts: Timestamp | null): string {
@@ -360,7 +379,15 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
         {activeTab === 'activity' && <ActivityLog taskId={task.id} />}
 
         {/* ── COMMENTS TAB ── */}
-        {activeTab === 'comments' && <CommentSection taskId={task.id} />}
+        {activeTab === 'comments' && (
+          <CommentSection
+            taskId={task.id}
+            taskTitle={task.title}
+            boardId={task.boardId}
+            boardType={board?.type ?? 'planner'}
+            assignees={task.assignees}
+          />
+        )}
       </div>
 
       {pendingConflict && (

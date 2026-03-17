@@ -8,7 +8,6 @@ import { updateUserPreferences, updateTaskAttachments, updateAttachmentStatus } 
 import type { Task, TaskAttachment, AttachmentStatus, FileUploadJob } from '../types'
 
 const LS_KEY = 'npd_sharepoint_path'
-const SHAREPOINT_VERIFICATION_FOLDER = 'REPORTS (NPD-SECURE)'
 const RETRY_INTERVAL_MS = 30_000
 const MAX_RETRY_COUNT = 5
 
@@ -107,17 +106,6 @@ export function useSharePoint() {
 
     const folder = await window.electronAPI.selectFolder()
     if (!folder) return { success: false }
-
-    const result = await window.electronAPI.verifySharePointFolder(
-      folder,
-      SHAREPOINT_VERIFICATION_FOLDER
-    )
-    if (!result.valid) {
-      return {
-        success: false,
-        error: result.error ?? 'Folder not recognized. Please select the correct SharePoint folder.',
-      }
-    }
 
     await savePath(folder)
     return { success: true }

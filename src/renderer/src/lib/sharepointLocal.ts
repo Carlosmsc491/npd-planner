@@ -3,42 +3,23 @@
 // SharePoint then handles cloud sync automatically
 // Uses Electron IPC to access the filesystem from the renderer process
 
-import type { FileUploadJob, IpcFileResponse, IpcSharePointVerifyResponse } from '../types'
+import type { FileUploadJob, IpcFileResponse } from '../types'
 
-const VERIFICATION_SUBFOLDER = 'REPORTS (NPD-SECURE)'
+// Verification subfolder check removed — user selects the NPD-PLANNER root directly
 
 // ─────────────────────────────────────────
 // PATH VERIFICATION
 // ─────────────────────────────────────────
 
 /**
- * Verifies that the selected folder is a valid SharePoint sync folder
- * by checking for the REPORTS (NPD-SECURE) subfolder.
+ * Accepts any selected folder as the SharePoint root.
+ * No subfolder verification — user selects the NPD-PLANNER folder directly.
  */
-export async function verifySharePointPath(folderPath: string): Promise<{
+export function verifySharePointPath(_folderPath: string): Promise<{
   valid: boolean
   error?: string
 }> {
-  try {
-    const result: IpcSharePointVerifyResponse = await window.electronAPI.verifySharePointFolder(
-      folderPath,
-      VERIFICATION_SUBFOLDER
-    )
-
-    if (!result.valid) {
-      return {
-        valid: false,
-        error: `Folder not recognized. Make sure you select the folder that contains "${VERIFICATION_SUBFOLDER}".`,
-      }
-    }
-
-    return { valid: true }
-  } catch (err) {
-    return {
-      valid: false,
-      error: `Could not verify folder: ${err}`,
-    }
-  }
+  return Promise.resolve({ valid: true })
 }
 
 // ─────────────────────────────────────────

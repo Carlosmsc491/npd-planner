@@ -14,9 +14,14 @@ import TaskFullPage from './pages/TaskFullPage'
 import CalendarPage from './pages/CalendarPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import SettingsPage from './pages/SettingsPage'
+import GlobalSearch from './components/search/GlobalSearch'
+import { useKeyboardShortcuts, useGlobalSearchState } from './hooks/useKeyboardShortcuts'
 
 export default function App() {
   const { setUser, setLoading, user } = useAuthStore()
+  const { open: searchOpen, openSearch, closeSearch } = useGlobalSearchState()
+
+  useKeyboardShortcuts(openSearch)
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -47,6 +52,8 @@ export default function App() {
   }, [user?.preferences?.theme])
 
   return (
+    <>
+    {searchOpen && <GlobalSearch onClose={closeSearch} />}
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/awaiting-approval" element={<AwaitingApprovalPage />} />
@@ -61,5 +68,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
+    </>
   )
 }

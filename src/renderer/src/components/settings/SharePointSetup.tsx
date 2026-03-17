@@ -55,11 +55,8 @@ export default function SharePointSetup() {
           SharePoint Sync Folder
         </h3>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Select your local OneDrive / SharePoint sync folder. It must contain a subfolder named{' '}
-          <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[11px] dark:bg-gray-700">
-            REPORTS (NPD-SECURE)
-          </code>
-          .
+          Select your local OneDrive / SharePoint sync folder where task files will be stored.
+          Files are organized automatically by year, client, and task name.
         </p>
       </div>
 
@@ -128,9 +125,9 @@ export default function SharePointSetup() {
 
       {/* Path hint */}
       <p className="text-[11px] text-gray-400 dark:text-gray-500">
-        Example path:{' '}
+        Example:{' '}
         <span className="font-mono">
-          C:\Users\you\OneDrive - Elite Flower
+          ...\Documents - NPD-SECURE\REPORTS\NPD-PLANNER
         </span>
       </p>
     </div>
