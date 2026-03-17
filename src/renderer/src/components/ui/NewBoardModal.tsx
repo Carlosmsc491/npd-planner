@@ -1,6 +1,12 @@
 // src/renderer/src/components/ui/NewBoardModal.tsx
 import { useState } from 'react'
 import { Timestamp } from 'firebase/firestore'
+import {
+  LayoutDashboard, CheckSquare, Plane, Package,
+  Truck, Camera, Users, Calendar, Star, Folder, ShoppingCart,
+  FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
+  type LucideIcon,
+} from 'lucide-react'
 import { createBoard } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import type { BoardProperty, BoardView } from '../../types'
@@ -10,10 +16,16 @@ interface Props {
 }
 
 const PRESET_COLORS = [
-  '#1D9E75', '#378ADD', '#D4537E', '#F59E0B',
-  '#8B5CF6', '#EC4899', '#14B8A6', '#F97316',
-  '#EF4444', '#6B7280',
+  '#1D9E75', '#378ADD', '#D4537E', '#F59E0B', '#8B5CF6',
+  '#EC4899', '#14B8A6', '#F97316', '#EF4444', '#6B7280',
+  '#0EA5E9', '#84CC16', '#F43F5E', '#A855F7', '#10B981',
 ]
+
+const BOARD_ICONS: Record<string, LucideIcon> = {
+  LayoutDashboard, CheckSquare, Plane, Package,
+  Truck, Camera, Users, Calendar, Star, Folder, ShoppingCart,
+  FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
+}
 
 interface PropertyOption {
   id: string
@@ -48,7 +60,8 @@ export default function NewBoardModal({ onClose }: Props) {
   const { user } = useAuthStore()
   const [step, setStep] = useState<1 | 2>(1)
   const [name, setName] = useState('')
-  const [color, setColor] = useState('#6B7280')
+  const [color, setColor] = useState('#1D9E75')
+  const [icon, setIcon] = useState('LayoutDashboard')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [selectedProps, setSelectedProps] = useState<Set<string>>(
@@ -84,6 +97,7 @@ export default function NewBoardModal({ onClose }: Props) {
       await createBoard({
         name: name.trim(),
         color,
+        icon,
         type: 'custom',
         order: 99,
         createdBy: user.uid,
@@ -97,6 +111,8 @@ export default function NewBoardModal({ onClose }: Props) {
       setSaving(false)
     }
   }
+
+  const PreviewIcon = BOARD_ICONS[icon] ?? LayoutDashboard
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -124,8 +140,17 @@ export default function NewBoardModal({ onClose }: Props) {
         </div>
 
         {step === 1 ? (
-          /* ── Step 1: Name + Color ── */
+          /* ── Step 1: Name + Color + Icon ── */
           <form onSubmit={handleStep1} className="space-y-4">
+
+            {/* Live preview */}
+            <div className="flex items-center gap-2.5 rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 px-3 py-2.5">
+              <PreviewIcon size={18} style={{ color }} strokeWidth={2} />
+              <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                {name.trim() || 'Board name…'}
+              </span>
+            </div>
+
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Board Name *</label>
               <input
@@ -149,6 +174,27 @@ export default function NewBoardModal({ onClose }: Props) {
                     className={`h-7 w-7 rounded-full transition-transform ${color === c ? 'ring-2 ring-offset-2 ring-gray-400 scale-110' : 'hover:scale-105'}`}
                     style={{ backgroundColor: c }}
                   />
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Icon</label>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(BOARD_ICONS).map(([name, Icon]) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => setIcon(name)}
+                    title={name}
+                    className={`h-8 w-8 flex items-center justify-center rounded-lg border-2 transition-colors ${
+                      icon === name
+                        ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                        : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
+                    }`}
+                  >
+                    <Icon size={15} style={{ color }} strokeWidth={2} />
+                  </button>
                 ))}
               </div>
             </div>

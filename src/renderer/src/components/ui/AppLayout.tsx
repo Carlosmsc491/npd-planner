@@ -2,7 +2,12 @@ import { ReactNode, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
-import { MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Briefcase, Code2, Star, Globe, Package, Zap, Coffee, Users, BookOpen, Folder } from 'lucide-react'
+import {
+  MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Search,
+  LayoutDashboard, CheckSquare, Package, Truck, Camera, Users, Calendar,
+  Star, Folder, ShoppingCart, FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
+  type LucideIcon,
+} from 'lucide-react'
 import { auth } from '../../lib/firebase'
 import { useAuthStore } from '../../store/authStore'
 import { useBoardStore } from '../../store/boardStore'
@@ -11,12 +16,13 @@ import { BOARD_COLORS, getInitials, getInitialsColor } from '../../utils/colorUt
 import ConnectionStatus from './ConnectionStatus'
 import NewBoardModal from './NewBoardModal'
 import NotificationBell from '../notifications/NotificationBell'
+import GlobalSearch from '../search/GlobalSearch'
 import { useNotifications } from '../../hooks/useNotifications'
 import { useClients } from '../../hooks/useClients'
 import { useLabels } from '../../hooks/useLabels'
 import type { Board, BoardType } from '../../types'
 
-type IconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number; style?: React.CSSProperties }>
+type IconComponent = LucideIcon
 
 const BOARD_ICONS: Record<BoardType, IconComponent> = {
   planner:   ClipboardList,
@@ -26,8 +32,9 @@ const BOARD_ICONS: Record<BoardType, IconComponent> = {
 }
 
 const CUSTOM_BOARD_ICONS: Record<string, IconComponent> = {
-  LayoutGrid, Briefcase, Code2, Star, Globe, Package,
-  Zap, Coffee, Users, BookOpen, Folder, ClipboardList,
+  LayoutDashboard, CheckSquare, Plane, Package,
+  Truck, Camera, Users, Calendar, Star, Folder, ShoppingCart,
+  FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
 }
 
 const PRESET_COLORS = [
@@ -55,6 +62,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const [editIcon, setEditIcon] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [showNewBoard, setShowNewBoard] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
 
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
 
@@ -62,6 +70,17 @@ export default function AppLayout({ children }: AppLayoutProps) {
   useClients()
   useLabels()
   useNotifications()
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setShowSearch((v) => !v)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
 
   useEffect(() => {
     const unsub = subscribeToBoards(setBoards)
@@ -118,7 +137,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
             <div className="h-7 w-7 rounded-lg bg-green-500 flex items-center justify-center shrink-0">
               <span className="text-xs font-bold text-white">N</span>
             </div>
-            <span className="text-sm font-bold text-gray-900 dark:text-white">NPD Planner</span>
+            <span className="text-sm font-bold text-gray-900 dark:text-white flex-1">NPD Planner</span>
+            <button
+              onClick={() => setShowSearch(true)}
+              title="Search (Ctrl+K)"
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            >
+              <Search size={14} />
+            </button>
           </div>
         </div>
 
@@ -265,6 +291,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       <ConnectionStatus />
 
       {showNewBoard && <NewBoardModal onClose={() => setShowNewBoard(false)} />}
+      {showSearch && <GlobalSearch onClose={() => setShowSearch(false)} />}
 
       {/* Board context menu — rendered via portal to escape sidebar overflow */}
       {menuBoardId && menuPos && createPortal(
@@ -297,6 +324,19 @@ export default function AppLayout({ children }: AppLayoutProps) {
           <div className="fixed inset-0 z-50 bg-black/40" onClick={() => { setEditingBoard(null); setConfirmDelete(false) }} />
           <div className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-84 max-w-sm rounded-2xl bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700 p-5">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Edit Board</h2>
+
+            {/* Live preview */}
+            {editingBoard.type === 'custom' && (() => {
+              const PreviewIcon = (CUSTOM_BOARD_ICONS[editIcon] ?? LayoutGrid) as LucideIcon
+              return (
+                <div className="flex items-center gap-2.5 rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 px-3 py-2.5 mb-4">
+                  <PreviewIcon size={18} style={{ color: editColor }} strokeWidth={2} />
+                  <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                    {editName.trim() || 'Board name…'}
+                  </span>
+                </div>
+              )
+            })()}
 
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</label>
             <input
