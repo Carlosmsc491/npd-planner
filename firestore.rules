@@ -1,0 +1,211 @@
+// firestore.rules
+// Deploy with: firebase deploy --only firestore:rules
+// These rules are the security backbone of NPD Planner
+// Test rules at: https://firebase.google.com/docs/rules/unit-tests
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─────────────────────────────────────────
+    // HELPER FUNCTIONS
+    // ─────────────────────────────────────────
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isEliteFlowerEmail() {
+      return request.auth.token.email.matches('.*@eliteflower\\.com$');
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveUser() {
+      return isAuthenticated() &&
+             isEliteFlowerEmail() &&
+             getUserData().status == 'active';
+    }
+
+    // isSelf: the authenticated user is operating on their own document
+    function isSelf(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // isAppOwner: user has the top-level owner role
+    function isAppOwner() {
+      return isActiveUser() && getUserData().role == 'owner';
+    }
+
+    // isAdmin: owner OR admin (owner has all admin powers)
+    function isAdmin() {
+      return isActiveUser() &&
+             (getUserData().role == 'admin' || getUserData().role == 'owner');
+    }
+
+    // ─────────────────────────────────────────
+    // USERS
+    // ─────────────────────────────────────────
+
+    match /users/{uid} {
+      // Active users can read all user docs (for @mentions, assignee picker)
+      // Any authenticated user can read their own doc (needed to check status on login)
+      allow read: if isActiveUser() || (isAuthenticated() && isSelf(uid));
+
+      // New user can create their own document:
+      //   - Normal registration: awaiting + member
+      //   - First user bootstrap: active + owner (client checks hasAnyAdmin first)
+      allow create: if isAuthenticated() &&
+                       isEliteFlowerEmail() &&
+                       isSelf(uid) &&
+                       (
+                         (request.resource.data.status == 'awaiting' &&
+                          request.resource.data.role == 'member') ||
+                         (request.resource.data.status == 'active' &&
+                          request.resource.data.role == 'owner')
+                       );
+
+      // Owner can update anyone (except change another owner's role)
+      // Admin can update members only (not owners, not other admins)
+      // Users can update their own non-sensitive preferences
+      allow update: if isAppOwner() ||
+                       (isAdmin() &&
+                        resource.data.role == 'member' &&
+                        request.resource.data.role != 'owner') ||
+                       (isSelf(uid) &&
+                        !request.resource.data.diff(resource.data)
+                          .affectedKeys()
+                          .hasAny(['role', 'status', 'email', 'uid']));
+
+      // Only owner can delete users (soft delete via status is preferred)
+      allow delete: if isAppOwner();
+    }
+
+    // ─────────────────────────────────────────
+    // BOARDS
+    // ─────────────────────────────────────────
+
+    match /boards/{boardId} {
+      allow read: if isActiveUser();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────
+    // TASKS
+    // ─────────────────────────────────────────
+
+    match /tasks/{taskId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser();
+
+      // Any active user can update tasks (collaborative editing)
+      allow update: if isActiveUser();
+
+      // Only admins or task creator can delete
+      allow delete: if isAdmin() ||
+                       (isActiveUser() && resource.data.createdBy == request.auth.uid);
+    }
+
+    // ─────────────────────────────────────────
+    // CLIENTS
+    // ─────────────────────────────────────────
+
+    match /clients/{clientId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser();
+      allow update: if isActiveUser();
+      // Only admins can permanently delete clients
+      allow delete: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────
+    // LABELS
+    // ─────────────────────────────────────────
+
+    match /labels/{labelId} {
+      allow read: if isActiveUser();
+      // Only admins can create/edit/delete labels
+      allow write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────
+    // COMMENTS
+    // ─────────────────────────────────────────
+
+    match /comments/{commentId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser();
+
+      // Users can only edit/delete their own comments
+      allow update: if isActiveUser() &&
+                       resource.data.authorId == request.auth.uid;
+      allow delete: if isActiveUser() &&
+                       resource.data.authorId == request.auth.uid ||
+                       isAdmin();
+    }
+
+    // ─────────────────────────────────────────
+    // TASK HISTORY (append-only — never modified)
+    // ─────────────────────────────────────────
+
+    match /taskHistory/{historyId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser();
+      // History is immutable — no updates or deletes ever
+      allow update, delete: if false;
+    }
+
+    // ─────────────────────────────────────────
+    // NOTIFICATIONS
+    // ─────────────────────────────────────────
+
+    match /notifications/{notifId} {
+      // Users can only read their own notifications
+      allow read: if isActiveUser() &&
+                     resource.data.userId == request.auth.uid;
+
+      // Any active user can create notifications (for sending to others)
+      allow create: if isActiveUser();
+
+      // Users can only mark their own notifications as read
+      allow update: if isActiveUser() &&
+                       resource.data.userId == request.auth.uid &&
+                       request.resource.data.diff(resource.data)
+                         .affectedKeys()
+                         .hasOnly(['read']);
+
+      // Notifications are never deleted
+      allow delete: if false;
+    }
+
+    // ─────────────────────────────────────────
+    // ARCHIVE (annual summaries)
+    // ─────────────────────────────────────────
+
+    match /archive/{archiveId} {
+      allow read: if isActiveUser();
+      // Only admins can generate and save archive summaries
+      allow write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────
+    // SETTINGS
+    // ─────────────────────────────────────────
+
+    match /settings/{docId} {
+      allow read: if isActiveUser();
+      // Only admins can change global settings
+      allow write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────
+    // DENY ALL OTHER PATHS
+    // ─────────────────────────────────────────
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
