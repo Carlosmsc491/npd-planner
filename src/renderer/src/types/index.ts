@@ -72,6 +72,7 @@ export interface Board {
   createdAt: Timestamp
   customProperties?: BoardProperty[]
   defaultView?: BoardView
+  icon?: string   // lucide icon name for custom boards
 }
 
 // ─────────────────────────────────────────

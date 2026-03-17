@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
-import { MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut } from 'lucide-react'
+import { MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Briefcase, Code2, Star, Globe, Package, Zap, Coffee, Users, BookOpen, Folder } from 'lucide-react'
 import { auth } from '../../lib/firebase'
 import { useAuthStore } from '../../store/authStore'
 import { useBoardStore } from '../../store/boardStore'
@@ -16,16 +16,24 @@ import { useClients } from '../../hooks/useClients'
 import { useLabels } from '../../hooks/useLabels'
 import type { Board, BoardType } from '../../types'
 
-const BOARD_ICONS: Record<BoardType, React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>> = {
+type IconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number; style?: React.CSSProperties }>
+
+const BOARD_ICONS: Record<BoardType, IconComponent> = {
   planner:   ClipboardList,
   trips:     Plane,
   vacations: Umbrella,
   custom:    LayoutGrid,
 }
 
+const CUSTOM_BOARD_ICONS: Record<string, IconComponent> = {
+  LayoutGrid, Briefcase, Code2, Star, Globe, Package,
+  Zap, Coffee, Users, BookOpen, Folder, ClipboardList,
+}
+
 const PRESET_COLORS = [
-  '#1D9E75', '#378ADD', '#D4537E', '#F59E0B',
-  '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#EF4444', '#6B7280',
+  '#1D9E75', '#378ADD', '#D4537E', '#F59E0B', '#8B5CF6',
+  '#EC4899', '#14B8A6', '#F97316', '#EF4444', '#6B7280',
+  '#0EA5E9', '#84CC16', '#F43F5E', '#A855F7', '#10B981',
 ]
 
 const PROTECTED_TYPES = new Set(['planner', 'trips', 'vacations'])
@@ -44,6 +52,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const [editingBoard, setEditingBoard] = useState<Board | null>(null)
   const [editName, setEditName] = useState('')
   const [editColor, setEditColor] = useState('')
+  const [editIcon, setEditIcon] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [showNewBoard, setShowNewBoard] = useState(false)
 
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
@@ -73,6 +83,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
     setEditingBoard(board)
     setEditName(board.name)
     setEditColor(BOARD_COLORS[board.type] ?? board.color)
+    setEditIcon(board.icon ?? 'LayoutGrid')
+    setConfirmDelete(false)
     closeMenu()
   }
 
@@ -81,15 +93,19 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const updates: Partial<Board> = {}
     const trimmed = editName.trim()
     if (trimmed && trimmed !== editingBoard.name) updates.name = trimmed
-    if (editColor !== (BOARD_COLORS[editingBoard.type] ?? editingBoard.color)) updates.color = editColor
+    if (editingBoard.type === 'custom') {
+      if (editColor !== editingBoard.color) updates.color = editColor
+      if (editIcon !== (editingBoard.icon ?? 'LayoutGrid')) updates.icon = editIcon
+    }
     if (Object.keys(updates).length > 0) await updateBoard(editingBoard.id, updates)
     setEditingBoard(null)
   }
 
-  async function handleDelete(board: Board) {
-    if (PROTECTED_TYPES.has(board.type)) return
-    await deleteBoard(board.id)
-    if (location.pathname === `/board/${board.id}`) navigate('/dashboard')
+  async function handleDeleteConfirmed() {
+    if (!editingBoard || PROTECTED_TYPES.has(editingBoard.type)) return
+    await deleteBoard(editingBoard.id)
+    if (location.pathname === `/board/${editingBoard.id}`) navigate('/dashboard')
+    setEditingBoard(null)
   }
 
   return (
@@ -134,8 +150,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
               {boards.map((board) => {
                 const color = BOARD_COLORS[board.type] ?? board.color ?? '#888'
                 const isActive = location.pathname === `/board/${board.id}`
-                const canDelete = isAdmin && !PROTECTED_TYPES.has(board.type)
-                const BoardIcon = BOARD_ICONS[board.type] ?? LayoutGrid
+                const BoardIcon = (board.type === 'custom' && board.icon && CUSTOM_BOARD_ICONS[board.icon])
+                  ? CUSTOM_BOARD_ICONS[board.icon]
+                  : BOARD_ICONS[board.type] ?? LayoutGrid
 
                 return (
                   <div key={board.id} className="group relative mb-0.5">
@@ -260,24 +277,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
             {(() => {
               const board = boards.find((b) => b.id === menuBoardId)
               if (!board) return null
-              const canDelete = isAdmin && !PROTECTED_TYPES.has(board.type)
               return (
-                <>
-                  <button
-                    onClick={() => openEditModal(board)}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
-                  >
-                    Edit
-                  </button>
-                  {canDelete && (
-                    <button
-                      onClick={() => { handleDelete(board); closeMenu() }}
-                      className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-                    >
-                      Delete
-                    </button>
-                  )}
-                </>
+                <button
+                  onClick={() => openEditModal(board)}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                >
+                  Edit
+                </button>
               )
             })()}
           </div>
@@ -288,8 +294,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
       {/* Edit Board modal */}
       {editingBoard && (
         <>
-          <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setEditingBoard(null)} />
-          <div className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-80 rounded-2xl bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700 p-5">
+          <div className="fixed inset-0 z-50 bg-black/40" onClick={() => { setEditingBoard(null); setConfirmDelete(false) }} />
+          <div className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-84 max-w-sm rounded-2xl bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700 p-5">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Edit Board</h2>
 
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</label>
@@ -314,22 +320,64 @@ export default function AppLayout({ children }: AppLayoutProps) {
                     />
                   ))}
                 </div>
+
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Icon</label>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {Object.entries(CUSTOM_BOARD_ICONS).map(([name, Icon]) => (
+                    <button
+                      key={name}
+                      onClick={() => setEditIcon(name)}
+                      title={name}
+                      className={`h-8 w-8 flex items-center justify-center rounded-lg border-2 transition-colors ${
+                        editIcon === name
+                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                          : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
+                      }`}
+                    >
+                      <Icon size={15} style={{ color: editColor }} />
+                    </button>
+                  ))}
+                </div>
               </>
             )}
 
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setEditingBoard(null)}
-                className="rounded-lg px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleEditSave}
-                className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white bg-green-500 hover:bg-green-600 transition-colors"
-              >
-                Save
-              </button>
+            {confirmDelete ? (
+              <div className="mb-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                <p className="text-xs font-medium text-red-700 dark:text-red-400 mb-2">Delete "{editingBoard.name}"? This cannot be undone.</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setConfirmDelete(false)}
+                    className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  >Keep</button>
+                  <button onClick={handleDeleteConfirmed}
+                    className="flex-1 rounded-lg bg-red-500 py-1.5 text-xs font-semibold text-white hover:bg-red-600 transition-colors"
+                  >Delete</button>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex gap-2 justify-between">
+              {isAdmin && !PROTECTED_TYPES.has(editingBoard.type) ? (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="rounded-lg px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                >
+                  Delete
+                </button>
+              ) : <span />}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setEditingBoard(null); setConfirmDelete(false) }}
+                  className="rounded-lg px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleEditSave}
+                  className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white bg-green-500 hover:bg-green-600 transition-colors"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </>

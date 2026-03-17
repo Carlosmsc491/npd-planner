@@ -149,16 +149,30 @@ body {
   font-weight: 700;
   line-height: 1;
 }
+/* Toolbar padding + title */
+.fc .fc-toolbar {
+  padding: 12px 16px !important;
+  align-items: center !important;
+}
+.fc .fc-toolbar-title {
+  font-size: 18px !important;
+  font-weight: 600 !important;
+}
 /* Consistent button sizing */
 .fc .fc-button {
-  padding: 4px 10px !important;
-  font-size: 12px !important;
+  min-height: 36px !important;
+  padding: 4px 12px !important;
+  font-size: 13px !important;
   font-weight: 500 !important;
   border-radius: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 .fc .fc-prev-button,
 .fc .fc-next-button {
-  padding: 4px 8px !important;
+  min-height: 36px !important;
+  padding: 4px 10px !important;
 }
 /* Light mode toolbar buttons */
 .fc .fc-button-primary {

@@ -54,7 +54,7 @@ export default function DashboardPage() {
 
   return (
     <AppLayout>
-      <div className="p-6 max-w-4xl">
+      <div className="p-6 w-full">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
             Good {getGreeting()}, {user?.name?.split(' ')[0] ?? 'there'} 👋
@@ -63,7 +63,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats grid */}
-        <div className="grid grid-cols-2 gap-4 mb-8 sm:grid-cols-4">
+        <div className="grid grid-cols-4 gap-4 mb-8 w-full">
           {stats.map((s) => (
             <div key={s.label} className={`rounded-2xl p-4 ${s.bg}`}>
               <p className={`text-3xl font-bold ${s.color}`}>{s.value}</p>
