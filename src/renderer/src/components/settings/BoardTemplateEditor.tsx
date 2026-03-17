@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { ArrowLeft, Trash2, GripVertical, Plus, Settings, X } from 'lucide-react'
+import { ArrowLeft, Trash2, GripVertical, Plus, Settings, X, Star } from 'lucide-react'
 import { updateBoard, updateBoardProperties } from '../../lib/firestore'
 import { DynamicIcon, PROPERTY_TYPE_LABELS, OPTION_COLORS } from '../../utils/propertyUtils'
 import IconPickerPopover from './IconPickerPopover'
@@ -37,27 +37,30 @@ interface Props {
 }
 
 export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Props) {
-  const [properties, setProperties] = useState<BoardProperty[]>(
-    [...(board.customProperties ?? [])].sort((a, b) => a.order - b.order)
-  )
-  const [showAddModal, setShowAddModal]   = useState(false)
-  const [renamingId, setRenamingId]       = useState<string | null>(null)
-  const [renameValue, setRenameValue]     = useState('')
-  const [deletingId, setDeletingId]       = useState<string | null>(null)
-  const [iconPickerId, setIconPickerId]   = useState<string | null>(null)
-  const [typePickerId, setTypePickerId]   = useState<string | null>(null)
-  const [editingName, setEditingName]     = useState(false)
-  const [boardNameVal, setBoardNameVal]   = useState(board.name)
-  const [localBoard, setLocalBoard]       = useState(board)
-  const [settingsOpenId, setSettingsOpenId] = useState<string | null>(null)
+  const [properties, setProperties] = useState<BoardProperty[]>(() => {
+    const existing = board.customProperties ?? []
+    return existing.length > 0
+      ? [...existing].sort((a, b) => a.order - b.order)
+      : DEFAULT_PROPERTIES
+  })
+  const [showAddModal, setShowAddModal]       = useState(false)
+  const [renamingId, setRenamingId]           = useState<string | null>(null)
+  const [renameValue, setRenameValue]         = useState('')
+  const [deletingId, setDeletingId]           = useState<string | null>(null)
+  const [iconPickerId, setIconPickerId]       = useState<string | null>(null)
+  const [typePickerId, setTypePickerId]       = useState<string | null>(null)
+  const [settingsOpenId, setSettingsOpenId]   = useState<string | null>(null)
+  const [colorPickerKey, setColorPickerKey]   = useState<string | null>(null) // "propId:optionId"
+  const [editingName, setEditingName]         = useState(false)
+  const [boardNameVal, setBoardNameVal]       = useState(board.name)
+  const [localBoard, setLocalBoard]           = useState(board)
   const dragIndex = useRef<number | null>(null)
-  const [dragOverIdx, setDragOverIdx]     = useState<number | null>(null)
+  const [dragOverIdx, setDragOverIdx]         = useState<number | null>(null)
 
-  // Seed default properties on first open if board has none
+  // Save defaults to Firestore on first open if board had no properties
   useEffect(() => {
     if ((board.customProperties ?? []).length === 0) {
-      setProperties(DEFAULT_PROPERTIES)
-      updateBoardProperties(board.id, DEFAULT_PROPERTIES)
+      updateBoardProperties(board.id, DEFAULT_PROPERTIES).catch(console.error)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board.id])
@@ -95,6 +98,13 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   async function handleIconChange(id: string, iconName: string) {
     setIconPickerId(null)
     await saveProperties(properties.map((p) => p.id === id ? { ...p, icon: iconName } : p))
+  }
+
+  async function handleToggleDisplay(id: string) {
+    await saveProperties(properties.map((p) => ({
+      ...p,
+      display: p.id === id ? !p.display : false,
+    })))
   }
 
   async function saveBoardName() {
@@ -292,7 +302,7 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                       )}
                     </div>
 
-                    {/* Settings + Delete */}
+                    {/* Star (display property) + Settings + Delete */}
                     <div className="flex items-center gap-1 shrink-0">
                       {deletingId === prop.id ? (
                         <>
@@ -303,11 +313,22 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                       ) : (
                         <>
                           <button
+                            onClick={() => handleToggleDisplay(prop.id)}
+                            title={prop.display ? 'Display property (shown on cards)' : 'Set as display property'}
+                            className={`transition-colors ${
+                              prop.display
+                                ? 'text-amber-400'
+                                : 'opacity-0 group-hover/prop:opacity-100 text-gray-300 hover:text-amber-400 dark:text-gray-600'
+                            }`}
+                          >
+                            <Star size={14} fill={prop.display ? 'currentColor' : 'none'} />
+                          </button>
+                          <button
                             onClick={() => setSettingsOpenId(isSettingsOpen ? null : prop.id)}
-                            className={`opacity-0 group-hover/prop:opacity-100 transition-opacity ${
+                            className={`transition-opacity ${
                               isSettingsOpen
-                                ? 'text-green-500 opacity-100'
-                                : 'text-gray-300 hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-300'
+                                ? 'text-green-500'
+                                : 'opacity-0 group-hover/prop:opacity-100 text-gray-300 hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-300'
                             }`}
                             title="Property settings"
                           >
@@ -334,21 +355,31 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Options</p>
                           <div className="space-y-1.5 mb-2">
-                            {(prop.options ?? []).map((opt) => (
+                            {(prop.options ?? []).map((opt) => {
+                              const pickerKey = `${prop.id}:${opt.id}`
+                              const isPickerOpen = colorPickerKey === pickerKey
+                              return (
                               <div key={opt.id} className="flex items-center gap-2">
-                                <button
-                                  onClick={() => {
-                                    const curIdx = OPTION_COLORS.indexOf(opt.color)
-                                    const nextColor = OPTION_COLORS[(curIdx + 1) % OPTION_COLORS.length]
-                                    const updatedOptions = (prop.options ?? []).map((o) =>
-                                      o.id === opt.id ? { ...o, color: nextColor } : o
-                                    )
-                                    saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
-                                  }}
-                                  className="h-4 w-4 rounded-full shrink-0 border border-white shadow-sm hover:scale-110 transition-transform"
-                                  style={{ backgroundColor: opt.color }}
-                                  title="Click to change color"
-                                />
+                                <div className="relative shrink-0">
+                                  <button
+                                    onClick={() => setColorPickerKey(isPickerOpen ? null : pickerKey)}
+                                    className="h-4 w-4 rounded-full border border-white shadow-sm hover:scale-110 transition-transform"
+                                    style={{ backgroundColor: opt.color }}
+                                    title="Change color"
+                                  />
+                                  {isPickerOpen && (
+                                    <ColorPickerPopover
+                                      color={opt.color}
+                                      onChange={(newColor) => {
+                                        const updatedOptions = (prop.options ?? []).map((o) =>
+                                          o.id === opt.id ? { ...o, color: newColor } : o
+                                        )
+                                        saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
+                                      }}
+                                      onClose={() => setColorPickerKey(null)}
+                                    />
+                                  )}
+                                </div>
                                 <input
                                   key={opt.id + opt.label}
                                   defaultValue={opt.label}
@@ -373,7 +404,7 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                                   <X size={13} />
                                 </button>
                               </div>
-                            ))}
+                            )})}
                           </div>
                           <button
                             onClick={() => {
@@ -431,6 +462,57 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
         <AddPropertyModal onAdd={handleAddProperty} onClose={() => setShowAddModal(false)} />
       )}
     </div>
+  )
+}
+
+// ─── Color picker popover ───────────────────────────────────────────────────
+
+const COLOR_PICKER_COLORS = [
+  '#EF4444', '#F97316', '#F59E0B', '#EAB308', '#84CC16',
+  '#22C55E', '#10B981', '#1D9E75', '#14B8A6', '#06B6D4',
+  '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#6B7280',
+]
+
+function ColorPickerPopover({ color, onChange, onClose }: {
+  color: string
+  onChange: (c: string) => void
+  onClose: () => void
+}) {
+  const [hex, setHex] = useState(color)
+  return (
+    <>
+      <div className="fixed inset-0 z-20" onClick={onClose} />
+      <div className="absolute left-0 top-full z-30 mt-1 w-[168px] rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800 p-3">
+        <div className="grid grid-cols-5 gap-1.5 mb-3">
+          {COLOR_PICKER_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => { onChange(c); setHex(c) }}
+              className="h-7 w-7 rounded-full flex items-center justify-center transition-transform hover:scale-110"
+              style={{ backgroundColor: c }}
+            >
+              {color === c && (
+                <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-6 w-6 rounded-md shrink-0 border border-gray-200 dark:border-gray-600" style={{ backgroundColor: hex }} />
+          <input
+            value={hex}
+            onChange={(e) => setHex(e.target.value)}
+            onBlur={() => { if (/^#[0-9A-Fa-f]{6}$/.test(hex)) onChange(hex) }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && /^#[0-9A-Fa-f]{6}$/.test(hex)) { onChange(hex); onClose() } }}
+            maxLength={7}
+            className="flex-1 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-1.5 py-0.5 text-xs font-mono text-gray-700 dark:text-gray-300 focus:outline-none focus:border-green-500"
+            placeholder="#000000"
+          />
+        </div>
+      </div>
+    </>
   )
 }
 

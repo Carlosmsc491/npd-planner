@@ -28,6 +28,8 @@ export default function TaskCard({
   const assigneeUsers = users.filter((u) => task.assignees.includes(u.uid))
   const overdue = !task.completed && isOverdue(task.dateEnd)
   const bucketColor = getBucketColor(task.bucket, board)
+  const displayProp = board?.customProperties?.find((p) => p.display)
+  const displayValue = displayProp ? String((task.customFields ?? {})[displayProp.id] ?? '') : ''
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -81,6 +83,9 @@ export default function TaskCard({
           <p className={`text-sm font-medium leading-snug text-gray-900 dark:text-white ${task.completed ? 'line-through' : ''}`}>
             {task.title}
           </p>
+          {displayValue && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{displayValue}</p>
+          )}
           {client && (
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">{client.name}</p>
           )}

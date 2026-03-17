@@ -59,6 +59,7 @@ export interface BoardProperty {
   options?: SelectOption[]
   order: number
   required?: boolean
+  display?: boolean   // shown as subtitle on task cards (only one per board)
 }
 
 export interface Board {
@@ -70,6 +71,7 @@ export interface Board {
   createdBy: string
   createdAt: Timestamp
   customProperties?: BoardProperty[]
+  defaultView?: BoardView
 }
 
 // ─────────────────────────────────────────

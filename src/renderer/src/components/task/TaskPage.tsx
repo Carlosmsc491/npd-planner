@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Timestamp } from 'firebase/firestore'
 import {
   User, Calendar, CircleDot, Zap, Users, Tag,
-  Layers, Plane, Hash, StickyNote, Maximize2,
+  Layers, Plane, Hash, StickyNote, Maximize2, ChevronDown,
 } from 'lucide-react'
 import { updateTaskField, createNotification } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
@@ -44,6 +44,7 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
   const [menuOpen, setMenuOpen] = useState(false)
   const [pendingConflict, setPendingConflict] = useState<{ conflict: ConflictData; rawValue: unknown } | null>(null)
   const [labelPickerOpen, setLabelPickerOpen] = useState(false)
+  const [bucketOpen, setBucketOpen] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { setTitleDraft(task.title) }, [task.title])
@@ -51,9 +52,16 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
 
   const statusStyle = STATUS_STYLES[task.status]
 
-  // Board buckets for the dropdown
-  const boardBuckets = board ? (BOARD_BUCKETS[board.type] ?? []) : []
-  const extraBucket = task.bucket && !boardBuckets.includes(task.bucket) ? task.bucket : null
+  // Bucket options with colors (from board.customProperties Bucket property, or BOARD_BUCKETS fallback)
+  const bucketOptions = useMemo(() => {
+    const bucketProp = board?.customProperties?.find(
+      (p) => p.id === 'builtin-bucket' || p.name === 'Bucket'
+    )
+    if (bucketProp?.options && bucketProp.options.length > 0) return bucketProp.options
+    return (BOARD_BUCKETS[board?.type ?? ''] ?? []).map((b) => ({ id: b, label: b, color: '#9CA3AF' }))
+  }, [board])
+  const extraBucket = task.bucket && !bucketOptions.find((o) => o.label === task.bucket) ? task.bucket : null
+  const selectedBucket = bucketOptions.find((o) => o.label === task.bucket)
 
   async function save(field: string, value: unknown, old?: unknown) {
     if (!user) return
@@ -352,13 +360,59 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
             </PropRow>
 
             <PropRow icon={<Layers size={14} />} label="Bucket">
-              <select value={task.bucket} onChange={(e) => save('bucket', e.target.value, task.bucket)}
-                className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
-              >
-                <option value="">— No bucket —</option>
-                {boardBuckets.map((b) => <option key={b} value={b}>{b}</option>)}
-                {extraBucket && <option value={extraBucket}>{extraBucket}</option>}
-              </select>
+              <div className="relative flex-1">
+                <button
+                  onClick={() => setBucketOpen((v) => !v)}
+                  className="w-full flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                >
+                  {selectedBucket ? (
+                    <>
+                      <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: selectedBucket.color }} />
+                      <span className="flex-1 text-left text-gray-900 dark:text-white">{selectedBucket.label}</span>
+                    </>
+                  ) : (
+                    <span className="flex-1 text-left text-gray-400">— No bucket —</span>
+                  )}
+                  <ChevronDown size={12} className="text-gray-400 shrink-0" />
+                </button>
+                {bucketOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setBucketOpen(false)} />
+                    <div className="absolute left-0 top-full z-20 mt-1 w-full min-w-[180px] rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
+                      <button
+                        onClick={() => { save('bucket', '', task.bucket); setBucketOpen(false) }}
+                        className="w-full px-3 py-2 text-left text-xs text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
+                        — No bucket —
+                      </button>
+                      {bucketOptions.map((opt) => (
+                        <button
+                          key={opt.id}
+                          onClick={() => { save('bucket', opt.label, task.bucket); setBucketOpen(false) }}
+                          className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 ${task.bucket === opt.label ? 'bg-gray-50 dark:bg-gray-700/50' : ''}`}
+                        >
+                          <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: opt.color }} />
+                          <span className="flex-1 text-gray-700 dark:text-gray-300">{opt.label}</span>
+                          {task.bucket === opt.label && (
+                            <svg className="h-3.5 w-3.5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </button>
+                      ))}
+                      {extraBucket && (
+                        <button
+                          onClick={() => { save('bucket', extraBucket, task.bucket); setBucketOpen(false) }}
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                        >
+                          <span className="h-3 w-3 rounded-full shrink-0 bg-gray-400" />
+                          <span className="text-gray-700 dark:text-gray-300">{extraBucket}</span>
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             </PropRow>
 
             <PropRow icon={<Plane size={14} />} label="AWB">
