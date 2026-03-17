@@ -1,5 +1,5 @@
 import TaskCard from './TaskCard'
-import type { Task, Client, Label, AppUser } from '../../types'
+import type { Task, Client, Label, AppUser, Board } from '../../types'
 import { useBoardStore } from '../../store/boardStore'
 
 interface Props {
@@ -8,6 +8,8 @@ interface Props {
   clients: Client[]
   labels: Label[]
   users: AppUser[]
+  board?: Board | null
+  bucketColor?: string
   onComplete: (task: Task) => void
   onOpen: (task: Task) => void
   onDuplicate: (task: Task) => void
@@ -17,7 +19,7 @@ interface Props {
 }
 
 export default function BoardColumn({
-  groupKey, tasks, clients, labels, users,
+  groupKey, tasks, clients, labels, users, board, bucketColor,
   onComplete, onOpen, onDuplicate, onRecurring, onDelete, onAddTask,
 }: Props) {
   const { showCompleted, toggleShowCompleted } = useBoardStore()
@@ -32,6 +34,9 @@ export default function BoardColumn({
       {/* Column header */}
       <div className="mb-2 flex items-center justify-between px-1">
         <div className="flex items-center gap-2">
+          {bucketColor && (
+            <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: bucketColor }} />
+          )}
           <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             {groupKey}
           </h3>
@@ -67,6 +72,7 @@ export default function BoardColumn({
             clients={clients}
             labels={labels}
             users={users}
+            board={board}
             onComplete={onComplete}
             onOpen={onOpen}
             onDuplicate={onDuplicate}

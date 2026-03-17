@@ -10,7 +10,7 @@ import AppLayout from '../components/ui/AppLayout'
 import { subscribeToAllTasks, updateTaskField } from '../lib/firestore'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
-import { BOARD_COLORS } from '../utils/colorUtils'
+import { BOARD_COLORS, getBucketColor } from '../utils/colorUtils'
 import type { Task, Board } from '../types'
 
 const LS_KEY = 'npd:calendar_hidden_boards'
@@ -42,7 +42,8 @@ export default function CalendarPage() {
     .filter((t) => !hiddenBoards.has(t.boardId))
     .map((t) => {
       const board = boards.find((b) => b.id === t.boardId)
-      const color = board ? (BOARD_COLORS[board.type] ?? board.color) : '#888'
+      const boardColor = board ? (BOARD_COLORS[board.type] ?? board.color) : '#888'
+      const eventColor = getBucketColor(t.bucket, board) ?? boardColor
       const start = (t.dateStart ?? t.dateEnd)!.toDate()
       const end = t.dateEnd ? t.dateEnd.toDate() : undefined
       return {
@@ -50,8 +51,8 @@ export default function CalendarPage() {
         title: t.title,
         start,
         end,
-        backgroundColor: color,
-        borderColor: color,
+        backgroundColor: eventColor,
+        borderColor: eventColor,
         textColor: '#ffffff',
         extendedProps: { task: t, board },
       }

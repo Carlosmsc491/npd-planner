@@ -150,6 +150,7 @@ export default function BoardPage() {
                 users={users}
                 groupBy={groupBy}
                 boardType={activeBoard.type}
+                board={activeBoard}
                 onComplete={complete}
                 onOpen={setSelectedTask}
                 onDuplicate={handleDuplicate}
@@ -165,6 +166,7 @@ export default function BoardPage() {
                 labels={labels}
                 users={users}
                 groupBy={groupBy}
+                board={activeBoard}
                 onComplete={complete}
                 onOpen={setSelectedTask}
               />

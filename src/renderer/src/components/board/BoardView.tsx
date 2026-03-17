@@ -1,6 +1,6 @@
 import BoardColumn from './BoardColumn'
-import { BOARD_BUCKETS } from '../../utils/colorUtils'
-import type { Task, Client, Label, AppUser, GroupByField, BoardType } from '../../types'
+import { BOARD_BUCKETS, getBucketColor } from '../../utils/colorUtils'
+import type { Task, Client, Label, AppUser, GroupByField, BoardType, Board } from '../../types'
 
 interface Props {
   tasks: Task[]
@@ -9,6 +9,7 @@ interface Props {
   users: AppUser[]
   groupBy: GroupByField
   boardType?: BoardType
+  board?: Board | null
   onComplete: (task: Task) => void
   onOpen: (task: Task) => void
   onDuplicate: (task: Task) => void
@@ -70,7 +71,7 @@ function groupTasks(
 }
 
 export default function BoardView({
-  tasks, clients, labels, users, groupBy, boardType,
+  tasks, clients, labels, users, groupBy, boardType, board,
   onComplete, onOpen, onDuplicate, onRecurring, onDelete, onAddTask,
 }: Props) {
   const groups = groupTasks(tasks, groupBy, clients, users)
@@ -107,6 +108,8 @@ export default function BoardView({
           clients={clients}
           labels={labels}
           users={users}
+          board={board}
+          bucketColor={groupBy === 'bucket' ? getBucketColor(key, board) : undefined}
           onComplete={onComplete}
           onOpen={onOpen}
           onDuplicate={onDuplicate}

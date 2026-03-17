@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
 import { formatDate, isOverdue } from '../../utils/dateUtils'
-import { getInitials, getInitialsColor } from '../../utils/colorUtils'
-import type { Task, Client, Label, AppUser } from '../../types'
+import { getInitials, getInitialsColor, getBucketColor } from '../../utils/colorUtils'
+import type { Task, Client, Label, AppUser, Board } from '../../types'
 
 interface Props {
   task: Task
   clients: Client[]
   labels: Label[]
   users: AppUser[]
+  board?: Board | null
   onComplete: (task: Task) => void
   onOpen: (task: Task) => void
   onDuplicate: (task: Task) => void
@@ -16,7 +17,7 @@ interface Props {
 }
 
 export default function TaskCard({
-  task, clients, labels, users,
+  task, clients, labels, users, board,
   onComplete, onOpen, onDuplicate, onRecurring, onDelete,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -26,6 +27,7 @@ export default function TaskCard({
   const taskLabels = labels.filter((l) => (task.labelIds ?? []).includes(l.id))
   const assigneeUsers = users.filter((u) => task.assignees.includes(u.uid))
   const overdue = !task.completed && isOverdue(task.dateEnd)
+  const bucketColor = getBucketColor(task.bucket, board)
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -117,6 +119,20 @@ export default function TaskCard({
           )}
         </div>
       </div>
+
+      {/* Bucket pill */}
+      {task.bucket && (
+        <div className="mt-1.5 mb-0.5">
+          <span
+            className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            style={bucketColor
+              ? { backgroundColor: bucketColor + '22', color: bucketColor, border: `1px solid ${bucketColor}55` }
+              : { backgroundColor: '#f3f4f6', color: '#6b7280' }}
+          >
+            {task.bucket}
+          </span>
+        </div>
+      )}
 
       {/* Footer row */}
       <div className="mt-2 flex items-center justify-between">

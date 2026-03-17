@@ -1,8 +1,8 @@
 import { formatDate } from '../../utils/dateUtils'
-import { STATUS_STYLES } from '../../utils/colorUtils'
+import { STATUS_STYLES, getBucketColor } from '../../utils/colorUtils'
 import { getInitials, getInitialsColor } from '../../utils/colorUtils'
 import { useBoardStore } from '../../store/boardStore'
-import type { Task, Client, Label, AppUser, GroupByField } from '../../types'
+import type { Task, Client, Label, AppUser, GroupByField, Board } from '../../types'
 
 interface Props {
   tasks: Task[]
@@ -10,6 +10,7 @@ interface Props {
   labels: Label[]
   users: AppUser[]
   groupBy: GroupByField
+  board?: Board | null
   onComplete: (task: Task) => void
   onOpen: (task: Task) => void
 }
@@ -29,7 +30,7 @@ function getGroupKey(task: Task, groupBy: GroupByField, clients: Client[], users
   }
 }
 
-export default function ListView({ tasks, clients, labels, users, groupBy, onComplete, onOpen }: Props) {
+export default function ListView({ tasks, clients, labels, users, groupBy, board, onComplete, onOpen }: Props) {
   const { showCompleted, toggleShowCompleted } = useBoardStore()
 
   const groupMap = new Map<string, Task[]>()
@@ -59,14 +60,20 @@ export default function ListView({ tasks, clients, labels, users, groupBy, onCom
         return (
           <div key={groupKey} className="mb-6">
             {/* Group header */}
-            <div className="mb-1 flex items-center gap-2 py-1.5 border-b border-gray-200 dark:border-gray-700">
-              <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                {groupKey}
-              </span>
-              <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-                {active.length}
-              </span>
-            </div>
+            {(() => {
+              const hdrColor = groupBy === 'bucket' ? getBucketColor(groupKey, board) : undefined
+              return (
+                <div className="mb-1 flex items-center gap-2 py-1.5 border-b border-gray-200 dark:border-gray-700">
+                  {hdrColor && <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: hdrColor }} />}
+                  <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                    {groupKey}
+                  </span>
+                  <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+                    {active.length}
+                  </span>
+                </div>
+              )
+            })()}
 
             {/* Table */}
             <table className="w-full">
@@ -78,6 +85,7 @@ export default function ListView({ tasks, clients, labels, users, groupBy, onCom
                   <th className="py-1 pr-4 text-left hidden lg:table-cell">Date</th>
                   <th className="py-1 pr-4 text-left hidden lg:table-cell">Assigned</th>
                   <th className="py-1 pr-4 text-left hidden md:table-cell">Status</th>
+                  <th className="py-1 pr-4 text-left hidden md:table-cell">Bucket</th>
                   <th className="py-1 text-left">Labels</th>
                 </tr>
               </thead>
@@ -160,6 +168,23 @@ export default function ListView({ tasks, clients, labels, users, groupBy, onCom
                         >
                           {statusStyle?.label ?? task.status}
                         </span>
+                      </td>
+
+                      {/* Bucket */}
+                      <td className="py-2 pr-4 hidden md:table-cell">
+                        {task.bucket && (() => {
+                          const bc = getBucketColor(task.bucket, board)
+                          return (
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                              style={bc
+                                ? { backgroundColor: bc + '22', color: bc, border: `1px solid ${bc}55` }
+                                : { backgroundColor: '#f3f4f6', color: '#6b7280' }}
+                            >
+                              {task.bucket}
+                            </span>
+                          )
+                        })()}
                       </td>
 
                       {/* Labels */}

@@ -8,7 +8,7 @@ import type { EventResizeDoneArg, DateClickArg } from '@fullcalendar/interaction
 import { Timestamp } from 'firebase/firestore'
 import { updateTaskField } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
-import { BOARD_COLORS } from '../../utils/colorUtils'
+import { BOARD_COLORS, getBucketColor } from '../../utils/colorUtils'
 import type { Task, Board } from '../../types'
 
 interface Props {
@@ -25,16 +25,19 @@ export default function BoardCalendar({ tasks, board, onOpenTask, onDateClick }:
 
   const events = tasks
     .filter((t) => !t.completed && (t.dateStart || t.dateEnd))
-    .map((t) => ({
-      id: t.id,
-      title: t.title,
-      start: (t.dateStart ?? t.dateEnd)!.toDate(),
-      end: t.dateEnd?.toDate(),
-      backgroundColor: color,
-      borderColor: color,
-      textColor: '#ffffff',
-      extendedProps: { task: t },
-    }))
+    .map((t) => {
+      const eventColor = getBucketColor(t.bucket, board) ?? color
+      return {
+        id: t.id,
+        title: t.title,
+        start: (t.dateStart ?? t.dateEnd)!.toDate(),
+        end: t.dateEnd?.toDate(),
+        backgroundColor: eventColor,
+        borderColor: eventColor,
+        textColor: '#ffffff',
+        extendedProps: { task: t },
+      }
+    })
 
   async function handleEventDrop({ event }: EventDropArg) {
     if (!user || !event.start) return

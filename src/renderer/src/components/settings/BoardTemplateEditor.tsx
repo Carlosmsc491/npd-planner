@@ -1,10 +1,10 @@
-import { useState, useRef } from 'react'
-import { ArrowLeft, Trash2, GripVertical, Plus } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { ArrowLeft, Trash2, GripVertical, Plus, Settings, X } from 'lucide-react'
 import { updateBoard, updateBoardProperties } from '../../lib/firestore'
 import { DynamicIcon, PROPERTY_TYPE_LABELS, OPTION_COLORS } from '../../utils/propertyUtils'
 import IconPickerPopover from './IconPickerPopover'
 import AddPropertyModal from './AddPropertyModal'
-import type { Board, BoardProperty, PropertyType } from '../../types'
+import type { Board, BoardProperty, PropertyType, SelectOption } from '../../types'
 
 const PRESET_COLORS = [
   '#1D9E75', '#378ADD', '#D4537E', '#F59E0B',
@@ -36,8 +36,6 @@ interface Props {
   onBoardUpdate: (updated: Board) => void
 }
 
-import { useEffect } from 'react'
-
 export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Props) {
   const [properties, setProperties] = useState<BoardProperty[]>(
     [...(board.customProperties ?? [])].sort((a, b) => a.order - b.order)
@@ -51,6 +49,7 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   const [editingName, setEditingName]     = useState(false)
   const [boardNameVal, setBoardNameVal]   = useState(board.name)
   const [localBoard, setLocalBoard]       = useState(board)
+  const [settingsOpenId, setSettingsOpenId] = useState<string | null>(null)
   const dragIndex = useRef<number | null>(null)
   const [dragOverIdx, setDragOverIdx]     = useState<number | null>(null)
 
@@ -201,111 +200,221 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
 
         {properties.length > 0 && (
           <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-3">
-            {properties.map((prop, i) => (
-                <div
-                  key={prop.id}
-                  draggable
-                  onDragStart={() => handleDragStart(i)}
-                  onDragOver={(e) => handleDragOver(e, i)}
-                  onDrop={(e) => handleDrop(e, i)}
-                  onDragEnd={handleDragEnd}
-                  className={`flex items-center gap-2 px-3 py-2.5 bg-white dark:bg-gray-800 transition-colors ${
-                    dragOverIdx === i ? 'border-t-2 border-green-500' : ''
-                  } ${i < properties.length - 1 ? 'border-b border-gray-100 dark:border-gray-700' : ''}`}
-                >
-                  {/* Drag handle */}
-                  <button className="text-gray-300 dark:text-gray-600 hover:text-gray-400 cursor-grab active:cursor-grabbing shrink-0">
-                    <GripVertical size={16} />
-                  </button>
-
-                  {/* Icon */}
-                  <div className="relative shrink-0">
-                    <button
-                      onClick={() => setIconPickerId(iconPickerId === prop.id ? null : prop.id)}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                    >
-                      <DynamicIcon name={prop.icon} size={14} />
+            {properties.map((prop, i) => {
+              const isSettingsOpen = settingsOpenId === prop.id
+              const isOptionType = ['select', 'multiselect', 'tags'].includes(prop.type)
+              const isBuiltin = prop.id.startsWith('builtin-')
+              return (
+                <div key={prop.id}>
+                  {/* Main row */}
+                  <div
+                    draggable
+                    onDragStart={() => handleDragStart(i)}
+                    onDragOver={(e) => handleDragOver(e, i)}
+                    onDrop={(e) => handleDrop(e, i)}
+                    onDragEnd={handleDragEnd}
+                    className={`group/prop flex items-center gap-2 px-3 py-2.5 bg-white dark:bg-gray-800 transition-colors ${
+                      dragOverIdx === i ? 'border-t-2 border-green-500' : ''
+                    } ${i < properties.length - 1 || isSettingsOpen ? 'border-b border-gray-100 dark:border-gray-700' : ''}`}
+                  >
+                    {/* Drag handle */}
+                    <button className="text-gray-300 dark:text-gray-600 hover:text-gray-400 cursor-grab active:cursor-grabbing shrink-0">
+                      <GripVertical size={16} />
                     </button>
-                    {iconPickerId === prop.id && (
-                      <IconPickerPopover
-                        onSelect={(n) => handleIconChange(prop.id, n)}
-                        onClose={() => setIconPickerId(null)}
-                      />
-                    )}
-                  </div>
 
-                  {/* Name */}
-                  <div className="flex-1 min-w-0">
-                    {renamingId === prop.id ? (
-                      <input
-                        autoFocus
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={() => handleRename(prop.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleRename(prop.id)
-                          if (e.key === 'Escape') setRenamingId(null)
-                        }}
-                        className="w-full rounded border border-green-500 bg-white px-1.5 py-0.5 text-sm dark:bg-gray-700 dark:text-white focus:outline-none"
-                      />
-                    ) : (
+                    {/* Icon */}
+                    <div className="relative shrink-0">
                       <button
-                        onClick={() => { setRenamingId(prop.id); setRenameValue(prop.name) }}
-                        className="truncate text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-left w-full"
+                        onClick={() => setIconPickerId(iconPickerId === prop.id ? null : prop.id)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
                       >
-                        {prop.name}
+                        <DynamicIcon name={prop.icon} size={14} />
                       </button>
-                    )}
-                  </div>
-
-                  {/* Type badge */}
-                  <div className="relative shrink-0">
-                    <button
-                      onClick={() => setTypePickerId(typePickerId === prop.id ? null : prop.id)}
-                      className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                    >
-                      {PROPERTY_TYPE_LABELS[prop.type]}
-                    </button>
-                    {typePickerId === prop.id && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setTypePickerId(null)} />
-                        <div className="absolute right-0 top-full z-20 mt-1 w-40 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden max-h-56 overflow-y-auto">
-                          {PROPERTY_TYPES.map((t) => (
-                            <button
-                              key={t}
-                              onClick={() => handleTypeChange(prop.id, t)}
-                              className={`w-full px-3 py-1.5 text-left text-xs transition-colors ${
-                                prop.type === t
-                                  ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400'
-                                  : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'
-                              }`}
-                            >
-                              {PROPERTY_TYPE_LABELS[t]}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Delete */}
-                  {deletingId === prop.id ? (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <span className="text-xs text-red-500">Delete?</span>
-                      <button onClick={() => handleDelete(prop.id)} className="text-xs font-semibold text-red-500 hover:text-red-700">Yes</button>
-                      <button onClick={() => setDeletingId(null)} className="text-xs text-gray-400 hover:text-gray-600">No</button>
+                      {iconPickerId === prop.id && (
+                        <IconPickerPopover
+                          onSelect={(n) => handleIconChange(prop.id, n)}
+                          onClose={() => setIconPickerId(null)}
+                        />
+                      )}
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => setDeletingId(prop.id)}
-                      className="text-gray-300 hover:text-red-500 dark:text-gray-600 dark:hover:text-red-400 transition-colors shrink-0"
-                    >
-                      <Trash2 size={15} />
-                    </button>
+
+                    {/* Name */}
+                    <div className="flex-1 min-w-0">
+                      {renamingId === prop.id ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={() => handleRename(prop.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRename(prop.id)
+                            if (e.key === 'Escape') setRenamingId(null)
+                          }}
+                          className="w-full rounded border border-green-500 bg-white px-1.5 py-0.5 text-sm dark:bg-gray-700 dark:text-white focus:outline-none"
+                        />
+                      ) : (
+                        <button
+                          onClick={() => { setRenamingId(prop.id); setRenameValue(prop.name) }}
+                          className="truncate text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-left w-full"
+                        >
+                          {prop.name}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Type badge */}
+                    <div className="relative shrink-0">
+                      <button
+                        onClick={() => setTypePickerId(typePickerId === prop.id ? null : prop.id)}
+                        className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        {PROPERTY_TYPE_LABELS[prop.type]}
+                      </button>
+                      {typePickerId === prop.id && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setTypePickerId(null)} />
+                          <div className="absolute right-0 top-full z-20 mt-1 w-40 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden max-h-56 overflow-y-auto">
+                            {PROPERTY_TYPES.map((t) => (
+                              <button
+                                key={t}
+                                onClick={() => handleTypeChange(prop.id, t)}
+                                className={`w-full px-3 py-1.5 text-left text-xs transition-colors ${
+                                  prop.type === t
+                                    ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400'
+                                    : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'
+                                }`}
+                              >
+                                {PROPERTY_TYPE_LABELS[t]}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Settings + Delete */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {deletingId === prop.id ? (
+                        <>
+                          <span className="text-xs text-red-500">Delete?</span>
+                          <button onClick={() => handleDelete(prop.id)} className="text-xs font-semibold text-red-500 hover:text-red-700">Yes</button>
+                          <button onClick={() => setDeletingId(null)} className="text-xs text-gray-400 hover:text-gray-600">No</button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => setSettingsOpenId(isSettingsOpen ? null : prop.id)}
+                            className={`opacity-0 group-hover/prop:opacity-100 transition-opacity ${
+                              isSettingsOpen
+                                ? 'text-green-500 opacity-100'
+                                : 'text-gray-300 hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-300'
+                            }`}
+                            title="Property settings"
+                          >
+                            <Settings size={14} />
+                          </button>
+                          {!isBuiltin && (
+                            <button
+                              onClick={() => setDeletingId(prop.id)}
+                              className="opacity-0 group-hover/prop:opacity-100 text-gray-300 hover:text-red-500 dark:text-gray-600 dark:hover:text-red-400 transition-opacity"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Settings expansion */}
+                  {isSettingsOpen && (
+                    <div className="bg-gray-50 dark:bg-gray-800/60 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                      {isOptionType ? (
+                        /* Options editor */
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Options</p>
+                          <div className="space-y-1.5 mb-2">
+                            {(prop.options ?? []).map((opt) => (
+                              <div key={opt.id} className="flex items-center gap-2">
+                                <button
+                                  onClick={() => {
+                                    const curIdx = OPTION_COLORS.indexOf(opt.color)
+                                    const nextColor = OPTION_COLORS[(curIdx + 1) % OPTION_COLORS.length]
+                                    const updatedOptions = (prop.options ?? []).map((o) =>
+                                      o.id === opt.id ? { ...o, color: nextColor } : o
+                                    )
+                                    saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
+                                  }}
+                                  className="h-4 w-4 rounded-full shrink-0 border border-white shadow-sm hover:scale-110 transition-transform"
+                                  style={{ backgroundColor: opt.color }}
+                                  title="Click to change color"
+                                />
+                                <input
+                                  key={opt.id + opt.label}
+                                  defaultValue={opt.label}
+                                  onBlur={(e) => {
+                                    const val = e.target.value.trim()
+                                    if (!val || val === opt.label) return
+                                    const updatedOptions = (prop.options ?? []).map((o) =>
+                                      o.id === opt.id ? { ...o, label: val } : o
+                                    )
+                                    saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
+                                  }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                                  className="flex-1 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 px-2 py-0.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:border-green-500"
+                                />
+                                <button
+                                  onClick={() => {
+                                    const updatedOptions = (prop.options ?? []).filter((o) => o.id !== opt.id)
+                                    saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
+                                  }}
+                                  className="text-gray-300 hover:text-red-500 dark:text-gray-600 dark:hover:text-red-400 transition-colors"
+                                >
+                                  <X size={13} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => {
+                              const newOption: SelectOption = {
+                                id: crypto.randomUUID(),
+                                label: 'New option',
+                                color: OPTION_COLORS[(prop.options ?? []).length % OPTION_COLORS.length],
+                              }
+                              const updatedOptions = [...(prop.options ?? []), newOption]
+                              saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
+                            }}
+                            className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 transition-colors"
+                          >
+                            <Plus size={13} />
+                            Add option
+                          </button>
+                        </div>
+                      ) : (
+                        /* Required toggle for non-option types */
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-gray-500 dark:text-gray-400">Required field</span>
+                          <button
+                            onClick={() => saveProperties(properties.map((p) =>
+                              p.id === prop.id ? { ...p, required: !p.required } : p
+                            ))}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              prop.required ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
+                            }`}
+                          >
+                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                              prop.required ? 'translate-x-4' : 'translate-x-1'
+                            }`} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-              ))}
-            </div>
+              )
+            })}
+          </div>
         )}
 
         {/* Add property */}

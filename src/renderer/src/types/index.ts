@@ -58,6 +58,7 @@ export interface BoardProperty {
   icon: string
   options?: SelectOption[]
   order: number
+  required?: boolean
 }
 
 export interface Board {

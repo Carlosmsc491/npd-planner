@@ -2,6 +2,16 @@
 // Re-exports from utils.ts + additional color helpers
 
 export { getContrastTextColor, BOARD_COLORS, STATUS_STYLES } from './utils'
+import type { Board } from '../types'
+
+/** Look up the color assigned to a bucket name via the board's Bucket property options */
+export function getBucketColor(bucketName: string | undefined, board: Board | null | undefined): string | undefined {
+  if (!bucketName || !board) return undefined
+  const bucketProp = board.customProperties?.find(
+    (p) => p.id === 'builtin-bucket' || p.name === 'Bucket'
+  )
+  return bucketProp?.options?.find((o) => o.label === bucketName)?.color
+}
 
 export const PRIORITY_COLORS: Record<string, string> = {
   high:   '#E24B4A',
