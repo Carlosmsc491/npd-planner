@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { ArrowLeft, Trash2, GripVertical, Plus, Settings, X, Star } from 'lucide-react'
 import { updateBoard, updateBoardProperties } from '../../lib/firestore'
 import { DynamicIcon, PROPERTY_TYPE_LABELS, OPTION_COLORS } from '../../utils/propertyUtils'
+import { BOARD_BUCKETS } from '../../utils/colorUtils'
 import IconPickerPopover from './IconPickerPopover'
 import AddPropertyModal from './AddPropertyModal'
 import type { Board, BoardProperty, PropertyType, SelectOption } from '../../types'
@@ -17,18 +18,24 @@ const PROPERTY_TYPES: PropertyType[] = [
 ]
 
 // Default properties seeded when a board has none yet
-const DEFAULT_PROPERTIES: BoardProperty[] = [
-  { id: 'builtin-client',    name: 'Client',      icon: 'User',          type: 'text',      order: 0 },
-  { id: 'builtin-status',    name: 'Status',      icon: 'CircleDot',     type: 'select',    order: 1 },
-  { id: 'builtin-priority',  name: 'Priority',    icon: 'Zap',           type: 'select',    order: 2 },
-  { id: 'builtin-date',      name: 'Date',        icon: 'CalendarRange', type: 'daterange', order: 3 },
-  { id: 'builtin-assignees', name: 'Assigned To', icon: 'Users',         type: 'person',    order: 4 },
-  { id: 'builtin-labels',    name: 'Labels',      icon: 'Tag',           type: 'tags',      order: 5 },
-  { id: 'builtin-bucket',    name: 'Bucket',      icon: 'Layers',        type: 'select',    order: 6 },
-  { id: 'builtin-awb',       name: 'AWB',         icon: 'Plane',         type: 'text',      order: 7 },
-  { id: 'builtin-po',        name: 'P.O. Number', icon: 'Hash',          type: 'text',      order: 8 },
-  { id: 'builtin-notes',     name: 'Notes',       icon: 'StickyNote',    type: 'text',      order: 9 },
-]
+function getDefaultProperties(boardType: string): BoardProperty[] {
+  const buckets = BOARD_BUCKETS[boardType] ?? []
+  return [
+    { id: 'builtin-client',    name: 'Client',      icon: 'User',          type: 'text',      order: 0 },
+    { id: 'builtin-status',    name: 'Status',      icon: 'CircleDot',     type: 'select',    order: 1 },
+    { id: 'builtin-priority',  name: 'Priority',    icon: 'Zap',           type: 'select',    order: 2 },
+    { id: 'builtin-date',      name: 'Date',        icon: 'CalendarRange', type: 'daterange', order: 3 },
+    { id: 'builtin-assignees', name: 'Assigned To', icon: 'Users',         type: 'person',    order: 4 },
+    { id: 'builtin-labels',    name: 'Labels',      icon: 'Tag',           type: 'tags',      order: 5 },
+    {
+      id: 'builtin-bucket', name: 'Bucket', icon: 'Layers', type: 'select', order: 6,
+      options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })),
+    },
+    { id: 'builtin-awb',       name: 'AWB',         icon: 'Plane',         type: 'text',      order: 7 },
+    { id: 'builtin-po',        name: 'P.O. Number', icon: 'Hash',          type: 'text',      order: 8 },
+    { id: 'builtin-notes',     name: 'Notes',       icon: 'StickyNote',    type: 'text',      order: 9 },
+  ]
+}
 
 interface Props {
   board: Board
@@ -38,10 +45,18 @@ interface Props {
 
 export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Props) {
   const [properties, setProperties] = useState<BoardProperty[]>(() => {
+    const buckets = BOARD_BUCKETS[board.type] ?? []
     const existing = board.customProperties ?? []
-    return existing.length > 0
-      ? [...existing].sort((a, b) => a.order - b.order)
-      : DEFAULT_PROPERTIES
+    if (existing.length === 0) return getDefaultProperties(board.type)
+    // Patch builtin-bucket if it has no options yet
+    return [...existing]
+      .sort((a, b) => a.order - b.order)
+      .map((p) => {
+        if (p.id === 'builtin-bucket' && (!p.options || p.options.length === 0) && buckets.length > 0) {
+          return { ...p, options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })) }
+        }
+        return p
+      })
   })
   const [showAddModal, setShowAddModal]       = useState(false)
   const [renamingId, setRenamingId]           = useState<string | null>(null)
@@ -57,10 +72,22 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   const dragIndex = useRef<number | null>(null)
   const [dragOverIdx, setDragOverIdx]         = useState<number | null>(null)
 
-  // Save defaults to Firestore on first open if board had no properties
+  // Save defaults to Firestore on first open; also patch missing bucket options
   useEffect(() => {
-    if ((board.customProperties ?? []).length === 0) {
-      updateBoardProperties(board.id, DEFAULT_PROPERTIES).catch(console.error)
+    const existing = board.customProperties ?? []
+    const buckets = BOARD_BUCKETS[board.type] ?? []
+    if (existing.length === 0) {
+      updateBoardProperties(board.id, getDefaultProperties(board.type)).catch(console.error)
+    } else {
+      const bucketProp = existing.find((p) => p.id === 'builtin-bucket')
+      if (bucketProp && (!bucketProp.options || bucketProp.options.length === 0) && buckets.length > 0) {
+        const patched = existing.map((p) =>
+          p.id === 'builtin-bucket'
+            ? { ...p, options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })) }
+            : p
+        )
+        updateBoardProperties(board.id, patched).catch(console.error)
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board.id])
