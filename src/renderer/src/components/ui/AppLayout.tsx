@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
+import { MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut } from 'lucide-react'
 import { auth } from '../../lib/firebase'
 import { useAuthStore } from '../../store/authStore'
 import { useBoardStore } from '../../store/boardStore'
@@ -12,7 +13,19 @@ import NotificationBell from '../notifications/NotificationBell'
 import { useNotifications } from '../../hooks/useNotifications'
 import { useClients } from '../../hooks/useClients'
 import { useLabels } from '../../hooks/useLabels'
-import type { Board } from '../../types'
+import type { Board, BoardType } from '../../types'
+
+const BOARD_ICONS: Record<BoardType, React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>> = {
+  planner:   ClipboardList,
+  trips:     Plane,
+  vacations: Umbrella,
+  custom:    LayoutGrid,
+}
+
+const PRESET_COLORS = [
+  '#1D9E75', '#378ADD', '#D4537E', '#F59E0B',
+  '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#EF4444', '#6B7280',
+]
 
 const PROTECTED_TYPES = new Set(['planner', 'trips', 'vacations'])
 
@@ -26,8 +39,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const [menuBoardId, setMenuBoardId] = useState<string | null>(null)
-  const [renamingId, setRenamingId] = useState<string | null>(null)
-  const [renameValue, setRenameValue] = useState('')
+  const [editingBoard, setEditingBoard] = useState<Board | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editColor, setEditColor] = useState('')
   const [showNewBoard, setShowNewBoard] = useState(false)
 
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
@@ -48,10 +62,21 @@ export default function AppLayout({ children }: AppLayoutProps) {
     navigate('/login')
   }
 
-  async function handleRename(board: Board) {
-    const name = renameValue.trim()
-    if (name && name !== board.name) await updateBoard(board.id, { name })
-    setRenamingId(null)
+  function openEditModal(board: Board) {
+    setEditingBoard(board)
+    setEditName(board.name)
+    setEditColor(BOARD_COLORS[board.type] ?? board.color)
+    setMenuBoardId(null)
+  }
+
+  async function handleEditSave() {
+    if (!editingBoard) return
+    const updates: Partial<Board> = {}
+    const trimmed = editName.trim()
+    if (trimmed && trimmed !== editingBoard.name) updates.name = trimmed
+    if (editColor !== (BOARD_COLORS[editingBoard.type] ?? editingBoard.color)) updates.color = editColor
+    if (Object.keys(updates).length > 0) await updateBoard(editingBoard.id, updates)
+    setEditingBoard(null)
   }
 
   async function handleDelete(board: Board) {
@@ -100,65 +125,52 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 Boards
               </div>
               {boards.map((board) => {
-                const color = BOARD_COLORS[board.type] || board.color || '#888'
+                const color = BOARD_COLORS[board.type] ?? board.color ?? '#888'
                 const isActive = location.pathname === `/board/${board.id}`
-                const canManage = isAdmin && !PROTECTED_TYPES.has(board.type)
+                const canDelete = isAdmin && !PROTECTED_TYPES.has(board.type)
+                const BoardIcon = BOARD_ICONS[board.type] ?? LayoutGrid
 
                 return (
                   <div key={board.id} className="group relative mb-0.5">
-                    {renamingId === board.id ? (
-                      <input
-                        autoFocus
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={() => handleRename(board)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleRename(board)
-                          if (e.key === 'Escape') setRenamingId(null)
-                        }}
-                        className="w-full rounded-lg border border-green-500 bg-white px-3 py-2 text-sm dark:bg-gray-700 dark:text-white focus:outline-none"
-                      />
-                    ) : (
-                      <Link
-                        to={`/board/${board.id}`}
-                        className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
-                          isActive
-                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
-                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                        }`}
-                      >
-                        <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                        <span className="flex-1 truncate">{board.name}</span>
-                        {canManage && (
-                          <button
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuBoardId(menuBoardId === board.id ? null : board.id) }}
-                            className="ml-auto hidden group-hover:flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
-                          >
-                            <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
-                              <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                            </svg>
-                          </button>
-                        )}
-                      </Link>
-                    )}
+                    <Link
+                      to={`/board/${board.id}`}
+                      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                        isActive
+                          ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                      }`}
+                    >
+                      <BoardIcon size={14} strokeWidth={2} className="shrink-0" style={{ color }} />
+                      <span className="flex-1 truncate">{board.name}</span>
+                      {isAdmin && (
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuBoardId(menuBoardId === board.id ? null : board.id) }}
+                          className="opacity-0 group-hover:opacity-100 flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-opacity"
+                        >
+                          <MoreHorizontal size={13} />
+                        </button>
+                      )}
+                    </Link>
 
                     {/* Board context menu */}
                     {menuBoardId === board.id && (
                       <>
                         <div className="fixed inset-0 z-10" onClick={() => setMenuBoardId(null)} />
-                        <div className="absolute left-full top-0 z-20 ml-1 w-36 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                        <div className="absolute left-full top-0 z-20 ml-1 w-36 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
                           <button
-                            onClick={() => { setRenamingId(board.id); setRenameValue(board.name); setMenuBoardId(null) }}
-                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700 first:rounded-t-xl"
+                            onClick={() => openEditModal(board)}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
                           >
-                            Rename
+                            Edit
                           </button>
-                          <button
-                            onClick={() => { handleDelete(board); setMenuBoardId(null) }}
-                            className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 last:rounded-b-xl"
-                          >
-                            Delete
-                          </button>
+                          {canDelete && (
+                            <button
+                              onClick={() => { handleDelete(board); setMenuBoardId(null) }}
+                              className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                            >
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </>
                     )}
@@ -227,10 +239,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
               </div>
               <button
                 onClick={handleSignOut}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-sm"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
                 title="Sign out"
               >
-                ↩
+                <LogOut size={14} />
               </button>
             </div>
           </div>
@@ -245,6 +257,56 @@ export default function AppLayout({ children }: AppLayoutProps) {
       <ConnectionStatus />
 
       {showNewBoard && <NewBoardModal onClose={() => setShowNewBoard(false)} />}
+
+      {/* Edit Board modal */}
+      {editingBoard && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setEditingBoard(null)} />
+          <div className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-80 rounded-2xl bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700 p-5">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Edit Board</h2>
+
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</label>
+            <input
+              autoFocus
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleEditSave(); if (e.key === 'Escape') setEditingBoard(null) }}
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-green-500 mb-4"
+            />
+
+            {editingBoard.type === 'custom' && (
+              <>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Color</label>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {PRESET_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setEditColor(c)}
+                      className={`h-7 w-7 rounded-full transition-transform ${editColor === c ? 'ring-2 ring-offset-2 ring-gray-400 scale-110' : 'hover:scale-105'}`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setEditingBoard(null)}
+                className="rounded-lg px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditSave}
+                className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white bg-green-500 hover:bg-green-600 transition-colors"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
