@@ -17,13 +17,39 @@ const PROPERTY_TYPES: PropertyType[] = [
   'person', 'checkbox', 'url', 'attachment', 'tags', 'email', 'phone',
 ]
 
+const STATUS_OPTIONS: SelectOption[] = [
+  { id: 'status-todo',       label: 'To Do',       color: '#9CA3AF' },
+  { id: 'status-inprogress', label: 'In Progress', color: '#F59E0B' },
+  { id: 'status-review',     label: 'Review',      color: '#378ADD' },
+  { id: 'status-done',       label: 'Done',        color: '#1D9E75' },
+]
+
+const PRIORITY_OPTIONS: SelectOption[] = [
+  { id: 'priority-normal', label: 'Normal', color: '#9CA3AF' },
+  { id: 'priority-high',   label: 'High',   color: '#EF4444' },
+]
+
+// Patch any builtin select property that is missing its default options
+function patchBuiltinOptions(props: BoardProperty[], boardType: string): BoardProperty[] {
+  const buckets = BOARD_BUCKETS[boardType] ?? []
+  return props.map((p) => {
+    if (p.id === 'builtin-status' && (!p.options || p.options.length === 0))
+      return { ...p, options: STATUS_OPTIONS }
+    if (p.id === 'builtin-priority' && (!p.options || p.options.length === 0))
+      return { ...p, options: PRIORITY_OPTIONS }
+    if (p.id === 'builtin-bucket' && (!p.options || p.options.length === 0) && buckets.length > 0)
+      return { ...p, options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })) }
+    return p
+  })
+}
+
 // Default properties seeded when a board has none yet
 function getDefaultProperties(boardType: string): BoardProperty[] {
   const buckets = BOARD_BUCKETS[boardType] ?? []
   return [
     { id: 'builtin-client',    name: 'Client',      icon: 'User',          type: 'text',      order: 0 },
-    { id: 'builtin-status',    name: 'Status',      icon: 'CircleDot',     type: 'select',    order: 1 },
-    { id: 'builtin-priority',  name: 'Priority',    icon: 'Zap',           type: 'select',    order: 2 },
+    { id: 'builtin-status',    name: 'Status',      icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
+    { id: 'builtin-priority',  name: 'Priority',    icon: 'Zap',           type: 'select',    order: 2, options: PRIORITY_OPTIONS },
     { id: 'builtin-date',      name: 'Date',        icon: 'CalendarRange', type: 'daterange', order: 3 },
     { id: 'builtin-assignees', name: 'Assigned To', icon: 'Users',         type: 'person',    order: 4 },
     { id: 'builtin-labels',    name: 'Labels',      icon: 'Tag',           type: 'tags',      order: 5 },
@@ -45,18 +71,9 @@ interface Props {
 
 export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Props) {
   const [properties, setProperties] = useState<BoardProperty[]>(() => {
-    const buckets = BOARD_BUCKETS[board.type] ?? []
     const existing = board.customProperties ?? []
     if (existing.length === 0) return getDefaultProperties(board.type)
-    // Patch builtin-bucket if it has no options yet
-    return [...existing]
-      .sort((a, b) => a.order - b.order)
-      .map((p) => {
-        if (p.id === 'builtin-bucket' && (!p.options || p.options.length === 0) && buckets.length > 0) {
-          return { ...p, options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })) }
-        }
-        return p
-      })
+    return patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type)
   })
   const [showAddModal, setShowAddModal]       = useState(false)
   const [renamingId, setRenamingId]           = useState<string | null>(null)
@@ -72,21 +89,18 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   const dragIndex = useRef<number | null>(null)
   const [dragOverIdx, setDragOverIdx]         = useState<number | null>(null)
 
-  // Save defaults to Firestore on first open; also patch missing bucket options
+  // Seed defaults or patch missing builtin options in Firestore on first open
   useEffect(() => {
     const existing = board.customProperties ?? []
-    const buckets = BOARD_BUCKETS[board.type] ?? []
     if (existing.length === 0) {
       updateBoardProperties(board.id, getDefaultProperties(board.type)).catch(console.error)
     } else {
-      const bucketProp = existing.find((p) => p.id === 'builtin-bucket')
-      if (bucketProp && (!bucketProp.options || bucketProp.options.length === 0) && buckets.length > 0) {
-        const patched = existing.map((p) =>
-          p.id === 'builtin-bucket'
-            ? { ...p, options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })) }
-            : p
-        )
-        updateBoardProperties(board.id, patched).catch(console.error)
+      const needsPatch = existing.some((p) =>
+        (['builtin-status', 'builtin-priority', 'builtin-bucket'].includes(p.id)) &&
+        (!p.options || p.options.length === 0)
+      )
+      if (needsPatch) {
+        updateBoardProperties(board.id, patchBuiltinOptions(existing, board.type)).catch(console.error)
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
