@@ -32,6 +32,7 @@ export default function BoardCalendar({ tasks, board, onOpenTask, onDateClick }:
         title: t.title,
         start: (t.dateStart ?? t.dateEnd)!.toDate(),
         end: t.dateEnd?.toDate(),
+        allDay: true,
         backgroundColor: eventColor,
         borderColor: eventColor,
         textColor: '#ffffff',

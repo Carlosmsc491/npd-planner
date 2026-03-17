@@ -51,6 +51,7 @@ export default function CalendarPage() {
         title: t.title,
         start,
         end,
+        allDay: true,
         backgroundColor: eventColor,
         borderColor: eventColor,
         textColor: '#ffffff',

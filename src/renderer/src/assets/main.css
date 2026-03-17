@@ -126,24 +126,18 @@ body {
 /* ─── Resize handles ─── */
 .fc-event-resizer {
   display: block !important;
-  width: 8px !important;
-  cursor: ew-resize !important;
-  position: absolute !important;
-  top: 0 !important;
-  bottom: 0 !important;
-  z-index: 4 !important;
-  opacity: 0.7;
+  position: absolute;
+  z-index: 4;
+  width: 8px;
+  height: 100%;
+  top: 0;
+  cursor: ew-resize;
 }
-.fc-event-resizer:hover {
-  opacity: 1;
-}
-.fc-event-resizer-start {
-  left: 0 !important;
-  border-radius: 4px 0 0 4px;
-}
-.fc-event-resizer-end {
-  right: 0 !important;
-  border-radius: 0 4px 4px 0;
+.fc-event-resizer-start { left: -4px; }
+.fc-event-resizer-end   { right: -4px; }
+.fc-daygrid-event:hover .fc-event-resizer {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
 }
 /* Time grid (week/day) vertical resizer */
 .fc-timegrid-event .fc-event-resizer {
