@@ -2,7 +2,17 @@
 // Re-exports from utils.ts + additional color helpers
 
 export { getContrastTextColor, BOARD_COLORS, STATUS_STYLES } from './utils'
+import { BOARD_COLORS } from './utils'
 import type { Board } from '../types'
+
+/**
+ * Returns the effective display color for a board.
+ * User-saved board.color takes priority; BOARD_COLORS[type] is the fallback.
+ */
+export function getBoardColor(board: Board | null | undefined): string {
+  if (!board) return '#888'
+  return board.color || BOARD_COLORS[board.type] || '#888'
+}
 
 /** Look up the color assigned to a bucket name via the board's Bucket property options */
 export function getBucketColor(bucketName: string | undefined, board: Board | null | undefined): string | undefined {

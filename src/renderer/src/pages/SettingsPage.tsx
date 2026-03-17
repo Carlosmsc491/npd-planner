@@ -6,7 +6,7 @@ import SharePointSetup from '../components/settings/SharePointSetup'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import { updateUserName, updateUserPreferences } from '../lib/firestore'
-import { BOARD_COLORS } from '../utils/colorUtils'
+import { getBoardColor } from '../utils/colorUtils'
 import type { AppUser, Board, Theme } from '../types'
 
 type SettingsTab = 'profile' | 'members' | 'boards' | 'files' | 'appearance' | 'notifications'
@@ -113,7 +113,7 @@ function BoardsPanel({ boards, onEdit }: { boards: Board[]; onEdit: (b: Board) =
       </p>
       <div className="space-y-2">
         {boards.map((board) => {
-          const color = BOARD_COLORS[board.type] ?? board.color
+          const color = getBoardColor(board)
           const count = board.customProperties?.length ?? 0
           return (
             <div

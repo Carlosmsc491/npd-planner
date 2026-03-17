@@ -15,7 +15,7 @@ import { useClients } from '../hooks/useClients'
 import { useLabels } from '../hooks/useLabels'
 import { subscribeToUsers } from '../lib/firestore'
 import { useBoardStore } from '../store/boardStore'
-import { BOARD_COLORS } from '../utils/colorUtils'
+import { getBoardColor } from '../utils/colorUtils'
 import type { Task, AppUser, RecurringConfig, BoardView as BoardViewType } from '../types'
 
 export default function BoardPage() {
@@ -65,7 +65,7 @@ export default function BoardPage() {
     setShowNewTask(true)
   }
 
-  const boardColor = activeBoard ? (BOARD_COLORS[activeBoard.type] ?? activeBoard.color) : '#1D9E75'
+  const boardColor = getBoardColor(activeBoard)
 
   const isDateBoard = activeBoard?.type === 'trips' || activeBoard?.type === 'vacations'
   const VIEW_OPTIONS: { value: BoardViewType; label: string }[] = isDateBoard

@@ -10,7 +10,7 @@ import { updateTaskField, createNotification } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useSettingsStore } from '../../store/settingsStore'
-import { STATUS_STYLES, BOARD_COLORS, BOARD_BUCKETS, getInitials, getInitialsColor } from '../../utils/colorUtils'
+import { STATUS_STYLES, getBoardColor, BOARD_BUCKETS, getInitials, getInitialsColor } from '../../utils/colorUtils'
 import { toFirestoreDate, timestampToDateInput } from '../../utils/dateUtils'
 import SubtaskList from './SubtaskList'
 import ActivityLog from './ActivityLog'
@@ -181,7 +181,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
             {board && (
               <span
                 className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold text-white"
-                style={{ backgroundColor: BOARD_COLORS[board.type] ?? board.color }}
+                style={{ backgroundColor: getBoardColor(board) }}
               >
                 {board.name}
               </span>

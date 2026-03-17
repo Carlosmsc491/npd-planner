@@ -9,7 +9,7 @@ import AppLayout from '../components/ui/AppLayout'
 import { subscribeToAllTasks, updateTaskField } from '../lib/firestore'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
-import { BOARD_COLORS, getBucketColor } from '../utils/colorUtils'
+import { getBoardColor, getBucketColor } from '../utils/colorUtils'
 import { toFirestoreDate } from '../utils/dateUtils'
 import type { Task, Board } from '../types'
 
@@ -42,7 +42,7 @@ export default function CalendarPage() {
     .filter((t) => !hiddenBoards.has(t.boardId))
     .map((t) => {
       const board = boards.find((b) => b.id === t.boardId)
-      const boardColor = board ? (BOARD_COLORS[board.type] ?? board.color) : '#888'
+      const boardColor = board ? (getBoardColor(board)) : '#888'
       const eventColor = getBucketColor(t.bucket, board) ?? boardColor
       const start = (t.dateStart ?? t.dateEnd)!.toDate()
       const end = t.dateEnd ? t.dateEnd.toDate() : undefined
@@ -91,7 +91,7 @@ export default function CalendarPage() {
   }
 
   function getBoardLabel(board: Board) {
-    const color = BOARD_COLORS[board.type] ?? board.color
+    const color = getBoardColor(board)
     const hidden = hiddenBoards.has(board.id)
     return (
       <button

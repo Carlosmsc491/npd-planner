@@ -12,7 +12,7 @@ import { auth } from '../../lib/firebase'
 import { useAuthStore } from '../../store/authStore'
 import { useBoardStore } from '../../store/boardStore'
 import { subscribeToBoards, updateBoard, deleteBoard } from '../../lib/firestore'
-import { BOARD_COLORS, getInitials, getInitialsColor } from '../../utils/colorUtils'
+import { getBoardColor, getInitials, getInitialsColor } from '../../utils/colorUtils'
 import ConnectionStatus from './ConnectionStatus'
 import NewBoardModal from './NewBoardModal'
 import NotificationBell from '../notifications/NotificationBell'
@@ -101,8 +101,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
   function openEditModal(board: Board) {
     setEditingBoard(board)
     setEditName(board.name)
-    setEditColor(BOARD_COLORS[board.type] ?? board.color)
-    setEditIcon(board.icon ?? 'LayoutGrid')
+    setEditColor(getBoardColor(board))
+    setEditIcon(board.icon ?? 'LayoutDashboard')
     setConfirmDelete(false)
     closeMenu()
   }
@@ -112,10 +112,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const updates: Partial<Board> = {}
     const trimmed = editName.trim()
     if (trimmed && trimmed !== editingBoard.name) updates.name = trimmed
-    if (editingBoard.type === 'custom') {
-      if (editColor !== editingBoard.color) updates.color = editColor
-      if (editIcon !== (editingBoard.icon ?? 'LayoutGrid')) updates.icon = editIcon
-    }
+    if (editColor !== getBoardColor(editingBoard)) updates.color = editColor
+    if (editIcon !== (editingBoard.icon ?? 'LayoutDashboard')) updates.icon = editIcon
     if (Object.keys(updates).length > 0) await updateBoard(editingBoard.id, updates)
     setEditingBoard(null)
   }
@@ -174,7 +172,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 Boards
               </div>
               {boards.map((board) => {
-                const color = BOARD_COLORS[board.type] ?? board.color ?? '#888'
+                const color = getBoardColor(board)
                 const isActive = location.pathname === `/board/${board.id}`
                 const BoardIcon = (board.type === 'custom' && board.icon && CUSTOM_BOARD_ICONS[board.icon])
                   ? CUSTOM_BOARD_ICONS[board.icon]
@@ -326,7 +324,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Edit Board</h2>
 
             {/* Live preview */}
-            {editingBoard.type === 'custom' && (() => {
+            {(() => {
               const PreviewIcon = (CUSTOM_BOARD_ICONS[editIcon] ?? LayoutGrid) as LucideIcon
               return (
                 <div className="flex items-center gap-2.5 rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 px-3 py-2.5 mb-4">
@@ -347,39 +345,35 @@ export default function AppLayout({ children }: AppLayoutProps) {
               className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-green-500 mb-4"
             />
 
-            {editingBoard.type === 'custom' && (
-              <>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Color</label>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {PRESET_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setEditColor(c)}
-                      className={`h-7 w-7 rounded-full transition-transform ${editColor === c ? 'ring-2 ring-offset-2 ring-gray-400 scale-110' : 'hover:scale-105'}`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                </div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Color</label>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {PRESET_COLORS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setEditColor(c)}
+                  className={`h-7 w-7 rounded-full transition-transform ${editColor === c ? 'ring-2 ring-offset-2 ring-gray-400 scale-110' : 'hover:scale-105'}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
 
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Icon</label>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {Object.entries(CUSTOM_BOARD_ICONS).map(([name, Icon]) => (
-                    <button
-                      key={name}
-                      onClick={() => setEditIcon(name)}
-                      title={name}
-                      className={`h-8 w-8 flex items-center justify-center rounded-lg border-2 transition-colors ${
-                        editIcon === name
-                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                          : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
-                      }`}
-                    >
-                      <Icon size={15} style={{ color: editColor }} />
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Icon</label>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {Object.entries(CUSTOM_BOARD_ICONS).map(([name, Icon]) => (
+                <button
+                  key={name}
+                  onClick={() => setEditIcon(name)}
+                  title={name}
+                  className={`h-8 w-8 flex items-center justify-center rounded-lg border-2 transition-colors ${
+                    editIcon === name
+                      ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                      : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
+                  }`}
+                >
+                  <Icon size={15} style={{ color: editColor }} />
+                </button>
+              ))}
+            </div>
 
             {confirmDelete ? (
               <div className="mb-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">

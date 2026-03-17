@@ -7,7 +7,7 @@ import type { EventDropArg, EventClickArg } from '@fullcalendar/core'
 import type { EventResizeDoneArg, DateClickArg } from '@fullcalendar/interaction'
 import { updateTaskField } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
-import { BOARD_COLORS, getBucketColor } from '../../utils/colorUtils'
+import { getBoardColor, getBucketColor } from '../../utils/colorUtils'
 import { toFirestoreDate } from '../../utils/dateUtils'
 import type { Task, Board } from '../../types'
 
@@ -21,7 +21,7 @@ interface Props {
 export default function BoardCalendar({ tasks, board, onOpenTask, onDateClick }: Props) {
   const { user } = useAuthStore()
   const calRef = useRef<FullCalendar>(null)
-  const color = BOARD_COLORS[board.type] ?? board.color
+  const color = getBoardColor(board)
 
   const events = tasks
     .filter((t) => !t.completed && (t.dateStart || t.dateEnd))

@@ -4,7 +4,7 @@ import AppLayout from '../components/ui/AppLayout'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import { subscribeToTasks, seedDefaultBoards, deduplicateDefaultBoards } from '../lib/firestore'
-import { BOARD_COLORS } from '../utils/colorUtils'
+import { getBoardColor } from '../utils/colorUtils'
 import { isOverdue } from '../utils/dateUtils'
 import type { Task } from '../types'
 
@@ -78,7 +78,7 @@ export default function DashboardPage() {
             <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">Boards</h2>
             <div className="grid gap-3 sm:grid-cols-3">
               {boards.map((board) => {
-                const color = BOARD_COLORS[board.type] ?? board.color
+                const color = getBoardColor(board)
                 const boardCount = allTasks.filter((t) => t.boardId === board.id && !t.completed).length
                 const boardLabel = board.type === 'trips' ? 'trips' : board.type === 'vacations' ? 'vacations' : 'active tasks'
                 return (
@@ -106,7 +106,7 @@ export default function DashboardPage() {
             <div className="space-y-2">
               {mine.slice(0, 8).map((task) => {
                 const board = boards.find((b) => b.id === task.boardId)
-                const color = board ? (BOARD_COLORS[board.type] ?? board.color) : '#888'
+                const color = board ? (getBoardColor(board)) : '#888'
                 return (
                   <button
                     key={task.id}

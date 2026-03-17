@@ -122,6 +122,7 @@ export interface Task {
   bucket: string            // column/group name
   dateStart: Timestamp | null
   dateEnd: Timestamp | null
+  description: string   // rich text HTML
   notes: string
   poNumber: string
   awbNumber: string
