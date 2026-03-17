@@ -10,6 +10,8 @@ import ConnectionStatus from './ConnectionStatus'
 import NewBoardModal from './NewBoardModal'
 import NotificationBell from '../notifications/NotificationBell'
 import { useNotifications } from '../../hooks/useNotifications'
+import { useClients } from '../../hooks/useClients'
+import { useLabels } from '../../hooks/useLabels'
 import type { Board } from '../../types'
 
 const PROTECTED_TYPES = new Set(['planner', 'trips', 'vacations'])
@@ -30,7 +32,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
 
-  // Subscribe to notifications + fire desktop alerts
+  // Always subscribe so labels/clients are available on any page
+  useClients()
+  useLabels()
   useNotifications()
 
   useEffect(() => {

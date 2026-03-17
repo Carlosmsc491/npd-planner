@@ -77,18 +77,20 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
   }
 
   async function toggleLabel(labelId: string) {
-    const updated = task.labelIds.includes(labelId)
-      ? task.labelIds.filter((id) => id !== labelId)
-      : [...task.labelIds, labelId]
-    await save('labelIds', updated, task.labelIds)
+    const current = task.labelIds ?? []
+    const updated = current.includes(labelId)
+      ? current.filter((id) => id !== labelId)
+      : [...current, labelId]
+    await save('labelIds', updated, current)
   }
 
   async function toggleAssignee(uid: string) {
-    const isAdding = !task.assignees.includes(uid)
+    const current = task.assignees ?? []
+    const isAdding = !current.includes(uid)
     const updated = isAdding
-      ? [...task.assignees, uid]
-      : task.assignees.filter((id) => id !== uid)
-    await save('assignees', updated, task.assignees)
+      ? [...current, uid]
+      : current.filter((id) => id !== uid)
+    await save('assignees', updated, current)
 
     // Notify newly assigned user
     if (isAdding && user && uid !== user.uid) {
@@ -293,7 +295,7 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
             <PropRow icon={<Tag size={14} />} label="Labels">
               <div className="flex flex-wrap gap-1.5">
                 {labels.map((l) => {
-                  const active = task.labelIds.includes(l.id)
+                  const active = (task.labelIds ?? []).includes(l.id)
                   return (
                     <button key={l.id} onClick={() => toggleLabel(l.id)}
                       className={`rounded-full px-2.5 py-0.5 text-xs font-semibold border-2 transition-colors ${active ? 'border-transparent' : 'border-dashed border-gray-300 dark:border-gray-600'}`}

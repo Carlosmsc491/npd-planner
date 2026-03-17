@@ -23,7 +23,7 @@ export default function TaskCard({
   const menuRef = useRef<HTMLDivElement>(null)
 
   const client = clients.find((c) => c.id === task.clientId)
-  const taskLabels = labels.filter((l) => task.labelIds.includes(l.id))
+  const taskLabels = labels.filter((l) => (task.labelIds ?? []).includes(l.id))
   const assigneeUsers = users.filter((u) => task.assignees.includes(u.uid))
   const overdue = !task.completed && isOverdue(task.dateEnd)
 
