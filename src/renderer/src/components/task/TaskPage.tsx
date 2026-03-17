@@ -13,6 +13,7 @@ import { STATUS_STYLES, BOARD_COLORS, BOARD_BUCKETS, getInitials, getInitialsCol
 import SubtaskList from './SubtaskList'
 import ActivityLog from './ActivityLog'
 import CommentSection from './CommentSection'
+import AttachmentPanel from './AttachmentPanel'
 import ConflictDialog from '../ui/ConflictDialog'
 import { CustomFieldInput } from '../settings/BoardTemplateEditor'
 import type { Task, AppUser, Board, TaskStatus, TaskPriority, ConflictData } from '../../types'
@@ -347,10 +348,10 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
               <SubtaskList task={task} />
             </div>
 
-            {/* Files placeholder */}
+            {/* Files */}
             <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Files</h4>
-              <p className="text-xs text-gray-400 dark:text-gray-500">File attachments — coming in Phase 6.</p>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Files</h4>
+              <AttachmentPanel task={task} />
             </div>
           </>
         )}

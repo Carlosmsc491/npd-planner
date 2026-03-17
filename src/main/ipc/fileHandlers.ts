@@ -107,4 +107,29 @@ export function registerFileHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(IPC.FILE_OPEN, async (_event, filePath: string): Promise<void> => {
     await shell.openPath(filePath)
   })
+
+  // Open native file picker — returns selected file path or null
+  ipcMain.handle(IPC.FILE_SELECT, async (event): Promise<string | null> => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return null
+
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      title: 'Select a file to attach',
+      buttonLabel: 'Attach',
+    })
+
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+
+  // Read a file and return its contents as a base64 string (for inline preview)
+  ipcMain.handle(IPC.FILE_READ_BASE64, async (_event, filePath: string): Promise<string | null> => {
+    try {
+      const buffer = fs.readFileSync(filePath)
+      return buffer.toString('base64')
+    } catch {
+      return null
+    }
+  })
 }

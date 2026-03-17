@@ -2,18 +2,20 @@ import { useState } from 'react'
 import AppLayout from '../components/ui/AppLayout'
 import MembersPanel from '../components/settings/MembersPanel'
 import BoardTemplateEditor from '../components/settings/BoardTemplateEditor'
+import SharePointSetup from '../components/settings/SharePointSetup'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import { updateUserName } from '../lib/firestore'
 import { BOARD_COLORS } from '../utils/colorUtils'
 import type { AppUser, Board } from '../types'
 
-type SettingsTab = 'profile' | 'members' | 'boards' | 'appearance' | 'notifications'
+type SettingsTab = 'profile' | 'members' | 'boards' | 'files' | 'appearance' | 'notifications'
 
 const TABS: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
   { id: 'profile',       label: 'Profile' },
   { id: 'members',       label: 'Members',       adminOnly: true },
   { id: 'boards',        label: 'Boards',         adminOnly: true },
+  { id: 'files',         label: 'Files' },
   { id: 'appearance',    label: 'Appearance' },
   { id: 'notifications', label: 'Notifications' },
 ]
@@ -74,6 +76,19 @@ export default function SettingsPage() {
               />
             )
             : <BoardsPanel boards={boards} onEdit={setEditingBoard} />
+        )}
+
+        {activeTab === 'files' && (
+          <div className="max-w-lg">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+              SharePoint File Storage
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              Files attached to tasks are copied to your local SharePoint sync folder and
+              automatically uploaded to the cloud by OneDrive.
+            </p>
+            <SharePointSetup />
+          </div>
         )}
 
         {activeTab === 'appearance' && (

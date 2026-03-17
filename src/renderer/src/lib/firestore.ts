@@ -625,6 +625,62 @@ export async function getGlobalSettings(): Promise<GlobalSettings | null> {
   }
 }
 
+// ─────────────────────────────────────────
+// USER PREFERENCES
+// ─────────────────────────────────────────
+
+export async function updateUserPreferences(
+  uid: string,
+  prefs: Partial<import('../types').UserPreferences>
+): Promise<void> {
+  try {
+    const updates: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(prefs)) {
+      updates[`preferences.${key}`] = value
+    }
+    await updateDoc(doc(db, COLLECTIONS.USERS, uid), updates)
+  } catch (err) {
+    console.error('updateUserPreferences failed:', err)
+  }
+}
+
+// ─────────────────────────────────────────
+// TASK ATTACHMENTS
+// ─────────────────────────────────────────
+
+export async function updateTaskAttachments(
+  taskId: string,
+  attachments: import('../types').TaskAttachment[]
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.TASKS, taskId), {
+      attachments,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (err) {
+    throw new Error(`Failed to update attachments: ${err}`)
+  }
+}
+
+export async function updateAttachmentStatus(
+  taskId: string,
+  attachmentId: string,
+  status: import('../types').AttachmentStatus
+): Promise<void> {
+  try {
+    const taskRef = doc(db, COLLECTIONS.TASKS, taskId)
+    const snap = await getDoc(taskRef)
+    if (!snap.exists()) return
+    const task = snap.data() as import('../types').Task
+    const updated = task.attachments.map((a) =>
+      a.id === attachmentId ? { ...a, status } : a
+    )
+    await updateDoc(taskRef, { attachments: updated, updatedAt: serverTimestamp() })
+  } catch (err) {
+    console.error('updateAttachmentStatus failed:', err)
+  }
+}
+
 export async function verifyEmergencyKey(inputKey: string): Promise<boolean> {
   try {
     const snap = await getDoc(doc(db, COLLECTIONS.SETTINGS, 'emergency'))

@@ -14,3 +14,33 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+// ─── Electron bridge (exposed by preload/index.ts via contextBridge) ──────────
+interface IpcFileResponse {
+  success: boolean
+  error?: string
+}
+
+interface IpcSharePointVerifyResponse {
+  valid: boolean
+  error?: string
+}
+
+interface IElectronAPI {
+  copyFile: (sourcePath: string, destPath: string, createDirs: boolean) => Promise<IpcFileResponse>
+  verifySharePointFolder: (folderPath: string, verificationSubfolder: string) => Promise<IpcSharePointVerifyResponse>
+  selectFolder: () => Promise<string | null>
+  selectFile: () => Promise<string | null>
+  readFileBase64: (filePath: string) => Promise<string | null>
+  openFile: (filePath: string) => Promise<void>
+  resolveSharePointPath: (sharePointRoot: string, relativePath: string) => Promise<string>
+  sendNotification: (title: string, body: string, taskId: string, boardType: string, silent?: boolean) => void
+  getAppVersion: () => Promise<string>
+  onUpdateAvailable: (callback: () => void) => () => void
+  onUpdateDownloaded: (callback: () => void) => () => void
+  onNotificationClicked: (callback: (taskId: string) => void) => () => void
+}
+
+interface Window {
+  electronAPI: IElectronAPI
+}

@@ -579,16 +579,16 @@ Update these as you complete each feature. Add [x] when done.
 - [x] Timeline (Gantt) view
 
 ### Phase 6 — SharePoint & Files
-- [ ] First-launch SharePoint path setup wizard
-- [ ] Path verification (checks for REPORTS (NPD-SECURE) subfolder)
-- [ ] SharePoint path editable in Settings
-- [ ] File attach in task: copies to year/client/task folder
-- [ ] Folder auto-creation on attach
-- [ ] Attachment status icons: uploading / synced / error
-- [ ] Retry queue (every 30 seconds) for failed copies
+- [x] First-launch SharePoint path setup wizard
+- [x] Path verification (checks for REPORTS (NPD-SECURE) subfolder)
+- [x] SharePoint path editable in Settings
+- [x] File attach in task: copies to year/client/task folder
+- [x] Folder auto-creation on attach
+- [x] Attachment status icons: uploading / synced / error
+- [x] Retry queue (every 30 seconds) for failed copies
 - [ ] PDF preview (pdf.js)
-- [ ] Image preview
-- [ ] Office files: show icon + "Open in app" button
+- [x] Image preview (base64 lightbox)
+- [x] Office files: show icon + "Open in app" button
 
 ### Phase 7 — Notifications & UX
 - [ ] Desktop notifications (Electron Notification API) — Planner only

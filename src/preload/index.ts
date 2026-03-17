@@ -15,6 +15,12 @@ const electronAPI = {
   openFile: (filePath: string) =>
     ipcRenderer.invoke(IPC.FILE_OPEN, filePath),
 
+  selectFile: () =>
+    ipcRenderer.invoke(IPC.FILE_SELECT),
+
+  readFileBase64: (filePath: string) =>
+    ipcRenderer.invoke(IPC.FILE_READ_BASE64, filePath),
+
   resolveSharePointPath: (sharePointRoot: string, relativePath: string) =>
     ipcRenderer.invoke(IPC.SHAREPOINT_RESOLVE_PATH, sharePointRoot, relativePath),
 

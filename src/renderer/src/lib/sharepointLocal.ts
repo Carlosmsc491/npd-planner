@@ -3,7 +3,7 @@
 // SharePoint then handles cloud sync automatically
 // Uses Electron IPC to access the filesystem from the renderer process
 
-import type { FileUploadJob, IpcFileRequest, IpcFileResponse, IpcSharePointVerifyRequest, IpcSharePointVerifyResponse } from '../types'
+import type { FileUploadJob, IpcFileResponse, IpcSharePointVerifyResponse } from '../types'
 
 const VERIFICATION_SUBFOLDER = 'REPORTS (NPD-SECURE)'
 
@@ -20,10 +20,10 @@ export async function verifySharePointPath(folderPath: string): Promise<{
   error?: string
 }> {
   try {
-    const result: IpcSharePointVerifyResponse = await window.electronAPI.verifySharePointFolder({
+    const result: IpcSharePointVerifyResponse = await window.electronAPI.verifySharePointFolder(
       folderPath,
-      verificationSubfolder: VERIFICATION_SUBFOLDER,
-    })
+      VERIFICATION_SUBFOLDER
+    )
 
     if (!result.valid) {
       return {
@@ -100,11 +100,11 @@ export async function copyFileToSharePoint(
   destPathSegments: string  // the ||| delimited string from buildDestinationPath
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const result: IpcFileResponse = await window.electronAPI.copyFile({
+    const result: IpcFileResponse = await window.electronAPI.copyFile(
       sourcePath,
-      destPath: destPathSegments,
-      createDirs: true,
-    })
+      destPathSegments,
+      true
+    )
 
     return result
   } catch (err) {
@@ -165,20 +165,4 @@ function stopRetryWorker(): void {
   }
 }
 
-// ─────────────────────────────────────────
-// ELECTRON API TYPE DECLARATION
-// ─────────────────────────────────────────
-// This matches the preload script that exposes IPC methods to renderer
-
-declare global {
-  interface Window {
-    electronAPI: {
-      copyFile: (req: IpcFileRequest) => Promise<IpcFileResponse>
-      verifySharePointFolder: (req: IpcSharePointVerifyRequest) => Promise<IpcSharePointVerifyResponse>
-      sendNotification: (req: { title: string; body: string; taskId: string }) => void
-      selectFolder: () => Promise<string | null>
-      getAppVersion: () => Promise<string>
-      onUpdateAvailable: (callback: (version: string) => void) => void
-    }
-  }
-}
+// Window.electronAPI types are declared in src/preload/index.d.ts

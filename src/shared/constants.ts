@@ -13,6 +13,8 @@ export const COMPANY_NAME = 'Elite Flower'
 export const IPC = {
   FILE_COPY: 'file:copy',
   FILE_SELECT_FOLDER: 'file:selectFolder',
+  FILE_SELECT: 'file:select',
+  FILE_READ_BASE64: 'file:readBase64',
   FILE_EXISTS: 'file:exists',
   FILE_OPEN: 'file:open',
   SHAREPOINT_VERIFY: 'sharepoint:verify',
