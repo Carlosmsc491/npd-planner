@@ -29,7 +29,7 @@ export default function LoginPage() {
     e.preventDefault()
     setError('')
 
-    if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) {
+    if (!email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`)) {
       setError(`Only @${ALLOWED_DOMAIN} accounts are allowed`)
       return
     }
