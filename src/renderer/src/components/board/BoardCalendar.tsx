@@ -78,6 +78,7 @@ export default function BoardCalendar({ tasks, board, onOpenTask, onDateClick }:
         editable={true}
         droppable={true}
         selectable={true}
+        eventDurationEditable={true}
         eventResizableFromStart={true}
         dayMaxEvents={4}
         events={events}
@@ -88,7 +89,7 @@ export default function BoardCalendar({ tasks, board, onOpenTask, onDateClick }:
         eventDisplay="block"
         eventTimeFormat={{ hour: 'numeric', minute: '2-digit', meridiem: 'short' }}
         eventContent={(arg) => (
-          <div className="flex items-center gap-1 px-1 py-0.5 truncate">
+          <div className="flex items-center gap-1 px-1 py-0.5 overflow-hidden w-full">
             <span className="truncate text-xs font-medium leading-tight">{arg.event.title}</span>
           </div>
         )}

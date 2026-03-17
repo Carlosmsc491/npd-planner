@@ -145,6 +145,7 @@ export default function CalendarPage() {
             height="100%"
             editable={true}
             droppable={true}
+            eventDurationEditable={true}
             eventResizableFromStart={true}
             eventDisplay="block"
             dayMaxEvents={4}
@@ -153,7 +154,7 @@ export default function CalendarPage() {
             eventResize={handleEventResize}
             eventClick={handleEventClick}
             eventContent={(arg) => (
-              <div className="flex items-center gap-1 px-1 truncate">
+              <div className="flex items-center gap-1 px-1 overflow-hidden w-full">
                 <span className="truncate text-xs font-medium">{arg.event.title}</span>
               </div>
             )}
