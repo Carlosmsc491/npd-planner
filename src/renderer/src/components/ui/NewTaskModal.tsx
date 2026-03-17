@@ -4,6 +4,7 @@ import { createTask } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { BOARD_BUCKETS } from '../../utils/colorUtils'
+import { toFirestoreDate } from '../../utils/dateUtils'
 import type { Board, TaskStatus, TaskPriority } from '../../types'
 
 interface Props {
@@ -45,7 +46,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
     setSaving(true)
     try {
       const now = Timestamp.now()
-      const dateTs = defaultDate ? Timestamp.fromDate(defaultDate) : null
+      const dateTs = defaultDate ? toFirestoreDate(defaultDate) : null
       const id = await createTask({
         boardId: board.id,
         title: title.trim(),
@@ -57,6 +58,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
         labelIds: [],
         dateStart: dateTs,
         dateEnd: dateTs,
+        description: '',
         notes: '',
         poNumber: '',
         awbNumber: '',

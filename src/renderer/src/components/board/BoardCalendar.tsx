@@ -5,10 +5,10 @@ import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import type { EventDropArg, EventClickArg } from '@fullcalendar/core'
 import type { EventResizeDoneArg, DateClickArg } from '@fullcalendar/interaction'
-import { Timestamp } from 'firebase/firestore'
 import { updateTaskField } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { BOARD_COLORS, getBucketColor } from '../../utils/colorUtils'
+import { toFirestoreDate } from '../../utils/dateUtils'
 import type { Task, Board } from '../../types'
 
 interface Props {
@@ -43,17 +43,17 @@ export default function BoardCalendar({ tasks, board, onOpenTask, onDateClick }:
   async function handleEventDrop({ event }: EventDropArg) {
     if (!user || !event.start) return
     const task = event.extendedProps.task as Task
-    const newStart = Timestamp.fromDate(event.start)
-    const newEnd = event.end ? Timestamp.fromDate(event.end) : null
-    if (event.start) await updateTaskField(task.id, 'dateStart', newStart, user.uid, user.name, task.dateStart)
-    if (newEnd)       await updateTaskField(task.id, 'dateEnd',   newEnd,  user.uid, user.name, task.dateEnd)
+    const newStart = toFirestoreDate(event.start)
+    const newEnd = event.end ? toFirestoreDate(event.end) : null
+    await updateTaskField(task.id, 'dateStart', newStart, user.uid, user.name, task.dateStart)
+    if (newEnd) await updateTaskField(task.id, 'dateEnd', newEnd, user.uid, user.name, task.dateEnd)
   }
 
   async function handleEventResize({ event }: EventResizeDoneArg) {
     if (!user) return
     const task = event.extendedProps.task as Task
-    if (event.start) await updateTaskField(task.id, 'dateStart', Timestamp.fromDate(event.start), user.uid, user.name, task.dateStart)
-    if (event.end)   await updateTaskField(task.id, 'dateEnd',   Timestamp.fromDate(event.end),   user.uid, user.name, task.dateEnd)
+    if (event.start) await updateTaskField(task.id, 'dateStart', toFirestoreDate(event.start), user.uid, user.name, task.dateStart)
+    if (event.end)   await updateTaskField(task.id, 'dateEnd',   toFirestoreDate(event.end),   user.uid, user.name, task.dateEnd)
   }
 
   function handleEventClick({ event }: EventClickArg) {

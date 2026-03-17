@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Timestamp } from 'firebase/firestore'
 import {
   User, Calendar, CircleDot, Zap, Users, Tag,
   Layers, Plane, Hash, StickyNote, Maximize2, ChevronDown,
@@ -10,11 +9,13 @@ import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { STATUS_STYLES, BOARD_COLORS, BOARD_BUCKETS, getInitials, getInitialsColor } from '../../utils/colorUtils'
+import { toFirestoreDate, timestampToDateInput } from '../../utils/dateUtils'
 import SubtaskList from './SubtaskList'
 import ActivityLog from './ActivityLog'
 import CommentSection from './CommentSection'
 import AttachmentPanel from './AttachmentPanel'
 import ConflictDialog from '../ui/ConflictDialog'
+import RichTextEditor from './RichTextEditor'
 import { CustomFieldInput } from '../settings/BoardTemplateEditor'
 import type { Task, AppUser, Board, TaskStatus, TaskPriority, ConflictData } from '../../types'
 
@@ -120,13 +121,8 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
     }
   }
 
-  function dateToInputValue(ts: Timestamp | null): string {
-    if (!ts) return ''
-    return ts.toDate().toISOString().slice(0, 10)
-  }
-
   async function handleDateChange(field: 'dateStart' | 'dateEnd', value: string) {
-    const ts = value ? Timestamp.fromDate(new Date(value + 'T00:00:00')) : null
+    const ts = value ? toFirestoreDate(new Date(value)) : null
     await save(field, ts, task[field])
   }
 
@@ -229,6 +225,15 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
         {/* ── DETAILS TAB ── */}
         {activeTab === 'details' && (
           <>
+            {/* Description — full width rich text */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Description</p>
+              <RichTextEditor
+                content={task.description ?? ''}
+                onBlur={(html) => { if (html !== task.description) save('description', html, task.description) }}
+              />
+            </div>
+
             {(board?.customProperties ?? [])
               .slice()
               .sort((a, b) => a.order - b.order)
@@ -291,10 +296,10 @@ export default function TaskPage({ task, board, users, onClose, onDelete, onRecu
                     return (
                       <PropRow key={prop.id} icon={<Calendar size={14} />} label={prop.name}>
                         <div className="flex items-center gap-2 flex-1">
-                          <input type="date" value={dateToInputValue(task.dateStart)} onChange={(e) => handleDateChange('dateStart', e.target.value)}
+                          <input type="date" value={timestampToDateInput(task.dateStart)} onChange={(e) => handleDateChange('dateStart', e.target.value)}
                             className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500" />
                           <span className="text-gray-400 text-xs">→</span>
-                          <input type="date" value={dateToInputValue(task.dateEnd)} onChange={(e) => handleDateChange('dateEnd', e.target.value)}
+                          <input type="date" value={timestampToDateInput(task.dateEnd)} onChange={(e) => handleDateChange('dateEnd', e.target.value)}
                             className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500" />
                         </div>
                       </PropRow>
