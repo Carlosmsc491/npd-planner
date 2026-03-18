@@ -70,19 +70,30 @@ export function readLatestCsv(): string | null {
 }
 
 /**
- * Deletes all CSV files in the output dir except the most recent one.
- * Called after each successful download to avoid accumulating files.
+ * Retención por día:
+ *   - Guarda TODOS los CSVs descargados en el día de hoy.
+ *   - Elimina cualquier CSV de días anteriores (el más antiguo primero).
+ *
+ * Formato de nombre esperado: traze_export_YYYY-MM-DD_HH-mm-ss.csv
  */
 export function cleanupOldCsvFiles(): void {
   const files = getCsvFiles();
-  if (files.length <= 1) return; // nothing to clean
+  if (files.length === 0) return;
 
-  files.slice(1).forEach(file => {
+  const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+  const oldFiles = files.filter(f => {
+    const match = f.name.match(/(\d{4}-\d{2}-\d{2})/);
+    if (!match) return false;          // no reconoce fecha → no borrar
+    return match[1] !== todayStr;      // es de un día anterior
+  });
+
+  oldFiles.forEach(file => {
     try {
       fs.unlinkSync(file.filePath);
-      console.log(`[AwbLookup] Deleted old CSV: ${file.name}`);
+      console.log(`[AwbLookup] CSV anterior eliminado: ${file.name}`);
     } catch (err) {
-      console.error(`[AwbLookup] Failed to delete ${file.name}:`, err);
+      console.error(`[AwbLookup] No se pudo eliminar ${file.name}:`, err);
     }
   });
 }

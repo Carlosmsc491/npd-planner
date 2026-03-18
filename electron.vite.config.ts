@@ -5,7 +5,7 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        external: ['electron'],
+        external: ['electron', 'playwright', 'playwright-core'],
         output: {
           format: 'cjs',
           interop: 'default'

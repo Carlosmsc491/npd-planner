@@ -3,31 +3,30 @@
  * ==========================================
  * File path: src/main/services/trazeIntegrationService.ts
  *
- * Connects the Traze download scheduler with the NPD Planner main window.
- * Handles periodic CSV downloads from trazeapi.com every 2 hours, 7AM–6PM.
+ * Scheduler para descargar el CSV de Traze cada 1 hora, de 7 AM a 6 PM.
+ * También descarga inmediatamente al abrir el app (si está dentro del horario).
  */
 
 import { BrowserWindow } from 'electron';
-import * as path from 'path';
 import * as fs   from 'fs';
+import * as path from 'path';
 import { app }   from 'electron';
-import { setTrazeLoginCallback, setTrazeCsvDownloadCallback, showTrazeLoginWindow, downloadCsvViaTrazeWindow, getOrCreateTrazeWindow } from './trazeWindowManager';
-import { cleanupOldCsvFiles } from './awbLookupService';
-import { getWeekRange }      from '../utils/dateRange';
+import { downloadTrazeCSV }    from './trazePlaywrightService';
+import { cleanupOldCsvFiles }  from './awbLookupService';
 
 const CSV_OUTPUT_DIR = path.join(app.getPath('userData'), 'traze-exports');
+const LAST_RUN_FILE  = path.join(CSV_OUTPUT_DIR, '.last_run');
 
-const SCHEDULE_START_HOUR = 7;  // 7:00 AM
+const SCHEDULE_START_HOUR = 7;   // 7:00 AM
 const SCHEDULE_END_HOUR   = 18;  // 6:00 PM
-const INTERVAL_HOURS      = 2;
-const CHECK_EVERY_MS      = 5 * 60 * 1000; // check every 5 minutes
+const INTERVAL_HOURS      = 1;
+const CHECK_EVERY_MS      = 5 * 60 * 1000; // revisar cada 5 min
 
 let schedulerInterval: ReturnType<typeof setInterval> | null = null;
-let npdWindow: BrowserWindow | null = null;
+let npdWindow:  BrowserWindow | null = null;
+let isDownloading = false;
 
 // ─── Last-run persistence ─────────────────────────────────────────────────────
-
-const LAST_RUN_FILE = path.join(CSV_OUTPUT_DIR, '.last_run');
 
 function getLastRun(): Date | null {
   try {
@@ -65,113 +64,87 @@ function shouldRunNow(): boolean {
 // ─── Download logic ───────────────────────────────────────────────────────────
 
 async function downloadCsv(): Promise<void> {
-  const range = getWeekRange();
-  console.log(`[TrazeIntegration] Downloading: ${range.fromDisplay} → ${range.toDisplay}`);
+  if (isDownloading) {
+    console.log('[TrazeIntegration] Descarga en progreso, se omite');
+    return;
+  }
+
+  isDownloading = true;
+  console.log('[TrazeIntegration] Iniciando descarga CSV...');
 
   try {
-    // Delegate the fetch to the Traze BrowserWindow renderer.
-    // Node.js fetch() in the main process lacks Electron's cookie jar, so
-    // trazeapi.com rejects it with SessionNotFound. The Traze window's renderer
-    // carries the correct session cookies from the user's login.
-    const csvContent = await downloadCsvViaTrazeWindow(range.from, range.to);
+    const filePath = await downloadTrazeCSV();
 
-    // Save to disk
-    fs.mkdirSync(CSV_OUTPUT_DIR, { recursive: true });
-    const dateTag  = new Date().toISOString().slice(0, 10);
-    const filePath = path.join(CSV_OUTPUT_DIR, `shipments_inbound_${dateTag}.csv`);
-    fs.writeFileSync(filePath, csvContent, 'utf-8');
-
-    const rowCount = csvContent.split('\n').filter(Boolean).length - 1;
-    const sizeKb   = parseFloat((csvContent.length / 1024).toFixed(1));
-
-    console.log(`[TrazeIntegration] ✅ CSV saved: ${filePath} (${rowCount} rows, ${sizeKb} KB)`);
+    const content  = fs.readFileSync(filePath, 'utf-8');
+    const rowCount = content.split('\n').filter(Boolean).length - 1;
+    const sizeKb   = parseFloat((content.length / 1024).toFixed(1));
 
     saveLastRun();
     cleanupOldCsvFiles();
+
+    console.log(`[TrazeIntegration] ✅ Descarga completa: ${rowCount} filas, ${sizeKb} KB`);
 
     npdWindow?.webContents.send('traze:csv-downloaded', {
       filePath,
       rowCount,
       sizeKb,
-      dateFrom:     range.from,
-      dateTo:       range.to,
       downloadedAt: new Date().toISOString(),
     });
 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[TrazeIntegration] Download error:', message);
+    console.error('[TrazeIntegration] Error en descarga:', message);
     npdWindow?.webContents.send('traze:csv-error', { message });
+  } finally {
+    isDownloading = false;
   }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Starts the Traze integration service.
- * Call this from main.ts after the NPD Planner window has loaded.
+ * Inicia el servicio de integración con Traze.
+ * Descarga inmediatamente si está dentro del horario,
+ * luego programa descargas cada hora.
  */
 export function startTrazeIntegration(mainWindow: BrowserWindow): void {
   npdWindow = mainWindow;
 
   if (schedulerInterval) stopTrazeIntegration();
 
-  console.log('[TrazeIntegration] Started. Schedule: 7 AM–6 PM, every 2 hours.');
+  console.log('[TrazeIntegration] Iniciado. Horario: 7 AM–6 PM, cada 1 hora.');
 
-  // Download immediately after user logs in to Traze (or on persistent session)
-  // This also handles catch-up: if the user is already logged in, the
-  // did-navigate event fires on page load and triggers this callback.
-  setTrazeLoginCallback(() => {
-    console.log('[TrazeIntegration] Traze login detected → downloading CSV now');
+  // Descargar inmediatamente al abrir el app (si está en horario)
+  if (isWithinSchedule()) {
+    console.log('[TrazeIntegration] Dentro de horario — descargando al abrir app');
     downloadCsv();
-  });
-
-  // Capture CSV files exported manually via the Traze browser UI
-  setTrazeCsvDownloadCallback((filePath, rowCount, sizeKb) => {
-    console.log('[TrazeIntegration] CSV captured via browser export');
-    saveLastRun();
-    cleanupOldCsvFiles();
-    npdWindow?.webContents.send('traze:csv-downloaded', {
-      filePath,
-      rowCount,
-      sizeKb,
-      downloadedAt: new Date().toISOString(),
-    });
-  });
-
-  // Create the Traze window so the user can log in (or persistent session loads)
-  getOrCreateTrazeWindow(true);
-
-  console.log('[TrazeIntegration] Waiting for Traze login to trigger first download...');
+  } else {
+    console.log('[TrazeIntegration] Fuera de horario — esperando próxima ventana');
+  }
 
   schedulerInterval = setInterval(() => {
     if (shouldRunNow()) {
-      console.log('[TrazeIntegration] ⏰ 2h passed → downloading');
+      console.log('[TrazeIntegration] ⏰ 1h pasó → descargando');
       downloadCsv();
     }
   }, CHECK_EVERY_MS);
 }
 
 /**
- * Forces an immediate download. Used by the manual "Download Now" button.
- *
- * Tries the API approach first. Also shows the Traze window so the user
- * can manually set dates and click Export if needed — any CSV downloaded
- * from the window is captured automatically via the will-download handler.
+ * Descarga forzada (botón manual en el UI).
  */
 export async function forceTrazeDownload(): Promise<void> {
-  console.log('[TrazeIntegration] Manual download triggered');
-  showTrazeLoginWindow();
+  console.log('[TrazeIntegration] Descarga manual activada');
   await downloadCsv();
 }
 
 /**
- * Stops the scheduler. Call in app.on('before-quit').
+ * Detiene el scheduler. Llamar en app.on('before-quit').
  */
 export function stopTrazeIntegration(): void {
   if (schedulerInterval) {
     clearInterval(schedulerInterval);
     schedulerInterval = null;
-    console.log('[TrazeIntegration] Stopped.');
+    console.log('[TrazeIntegration] Detenido.');
   }
 }
