@@ -139,6 +139,21 @@ export default function TaskCard({
         </div>
       )}
 
+      {/* AWB summary (Planner board only) */}
+      {board?.type === 'planner' && task.awbs && task.awbs.length > 0 && (
+        <div className="flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 mt-1">
+          <span>✈</span>
+          <span>{task.awbs.length} AWB{task.awbs.length !== 1 ? 's' : ''}</span>
+          <span>·</span>
+          <span>{task.awbs.reduce((s, a) => s + (a.boxes || 0), 0)} boxes</span>
+          {task.awbs.some(a => a.etaChanged) && (
+            <span className="ml-1 px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+              ⚠ ETA changed
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Footer row */}
       <div className="mt-2 flex items-center justify-between">
         <div className="flex items-center gap-1.5">

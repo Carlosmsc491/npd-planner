@@ -1,6 +1,26 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/constants'
 
+// Allowed channels for generic invoke/on/off/send
+const INVOKE_CHANNELS = [
+  'awb:get-latest-csv',
+  'traze:check-auth',
+  'traze:download-now',
+  'traze:get-status',
+] as const
+
+const EVENT_CHANNELS = [
+  'traze:csv-downloaded',
+  'traze:csv-error',
+  'traze:needs-login',
+  'traze:login-success',
+] as const
+
+const SEND_CHANNELS = [
+  'traze:show-login-window',
+  'app:restart-to-update',
+] as const
+
 // Custom APIs for renderer
 const electronAPI = {
   copyFile: (sourcePath: string, destPath: string, createDirs: boolean) =>
@@ -43,6 +63,34 @@ const electronAPI = {
   onNotificationClicked: (callback: (taskId: string) => void) => {
     ipcRenderer.on(IPC.NOTIFICATION_CLICKED, (_event, taskId) => callback(taskId))
     return () => ipcRenderer.removeAllListeners(IPC.NOTIFICATION_CLICKED)
+  },
+
+  // ── Generic invoke for Traze / AWB channels ───────────────────────────────
+  invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {
+    if ((INVOKE_CHANNELS as readonly string[]).includes(channel)) {
+      return ipcRenderer.invoke(channel, ...args)
+    }
+    return Promise.reject(new Error(`Channel "${channel}" not in allowlist`))
+  },
+
+  // ── Generic event subscription ────────────────────────────────────────────
+  on: (channel: string, listener: (...args: unknown[]) => void): void => {
+    if ((EVENT_CHANNELS as readonly string[]).includes(channel)) {
+      ipcRenderer.on(channel, listener as Parameters<typeof ipcRenderer.on>[1])
+    }
+  },
+
+  off: (channel: string, listener: (...args: unknown[]) => void): void => {
+    if ((EVENT_CHANNELS as readonly string[]).includes(channel)) {
+      ipcRenderer.removeListener(channel, listener as Parameters<typeof ipcRenderer.removeListener>[1])
+    }
+  },
+
+  // ── Generic one-way send ──────────────────────────────────────────────────
+  send: (channel: string, ...args: unknown[]): void => {
+    if ((SEND_CHANNELS as readonly string[]).includes(channel)) {
+      ipcRenderer.send(channel, ...args)
+    }
   },
 }
 

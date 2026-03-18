@@ -61,7 +61,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
         description: '',
         notes: '',
         poNumber: '',
-        awbNumber: '',
+        awbs: [],
         subtasks: [],
         attachments: [],
         recurring: null,

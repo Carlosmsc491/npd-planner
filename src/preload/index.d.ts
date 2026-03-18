@@ -13,6 +13,11 @@ export interface IElectronAPI {
   onUpdateAvailable: (callback: () => void) => () => void
   onUpdateDownloaded: (callback: () => void) => () => void
   onNotificationClicked: (callback: (taskId: string) => void) => () => void
+  // Generic Traze / AWB IPC channels
+  invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
+  on: (channel: string, listener: (...args: unknown[]) => void) => void
+  off: (channel: string, listener: (...args: unknown[]) => void) => void
+  send: (channel: string, ...args: unknown[]) => void
 }
 
 declare global {

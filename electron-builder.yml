@@ -47,5 +47,5 @@ appImage:
 npmRebuild: false
 publish:
   provider: github
-  owner: eliteflower
+  owner: Carlosmsc491
   repo: npd-planner

@@ -76,6 +76,30 @@ export interface Board {
 }
 
 // ─────────────────────────────────────────
+// AWB & ORDER STATUS
+// ─────────────────────────────────────────
+
+export interface EtaHistoryEntry {
+  eta: string            // "MM/DD/YYYY" or "MM/DD/YYYY HH:mm"
+  recordedAt: Timestamp
+  source: 'auto' | 'manual'
+  previousEta: string | null
+}
+
+export interface AwbEntry {
+  id: string             // nanoid() — unique per entry
+  number: string         // AWB as entered by user, e.g. "369-9824-2535"
+  boxes: number          // number of boxes on this AWB
+  carrier: string | null       // populated from CSV (carrier column)
+  shipDate: string | null      // "MM/DD/YYYY" from CSV (SHIP DATE column)
+  eta: string | null           // from CSV (ETA column)
+  ata: string | null           // from CSV (ATA column)
+  etaChanged: boolean          // true if ETA changed in the last CSV check
+  lastCheckedAt: Timestamp | null
+  etaHistory: EtaHistoryEntry[]
+}
+
+// ─────────────────────────────────────────
 // TASKS
 // ─────────────────────────────────────────
 
@@ -125,7 +149,7 @@ export interface Task {
   description: string   // rich text HTML
   notes: string
   poNumber: string
-  awbNumber: string
+  awbs: AwbEntry[]
   subtasks: Subtask[]
   attachments: TaskAttachment[]
   recurring: RecurringConfig | null

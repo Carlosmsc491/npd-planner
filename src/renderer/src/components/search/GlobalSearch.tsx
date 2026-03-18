@@ -50,7 +50,7 @@ export default function GlobalSearch({ onClose }: Props) {
 
   // Fuse index over all tasks
   const fuse = useMemo(() => new Fuse(allTasks, {
-    keys: ['title', 'notes', 'description', 'awbNumber', 'poNumber'],
+    keys: ['title', 'notes', 'description', 'poNumber'],
     threshold: 0.35,
     minMatchCharLength: 1,
   }), [allTasks])

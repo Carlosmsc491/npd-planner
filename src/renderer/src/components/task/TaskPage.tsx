@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { onSnapshot, doc } from 'firebase/firestore'
 import {
   User, Calendar, CircleDot, Zap, Users, Tag,
-  Layers, Plane, Hash, StickyNote, Maximize2, ChevronDown,
+  Layers, StickyNote, Maximize2, ChevronDown,
 } from 'lucide-react'
 import { db } from '../../lib/firebase'
 import { updateTaskField, createNotification } from '../../lib/firestore'
@@ -18,7 +18,9 @@ import CommentSection from './CommentSection'
 import AttachmentPanel from './AttachmentPanel'
 import RichTextEditor from './RichTextEditor'
 import { CustomFieldInput } from '../settings/BoardTemplateEditor'
-import type { Task, AppUser, Board, TaskStatus, TaskPriority } from '../../types'
+import { OrderStatusSection } from './OrderStatusSection'
+import { useAwbLookup } from '../../hooks/useAwbLookup'
+import type { Task, AppUser, Board, TaskStatus, TaskPriority, AwbEntry } from '../../types'
 
 interface Props {
   task: Task
@@ -58,6 +60,39 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   const [labelPickerOpen, setLabelPickerOpen] = useState(false)
   const [bucketOpen, setBucketOpen] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
+
+  // ── Order Status (AWB + PO) state ────────────────────────────────────────
+  const [localAwbs, setLocalAwbs] = useState<AwbEntry[]>(task.awbs ?? [])
+  const [localPoNumber, setLocalPoNumber] = useState(task.poNumber ?? '')
+  const { csvStatus, lookupAwbsInTask, downloadNow, isLooking, traze } = useAwbLookup()
+
+  // Sync local state when task changes (e.g., Firestore real-time update)
+  useEffect(() => { setLocalAwbs(task.awbs ?? []) }, [task.awbs])
+  useEffect(() => { setLocalPoNumber(task.poNumber ?? '') }, [task.poNumber])
+
+  // Auto-lookup AWBs when task opens and has AWBs
+  useEffect(() => {
+    if (task.awbs && task.awbs.length > 0) {
+      lookupAwbsInTask(task.id, task.awbs).then(updated => {
+        setLocalAwbs(updated)
+      })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.id])
+
+  // Re-lookup when a new CSV arrives while this task is open
+  const prevDownloadedAt = useRef<string | null>(null)
+  useEffect(() => {
+    if (!csvStatus.downloadedAt) return
+    if (csvStatus.downloadedAt === prevDownloadedAt.current) return
+    prevDownloadedAt.current = csvStatus.downloadedAt
+    if (localAwbs.length > 0) {
+      lookupAwbsInTask(task.id, localAwbs).then(updated => {
+        setLocalAwbs(updated)
+      })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [csvStatus.downloadedAt])
 
   useEffect(() => { setTitleDraft(task.title) }, [task.title])
   useEffect(() => { if (editingTitle) titleRef.current?.focus() }, [editingTitle])
@@ -144,6 +179,20 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     if (!user) return
     // Description: last write wins, no old value passed — no conflict detection
     await updateTaskField(task.id, 'description', html, user.uid, user.name)
+  }
+
+  async function handleAwbsChange(updated: AwbEntry[]) {
+    setLocalAwbs(updated)
+    await save('awbs', updated, task.awbs)
+  }
+
+  async function handlePoNumberChange(value: string) {
+    setLocalPoNumber(value)
+    // Debounce: save 600ms after user stops typing
+    clearTimeout((handlePoNumberChange as { _t?: ReturnType<typeof setTimeout> })._t)
+    ;(handlePoNumberChange as { _t?: ReturnType<typeof setTimeout> })._t = setTimeout(() => {
+      save('poNumber', value, task.poNumber)
+    }, 600)
   }
 
   return (
@@ -433,19 +482,34 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                     )
 
                   case 'builtin-awb':
-                    return (
-                      <PropRow key={prop.id} icon={<Plane size={14} />} label={prop.name}>
-                        <input type="text" defaultValue={task.awbNumber}
-                          onBlur={(e) => { if (e.target.value !== task.awbNumber) save('awbNumber', e.target.value, task.awbNumber) }}
-                          className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
-                          placeholder="AWB number"
-                        />
-                      </PropRow>
-                    )
+                    // For Planner board: render full OrderStatusSection (handles PO + AWBs)
+                    // For other boards: render simple AWB text field (not applicable)
+                    if (board?.type === 'planner') {
+                      return (
+                        <div key={prop.id} className="col-span-full">
+                          <OrderStatusSection
+                            taskId={task.id}
+                            poNumber={localPoNumber}
+                            awbs={localAwbs}
+                            onPoNumberChange={handlePoNumberChange}
+                            onAwbsChange={handleAwbsChange}
+                            readonly={false}
+                            csvStatus={csvStatus}
+                            trazeConnected={traze.connected}
+                            trazeLoading={traze.connecting || isLooking}
+                            onShowTrazeLogin={traze.showLogin}
+                            onDownloadNow={downloadNow}
+                          />
+                        </div>
+                      )
+                    }
+                    return null
 
                   case 'builtin-po':
+                    // Planner board: PO is handled inside OrderStatusSection (builtin-awb case above)
+                    if (board?.type === 'planner') return null
                     return (
-                      <PropRow key={prop.id} icon={<Hash size={14} />} label={prop.name}>
+                      <PropRow key={prop.id} icon={<ChevronDown size={14} />} label={prop.name}>
                         <input type="text" defaultValue={task.poNumber}
                           onBlur={(e) => { if (e.target.value !== task.poNumber) save('poNumber', e.target.value, task.poNumber) }}
                           className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"

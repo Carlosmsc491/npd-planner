@@ -16,7 +16,7 @@ const FIELD_LABELS: Record<string, string> = {
   priority:   'Priority',
   bucket:     'Bucket',
   clientId:   'Client',
-  awbNumber:  'AWB',
+  awbs:       'Air Waybills',
   poNumber:   'P.O. / Order #',
   dateStart:  'Start Date',
   dateEnd:    'End Date',

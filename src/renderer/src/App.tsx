@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from './lib/firebase'
 import { getUser } from './lib/firestore'
@@ -20,8 +20,15 @@ import { useKeyboardShortcuts, useGlobalSearchState } from './hooks/useKeyboardS
 export default function App() {
   const { setUser, setLoading, user } = useAuthStore()
   const { open: searchOpen, openSearch, closeSearch } = useGlobalSearchState()
+  const [updateReady, setUpdateReady] = useState(false)
 
   useKeyboardShortcuts(openSearch)
+
+  // Listen for auto-update events from main process
+  useEffect(() => {
+    const offReady = window.electronAPI.onUpdateDownloaded(() => setUpdateReady(true))
+    return () => { offReady() }
+  }, [])
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -54,6 +61,21 @@ export default function App() {
   return (
     <>
     {searchOpen && <GlobalSearch onClose={closeSearch} />}
+
+    {/* Update-ready banner — appears when a new version downloaded in background */}
+    {updateReady && (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-[#1D9E75] text-white px-5 py-3 rounded-xl shadow-xl text-sm font-medium">
+        <span>Nueva versión lista — se instala al reiniciar</span>
+        <button
+          onClick={() => window.electronAPI.send('app:restart-to-update')}
+          className="bg-white text-[#1D9E75] px-3 py-1 rounded-lg font-semibold hover:bg-green-50 transition-colors"
+        >
+          Reiniciar ahora
+        </button>
+        <button onClick={() => setUpdateReady(false)} className="opacity-70 hover:opacity-100">✕</button>
+      </div>
+    )}
+
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/awaiting-approval" element={<AwaitingApprovalPage />} />
