@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Error Report - NPD Planner</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f9fafb;
+      color: #1f2937;
+      padding: 24px;
+      line-height: 1.5;
+    }
+    .container { max-width: 560px; margin: 0 auto; }
+    .header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .icon {
+      width: 64px;
+      height: 64px;
+      background: #fee2e2;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+      font-size: 32px;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #dc2626;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: #6b7280;
+      font-size: 14px;
+    }
+    .error-box {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .error-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #6b7280;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .error-message {
+      font-family: monospace;
+      font-size: 13px;
+      color: #dc2626;
+      word-break: break-word;
+    }
+    .description-area {
+      width: 100%;
+      min-height: 100px;
+      padding: 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+      resize: vertical;
+      font-family: inherit;
+    }
+    .description-area:focus {
+      outline: none;
+      border-color: #1d9e75;
+    }
+    .hint {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 6px;
+    }
+    .buttons {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    .btn {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #1d9e75;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #178860;
+    }
+    .btn-secondary {
+      background: white;
+      color: #374151;
+      border: 1px solid #d1d5db;
+    }
+    .btn-secondary:hover {
+      background: #f9fafb;
+    }
+    .footer {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #e5e7eb;
+      font-size: 12px;
+      color: #9ca3af;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="icon">⚠️</div>
+      <h1>An Error Occurred</h1>
+      <p class="subtitle">We're sorry, but something went wrong.</p>
+    </div>
+
+    <div class="error-box">
+      <div class="error-label">Error</div>
+      <div class="error-message" id="error-message">Loading...</div>
+    </div>
+
+    <div class="error-box">
+      <div class="error-label">What were you doing?</div>
+      <textarea 
+        id="user-description" 
+        class="description-area"
+        placeholder="Please describe what you were doing before this error occurred. This will help us fix the issue faster."
+      ></textarea>
+      <p class="hint">Your description will be included in the error report.</p>
+    </div>
+
+    <div class="buttons">
+      <button class="btn btn-secondary" onclick="closeWindow()">Close</button>
+      <button class="btn btn-primary" onclick="sendReport()">Send Report</button>
+    </div>
+
+    <div class="footer">
+      Error reports help us improve the app
+    </div>
+  </div>
+
+  <script>
+    let errorData = null;
+
+    // Listen for error data from main process
+    if (window.electronAPI) {
+      // Handle error data sent from main
+      window.electronAPI.onErrorData = (callback) => {
+        window.__onErrorData = callback;
+      };
+    }
+
+    // Receive error data
+    window.__receiveErrorData = (data) => {
+      errorData = data;
+      document.getElementById('error-message').textContent = data.errorMessage || 'Unknown error';
+    };
+
+    function closeWindow() {
+      window.close();
+    }
+
+    async function sendReport() {
+      const description = document.getElementById('user-description').value;
+      
+      if (!errorData) return;
+
+      const report = {
+        ...errorData,
+        userDescription: description
+      };
+
+      try {
+        await window.electronAPI?.sendErrorReport?.(report);
+        alert('Report sent! Thank you for helping us improve.');
+        window.close();
+      } catch (e) {
+        alert('Failed to send report. Please try again.');
+      }
+    }
+  </script>
+</body>
+</html>

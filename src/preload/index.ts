@@ -3,6 +3,7 @@ import { IPC } from '../shared/constants'
 
 // Allowed channels for generic invoke/on/off/send
 const INVOKE_CHANNELS = [
+  'error-report:send',
   'awb:get-latest-csv',
   'traze:check-auth',
   'traze:download-now',
@@ -79,6 +80,9 @@ const electronAPI = {
     ipcRenderer.on(IPC.NOTIFICATION_CLICKED, (_event, taskId) => callback(taskId))
     return () => ipcRenderer.removeAllListeners(IPC.NOTIFICATION_CLICKED)
   },
+
+  sendErrorReport: (report: unknown) =>
+    ipcRenderer.invoke('error-report:send', report),
 
   // ── Generic invoke for Traze / AWB channels ───────────────────────────────
   invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {

@@ -1,10 +1,11 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, globalShortcut } from 'electron'
 import { setupAutoUpdater } from './updater'
 import { join } from 'path'
 import { registerFileHandlers } from './ipc/fileHandlers'
 import { registerNotificationHandlers } from './ipc/notificationHandlers'
 import { startTrazeIntegration, stopTrazeIntegration } from './services/trazeIntegrationService'
 import { registerAwbIpcHandlers } from './ipc/awbIpcHandlers'
+import { errorReporter } from './services/errorReporter'
 
 const isDev = process.env.NODE_ENV === 'development' || !!process.env.ELECTRON_RENDERER_URL
 
@@ -44,6 +45,12 @@ function createWindow(): BrowserWindow {
   
   win.webContents.on('console-message', (_event, level, message, _line, _sourceId) => {
     console.log(`[Renderer:${level}] ${message}`)
+    if (level === 3) errorReporter.log(`[Error] ${message}`)
+  })
+
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[Main] Renderer crashed:', details)
+    errorReporter.handleError('renderer-crash', `Renderer crashed: ${details.reason}`)
   })
   
   win.on('ready-to-show', () => {
@@ -65,9 +72,17 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  // Error reporter IPC handlers
+  ipcMain.handle('error-report:send', async (_event, report) => {
+    const reportPath = await errorReporter.generateReportFile(report)
+    await errorReporter.openEmailWithReport(reportPath, report)
+    return { success: true }
+  })
+
   registerFileHandlers(ipcMain)
   registerNotificationHandlers(ipcMain)
   registerAwbIpcHandlers()
+  errorReporter.log('App started')
 
   const mainWindow = createWindow()
 
@@ -81,15 +96,41 @@ app.whenReady().then(() => {
   // Auto-updater — check for new GitHub Releases on startup (skipped in dev)
   if (!isDev) setupAutoUpdater(mainWindow)
 
+  // Register Ctrl+Shift+R to force reload (hard refresh)
+  globalShortcut.register('CommandOrControl+Shift+R', () => {
+    console.log('[Main] Force reload triggered (Ctrl+Shift+R)')
+    mainWindow.webContents.reloadIgnoringCache()
+  })
+
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      const newWindow = createWindow()
+      // Re-register shortcut for new window
+      globalShortcut.register('CommandOrControl+Shift+R', () => {
+        console.log('[Main] Force reload triggered (Ctrl+Shift+R)')
+        newWindow.webContents.reloadIgnoringCache()
+      })
+    }
   })
 })
 
 app.on('window-all-closed', () => {
+  globalShortcut.unregisterAll()
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', () => {
   stopTrazeIntegration()
+})
+
+// Global error handlers
+process.on('uncaughtException', (error) => {
+  console.error('[Main] Uncaught exception:', error)
+  errorReporter.handleError('uncaughtException', error.message, error.stack)
+})
+
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason)
+  const stack = reason instanceof Error ? reason.stack : undefined
+  errorReporter.handleError('unhandledRejection', message, stack)
 })
