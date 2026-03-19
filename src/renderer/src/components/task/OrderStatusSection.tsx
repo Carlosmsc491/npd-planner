@@ -219,7 +219,7 @@ function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
         <td className="py-2 text-right">
           <button
             onClick={onDelete}
-            className="text-gray-300 hover:text-red-400 dark:hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-sm"
+            className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors text-sm p-1"
             title="Remove AWB"
           >
             ✕
