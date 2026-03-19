@@ -207,7 +207,7 @@ function RichTextEditorInner({ content, onBlur, placeholder = 'Add a description
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm focus:outline-none min-h-[120px] p-3',
+        class: 'prose prose-sm focus:outline-none min-h-[120px] p-3 dark:prose-invert prose-gray text-gray-900 dark:text-gray-100',
       },
     },
   })

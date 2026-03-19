@@ -7,6 +7,18 @@ const INVOKE_CHANNELS = [
   'traze:check-auth',
   'traze:download-now',
   'traze:get-status',
+  // Traze credentials and status
+  'traze:save-credentials',
+  'traze:load-credentials',
+  'traze:has-credentials',
+  'traze:clear-credentials',
+  'traze:get-process-status',
+  'traze:get-logs',
+  'traze:clear-logs',
+  'traze:refresh-csv',
+  // Traze preferences
+  'traze:get-preferences',
+  'traze:set-view-browser',
 ] as const
 
 const EVENT_CHANNELS = [

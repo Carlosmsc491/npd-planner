@@ -3,19 +3,21 @@ import AppLayout from '../components/ui/AppLayout'
 import MembersPanel from '../components/settings/MembersPanel'
 import BoardTemplateEditor from '../components/settings/BoardTemplateEditor'
 import SharePointSetup from '../components/settings/SharePointSetup'
+import TrazeSettings from '../components/settings/TrazeSettings'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import { updateUserName, updateUserPreferences } from '../lib/firestore'
 import { getBoardColor } from '../utils/colorUtils'
 import type { AppUser, Board, Theme } from '../types'
 
-type SettingsTab = 'profile' | 'members' | 'boards' | 'files' | 'appearance' | 'notifications'
+type SettingsTab = 'profile' | 'members' | 'boards' | 'files' | 'appearance' | 'notifications' | 'traze'
 
 const TABS: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
   { id: 'profile',       label: 'Profile' },
   { id: 'members',       label: 'Members',       adminOnly: true },
   { id: 'boards',        label: 'Boards',         adminOnly: true },
   { id: 'files',         label: 'Files' },
+  { id: 'traze',         label: 'Traze' },
   { id: 'appearance',    label: 'Appearance' },
   { id: 'notifications', label: 'Notifications' },
 ]
@@ -98,6 +100,8 @@ export default function SettingsPage() {
         {activeTab === 'notifications' && user && (
           <NotificationsPanel user={user} onUpdate={(u) => setUser(u)} />
         )}
+
+        {activeTab === 'traze' && <TrazeSettings />}
       </div>
     </AppLayout>
   )

@@ -11,14 +11,13 @@
  *   Format: { "email": "...", "password": "..." }
  *
  * OUTPUT:
- *   Saved to {userData}/traze-exports/traze_export.csv
+ *   Saved to {userData}/traze-exports/traze_export_YYYY-MM-DD_HH-mm-ss.csv
  */
 
 import { chromium } from 'playwright';
 import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
-import { readPreferences } from './trazePreferencesService';
 
 const CSV_OUTPUT_DIR    = path.join(app.getPath('userData'), 'traze-exports');
 const CREDENTIALS_FILE  = path.join(app.getPath('userData'), 'traze-credentials.json');
@@ -49,9 +48,7 @@ export async function downloadTrazeCSV(): Promise<string> {
 
   fs.mkdirSync(CSV_OUTPUT_DIR, { recursive: true });
 
-  // Check user preference for view browser mode
-  const preferences = readPreferences();
-  const browser = await chromium.launch({ headless: !preferences.viewBrowser });
+  const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({ acceptDownloads: true });
   const page    = await context.newPage();
 
@@ -115,80 +112,13 @@ export async function downloadTrazeCSV(): Promise<string> {
     await page.waitForSelector('table tbody tr td', { state: 'visible', timeout: 30000 });
     await page.waitForTimeout(2000);
 
-    // ── PASO 4: Activar columnas ETA y ATA ───────────────────────────────────
-    // Abrir panel de columnas
-    await page.waitForSelector('button.btn-columns', { state: 'visible', timeout: 10000 });
-    await page.click('button.btn-columns');
-    await page.waitForTimeout(1000);
-
-    // Activar ETA y ATA haciendo clic en su eyeIcon si están desactivados (fa-ban)
-    await page.evaluate(() => {
-      const items = document.querySelectorAll('li.ui-sortable-handle');
-      let etaDone = false;
-      let ataDone = false;
-
-      for (const item of items) {
-        const title = item.querySelector('.column-title');
-        if (!title) continue;
-        const titleText = title.textContent?.trim();
-        const eyeIcon = item.querySelector('a.eyeIcon') as HTMLElement | null;
-        const eyeSpan = eyeIcon ? eyeIcon.querySelector('span') : null;
-
-        if (titleText === 'ETA' && !etaDone) {
-          // Solo activar si está desactivado (fa-ban)
-          if (eyeSpan && eyeSpan.classList.contains('fa-ban')) {
-            eyeIcon?.click();
-          }
-          etaDone = true;
-        } else if (titleText === 'ATA' && !ataDone) {
-          // Solo activar si está desactivado (fa-ban)
-          if (eyeSpan && eyeSpan.classList.contains('fa-ban')) {
-            eyeIcon?.click();
-          }
-          ataDone = true;
-        }
-        if (etaDone && ataDone) break;
-      }
-    });
-
-    await page.waitForTimeout(500);
-
-    // Verificar que quedaron activados (fa-check)
-    const columnsOk = await page.evaluate(() => {
-      const items = document.querySelectorAll('li.ui-sortable-handle');
-      let etaOk = false;
-      let ataOk = false;
-      for (const item of items) {
-        const title = item.querySelector('.column-title');
-        if (!title) continue;
-        const titleText = title.textContent?.trim();
-        const eyeSpan = item.querySelector('a.eyeIcon span');
-        if (titleText === 'ETA' && !etaOk) {
-          etaOk = !!(eyeSpan && eyeSpan.classList.contains('fa-check'));
-        }
-        if (titleText === 'ATA' && !ataOk) {
-          ataOk = !!(eyeSpan && eyeSpan.classList.contains('fa-check'));
-        }
-        if (etaOk && ataOk) break;
-      }
-      return { etaOk, ataOk };
-    });
-
-    console.log(`[TrazePlaywright] ✅ Columnas activadas — ETA: ${columnsOk.etaOk}, ATA: ${columnsOk.ataOk}`);
-
-    // Clic en Apply
-    await page.waitForSelector('button.apply.btn-primary', { state: 'visible', timeout: 10000 });
-    await page.click('button.apply.btn-primary');
-
-    // Esperar que recargue la tabla
-    await page.waitForLoadState('networkidle', { timeout: 30000 });
-    await page.waitForSelector('table tbody tr td', { state: 'visible', timeout: 30000 });
-    await page.waitForTimeout(2000);
-
-    // ── PASO 5: Export CSV ───────────────────────────────────────────────────
+    // ── PASO 4: Export CSV ───────────────────────────────────────────────────
     await page.waitForSelector('button:has-text("Export")', { state: 'visible', timeout: 15000 });
 
-    const savePath = path.join(CSV_OUTPUT_DIR, 'traze_export.csv');
+    const now     = new Date();
+    const dateTag = now.toISOString().slice(0, 10);
+    const timeTag = now.toTimeString().slice(0, 8).replace(/:/g, '-');
+    const savePath = path.join(CSV_OUTPUT_DIR, `traze_export_${dateTag}_${timeTag}.csv`);
 
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 30000 }),

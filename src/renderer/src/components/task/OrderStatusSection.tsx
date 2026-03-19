@@ -12,6 +12,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Timestamp }     from 'firebase/firestore';
 import type { AwbEntry, EtaHistoryEntry } from '../../types';
 import { nanoid }        from 'nanoid';
+import { RefreshCw }     from 'lucide-react';
+import { useTrazeRefresh } from '../../hooks/useTrazeRefresh';
 
 // ─── ETA History Popover ──────────────────────────────────────────────────────
 
@@ -53,11 +55,11 @@ function EtaHistoryPopover({ awbNumber, history, onClose }: EtaHistoryPopoverPro
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm">✕</button>
       </div>
 
-      {history.length === 0 ? (
+      {!history || history.length === 0 ? (
         <p className="text-xs text-gray-400">No history yet.</p>
       ) : (
         <div className="space-y-2">
-          {[...history].reverse().map((entry, idx) => (
+          {[...(history || [])].reverse().map((entry, idx) => (
             <div key={idx} className="border-b border-gray-100 dark:border-gray-700 pb-2 last:border-0 last:pb-0">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500 dark:text-gray-400">
@@ -95,9 +97,23 @@ interface AwbRowProps {
 
 function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
   const [showHistory, setShowHistory] = useState(false);
+  
+  // Ensure awb has default values to prevent crashes
+  const safeAwb: AwbEntry = {
+    id: awb.id || '',
+    number: awb.number || '',
+    boxes: awb.boxes || 0,
+    carrier: awb.carrier || null,
+    shipDate: awb.shipDate || null,
+    eta: awb.eta || null,
+    ata: awb.ata || null,
+    etaChanged: awb.etaChanged || false,
+    lastCheckedAt: awb.lastCheckedAt || null,
+    etaHistory: awb.etaHistory || [],
+  };
 
   const handleField = (field: keyof AwbEntry, value: string | number) => {
-    onChange({ ...awb, [field]: value });
+    onChange({ ...safeAwb, [field]: value });
   };
 
   return (
@@ -105,59 +121,59 @@ function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
       {/* AWB Number */}
       <td className="py-2 pr-2">
         {readonly ? (
-          <span className="text-sm font-mono text-gray-800 dark:text-gray-100">{awb.number}</span>
+          <span className="text-sm font-mono text-gray-800 dark:text-gray-100">{safeAwb.number}</span>
         ) : (
           <input
             type="text"
-            value={awb.number}
+            value={safeAwb.number}
             onChange={e => handleField('number', e.target.value)}
             placeholder="369-0000-0000"
-            className="w-36 text-sm font-mono bg-transparent border-b border-gray-200 dark:border-gray-600 focus:border-[#1D9E75] outline-none text-gray-800 dark:text-gray-100 placeholder-gray-300"
+            className="w-32 text-sm font-mono bg-transparent border-b border-gray-200 dark:border-gray-600 focus:border-[#1D9E75] outline-none text-gray-800 dark:text-gray-100 placeholder-gray-300"
           />
         )}
       </td>
 
       {/* Boxes */}
-      <td className="py-2 pr-3">
+      <td className="py-2 pr-2">
         {readonly ? (
-          <span className="text-sm text-gray-700 dark:text-gray-300">{awb.boxes}</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">{safeAwb.boxes}</span>
         ) : (
           <input
             type="number"
             min={0}
-            value={awb.boxes || ''}
+            value={safeAwb.boxes || ''}
             onChange={e => handleField('boxes', parseInt(e.target.value) || 0)}
             placeholder="0"
-            className="w-16 text-sm bg-transparent border-b border-gray-200 dark:border-gray-600 focus:border-[#1D9E75] outline-none text-gray-800 dark:text-gray-100 placeholder-gray-300"
+            className="w-14 text-sm bg-transparent border-b border-gray-200 dark:border-gray-600 focus:border-[#1D9E75] outline-none text-gray-800 dark:text-gray-100 placeholder-gray-300"
           />
         )}
       </td>
 
       {/* Carrier (auto-filled from CSV) */}
-      <td className="py-2 pr-3">
+      <td className="py-2 pr-2">
         <span className="text-sm text-gray-600 dark:text-gray-400">
-          {awb.carrier || '—'}
+          {safeAwb.carrier || '—'}
         </span>
       </td>
 
       {/* Ship Date (auto-filled from CSV) */}
-      <td className="py-2 pr-3">
+      <td className="py-2 pr-2">
         <span className="text-sm text-gray-600 dark:text-gray-400">
-          {awb.shipDate || '—'}
+          {safeAwb.shipDate || '—'}
         </span>
       </td>
 
       {/* ETA */}
-      <td className="py-2 pr-3 relative">
-        <div className="flex items-center gap-1.5">
+      <td className="py-2 pr-2 relative">
+        <div className="flex items-center gap-1">
           <span className="text-sm text-gray-700 dark:text-gray-300">
-            {awb.eta || '—'}
+            {safeAwb.eta || '—'}
           </span>
-          {awb.etaChanged && (
+          {safeAwb.etaChanged && (
             <div className="relative">
               <button
                 onClick={() => setShowHistory(v => !v)}
-                className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors"
+                className="flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors"
                 title="ETA changed — click to see history"
               >
                 <span>⚠</span>
@@ -165,8 +181,8 @@ function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
               </button>
               {showHistory && (
                 <EtaHistoryPopover
-                  awbNumber={awb.number}
-                  history={awb.etaHistory}
+                  awbNumber={safeAwb.number}
+                  history={safeAwb.etaHistory}
                   onClose={() => setShowHistory(false)}
                 />
               )}
@@ -176,9 +192,9 @@ function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
       </td>
 
       {/* ATA (auto-filled from CSV) */}
-      <td className="py-2 pr-3">
+      <td className="py-2 pr-2">
         <span className="text-sm text-gray-600 dark:text-gray-400">
-          {awb.ata || '—'}
+          {safeAwb.ata || '—'}
         </span>
       </td>
 
@@ -211,10 +227,6 @@ interface OrderStatusSectionProps {
     exists:       boolean
     downloadedAt: string | null
   }
-  trazeConnected?:  boolean
-  trazeLoading?:    boolean
-  onShowTrazeLogin?: () => void
-  onDownloadNow?:   () => void
 }
 
 export function OrderStatusSection({
@@ -225,14 +237,24 @@ export function OrderStatusSection({
   onAwbsChange,
   readonly = false,
   csvStatus,
-  trazeConnected = false,
-  trazeLoading = false,
-  onShowTrazeLogin,
-  onDownloadNow,
 }: OrderStatusSectionProps) {
+  
+  // Ensure awbs is always an array
+  const safeAwbs = awbs || [];
 
-  // taskId used for future per-task save logic
-  void taskId;
+  // Smart refresh hook with 30-min cache logic
+  const { isRefreshing, lastRefreshMessage, refreshAwbs } = useTrazeRefresh();
+  
+  // Handle Update button click
+  const handleUpdate = async () => {
+    if (isRefreshing) return;
+    
+    const updatedAwbs = await refreshAwbs(taskId, safeAwbs);
+    // Only update if there were changes
+    if (updatedAwbs !== safeAwbs) {
+      onAwbsChange(updatedAwbs);
+    }
+  };
 
   const addAwb = () => {
     const newEntry: AwbEntry = {
@@ -247,78 +269,67 @@ export function OrderStatusSection({
       lastCheckedAt: null,
       etaHistory:    [],
     };
-    onAwbsChange([...awbs, newEntry]);
+    onAwbsChange([...safeAwbs, newEntry]);
   };
 
   const updateAwb = (index: number, updated: AwbEntry) => {
-    const next = [...awbs];
+    const next = [...safeAwbs];
     next[index] = updated;
     onAwbsChange(next);
   };
 
   const deleteAwb = (index: number) => {
-    onAwbsChange(awbs.filter((_, i) => i !== index));
+    onAwbsChange(safeAwbs.filter((_, i) => i !== index));
   };
 
   const clearChanged = (index: number) => {
-    const next = [...awbs];
+    const next = [...safeAwbs];
     next[index] = { ...next[index], etaChanged: false };
     onAwbsChange(next);
   };
 
-  const totalBoxes = awbs.reduce((sum, a) => sum + (a.boxes || 0), 0);
+  const totalBoxes = safeAwbs.reduce((sum, a) => sum + (a.boxes || 0), 0);
 
   const formatLastDownload = () => {
     if (!csvStatus?.downloadedAt) return null;
-    return new Date(csvStatus.downloadedAt).toLocaleString('en-US', {
-      month: '2-digit', day: '2-digit',
-      hour:  '2-digit', minute: '2-digit',
-    });
+    const date = new Date(csvStatus.downloadedAt);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-700">
         <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
           Order Status
         </span>
-        {/* Traze connection status */}
-        <div className="flex items-center gap-2">
-          {trazeConnected ? (
-            <span className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-              Traze connected
-              {formatLastDownload() && (
-                <span className="text-gray-400 dark:text-gray-500">
-                  · {formatLastDownload()}
-                </span>
-              )}
-              <button
-                onClick={onDownloadNow}
-                disabled={trazeLoading}
-                title="Refresh from Traze"
-                className="ml-1 text-gray-400 hover:text-[#1D9E75] disabled:opacity-50 transition-colors"
-              >
-                <span
-                  className={trazeLoading ? 'inline-block animate-spin' : 'inline-block'}
-                  style={{ display: 'inline-block' }}
-                >
-                  ↻
-                </span>
-              </button>
+        
+        {/* Update Button */}
+        <button
+          onClick={handleUpdate}
+          disabled={isRefreshing}
+          className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-[#1D9E75] disabled:opacity-50 transition-colors"
+          title={lastRefreshMessage || 'Update AWB data from Traze'}
+        >
+          <RefreshCw
+            size={14}
+            className={isRefreshing ? 'animate-spin' : ''}
+          />
+          <span>Update</span>
+          {csvStatus?.exists && (
+            <span className="text-gray-400 dark:text-gray-500">
+              · {formatLastDownload()}
             </span>
-          ) : (
-            <button
-              onClick={onShowTrazeLogin}
-              disabled={trazeLoading}
-              className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#1D9E75] disabled:opacity-50 transition-colors"
-            >
-              <span className={`w-1.5 h-1.5 rounded-full inline-block ${trazeLoading ? 'bg-yellow-400 animate-pulse' : 'bg-gray-300'}`} />
-              {trazeLoading ? 'Connecting…' : 'Connect Traze'}
-            </button>
           )}
-        </div>
+        </button>
       </div>
 
       <div className="p-4 space-y-4">
@@ -342,16 +353,16 @@ export function OrderStatusSection({
           )}
         </div>
 
-        {/* AWB Table */}
+        {/* AWB Table - Sin scroll, todo visible */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
                 Air Waybills
               </span>
-              {awbs.length > 0 && (
+              {safeAwbs.length > 0 && (
                 <span className="text-xs text-gray-400 dark:text-gray-500">
-                  {awbs.length} AWB{awbs.length !== 1 ? 's' : ''} · {totalBoxes} boxes total
+                  {safeAwbs.length} AWB{safeAwbs.length !== 1 ? 's' : ''} · {totalBoxes} boxes
                 </span>
               )}
             </div>
@@ -366,36 +377,34 @@ export function OrderStatusSection({
             )}
           </div>
 
-          {awbs.length === 0 ? (
+          {safeAwbs.length === 0 ? (
             <div className="text-xs text-gray-400 dark:text-gray-500 py-3 text-center border border-dashed border-gray-200 dark:border-gray-700 rounded">
               {readonly ? 'No AWBs assigned' : 'No AWBs yet — click + Add AWB'}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-gray-100 dark:border-gray-700">
-                    {['AWB #', 'Boxes', 'Carrier', 'Ship Date', 'ETA', 'ATA', ''].map(h => (
-                      <th key={h} className="text-xs text-gray-400 dark:text-gray-500 font-medium pb-1.5 pr-3">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {awbs.map((awb, idx) => (
-                    <AwbRow
-                      key={awb.id}
-                      awb={awb}
-                      readonly={readonly}
-                      onChange={updated => updateAwb(idx, updated)}
-                      onDelete={() => deleteAwb(idx)}
-                      onClearChanged={() => clearChanged(idx)}
-                    />
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-gray-100 dark:border-gray-700">
+                  {['AWB #', 'Boxes', 'Carrier', 'Ship Date', 'ETA', 'ATA', ''].map(h => (
+                    <th key={h} className="text-xs text-gray-400 dark:text-gray-500 font-medium pb-1.5 pr-2 whitespace-nowrap">
+                      {h}
+                    </th>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </tr>
+              </thead>
+              <tbody>
+                {safeAwbs.map((awb, idx) => (
+                  <AwbRow
+                    key={awb.id}
+                    awb={awb}
+                    readonly={readonly}
+                    onChange={updated => updateAwb(idx, updated)}
+                    onDelete={() => deleteAwb(idx)}
+                    onClearChanged={() => clearChanged(idx)}
+                  />
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       </div>

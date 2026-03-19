@@ -64,7 +64,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   // ── Order Status (AWB + PO) state ────────────────────────────────────────
   const [localAwbs, setLocalAwbs] = useState<AwbEntry[]>(task.awbs ?? [])
   const [localPoNumber, setLocalPoNumber] = useState(task.poNumber ?? '')
-  const { csvStatus, lookupAwbsInTask, downloadNow, isLooking, traze } = useAwbLookup()
+  const { csvStatus, lookupAwbsInTask } = useAwbLookup()
 
   // Sync local state when task changes (e.g., Firestore real-time update)
   useEffect(() => { setLocalAwbs(task.awbs ?? []) }, [task.awbs])
@@ -495,10 +495,6 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                             onAwbsChange={handleAwbsChange}
                             readonly={false}
                             csvStatus={csvStatus}
-                            trazeConnected={traze.connected}
-                            trazeLoading={traze.connecting || isLooking}
-                            onShowTrazeLogin={traze.showLogin}
-                            onDownloadNow={downloadNow}
                           />
                         </div>
                       )
