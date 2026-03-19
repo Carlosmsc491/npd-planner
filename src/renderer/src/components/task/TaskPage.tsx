@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { onSnapshot, doc } from 'firebase/firestore'
 import {
   User, Calendar, CircleDot, Zap, Users, Tag,
-  Layers, StickyNote, Maximize2, ChevronDown,
+  Layers, Maximize2, ChevronDown,
 } from 'lucide-react'
 import { db } from '../../lib/firebase'
 import { updateTaskField, createNotification } from '../../lib/firestore'
@@ -13,8 +13,6 @@ import { useSettingsStore } from '../../store/settingsStore'
 import { STATUS_STYLES, getBoardColor, BOARD_BUCKETS, getInitials, getInitialsColor } from '../../utils/colorUtils'
 import { toFirestoreDate, timestampToDateInput } from '../../utils/dateUtils'
 import SubtaskList from './SubtaskList'
-import ActivityLog from './ActivityLog'
-import CommentSection from './CommentSection'
 import AttachmentPanel from './AttachmentPanel'
 import RichTextEditor from './RichTextEditor'
 import { CustomFieldInput } from '../settings/BoardTemplateEditor'
@@ -33,8 +31,6 @@ interface Props {
   isFullPage?: boolean
 }
 
-type Tab = 'details' | 'activity' | 'comments'
-
 export default function TaskPage({ task: initialTask, board, users, onClose, onDelete, onRecurring, onDuplicate, isFullPage }: Props) {
   const navigate = useNavigate()
   const { user } = useAuthStore()
@@ -50,14 +46,11 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     })
     return unsub
   }, [initialTask.id])
-
-  const [activeTab, setActiveTab] = useState<Tab>('details')
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
   const [newClientName, setNewClientName] = useState('')
   const [showNewClient, setShowNewClient] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [labelPickerOpen, setLabelPickerOpen] = useState(false)
   const [bucketOpen, setBucketOpen] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
 
@@ -297,21 +290,13 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 dark:border-gray-700 px-6">
-        {(['details', 'activity', 'comments'] as Tab[]).map((tab) => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`capitalize px-1 py-2.5 text-sm font-medium mr-5 border-b-2 -mb-px transition-colors ${activeTab === tab ? 'border-green-500 text-green-600 dark:text-green-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
-          >{tab}</button>
-        ))}
-      </div>
+
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
 
-        {/* ── DETAILS TAB ── */}
-        {activeTab === 'details' && (
-          <>
+        {/* ── DETAILS ── */}
+        <>
             {(board?.customProperties ?? [])
               .slice()
               .sort((a, b) => a.order - b.order)
@@ -386,20 +371,52 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                   case 'builtin-assignees':
                     return (
                       <PropRow key={prop.id} icon={<Users size={14} />} label={prop.name}>
-                        <div className="flex flex-wrap gap-1.5">
-                          {users.map((u) => {
-                            const assigned = task.assignees.includes(u.uid)
+                        <div className="flex flex-wrap gap-1.5 items-center">
+                          {/* Selected assignees as pills */}
+                          {task.assignees.map((uid) => {
+                            const u = users.find((user) => user.uid === uid)
+                            if (!u) return null
                             return (
-                              <button key={u.uid} onClick={() => toggleAssignee(u.uid)} title={u.name}
-                                className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs transition-colors border ${assigned ? 'border-green-500 bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 dark:border-green-600' : 'border-gray-200 text-gray-500 hover:border-gray-300 dark:border-gray-700 dark:text-gray-400'}`}
+                              <span
+                                key={uid}
+                                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium border bg-green-50 text-green-700 border-green-500 dark:bg-green-900/20 dark:text-green-400"
                               >
-                                <div className="h-4 w-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white" style={{ backgroundColor: getInitialsColor(u.name) }}>
+                                <span
+                                  className="h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                                  style={{ backgroundColor: getInitialsColor(u.name) }}
+                                >
                                   {getInitials(u.name)}
-                                </div>
-                                {u.name.split(' ')[0]}
-                              </button>
+                                </span>
+                                {u.name}
+                                <button
+                                  onClick={() => toggleAssignee(uid)}
+                                  className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
+                                >
+                                  ✕
+                                </button>
+                              </span>
                             )
                           })}
+                          {/* Dropdown for adding assignees */}
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                toggleAssignee(e.target.value)
+                                e.target.value = ''
+                              }
+                            }}
+                            className="text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-gray-500 focus:outline-none focus:border-green-500"
+                          >
+                            <option value="">+ Add assignee</option>
+                            {users
+                              .filter((u) => !task.assignees.includes(u.uid))
+                              .map((u) => (
+                                <option key={u.uid} value={u.uid}>
+                                  {u.name}
+                                </option>
+                              ))}
+                          </select>
                         </div>
                       </PropRow>
                     )
@@ -407,48 +424,48 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                   case 'builtin-labels':
                     return (
                       <PropRow key={prop.id} icon={<Tag size={14} />} label={prop.name}>
-                        <div className="relative flex flex-wrap gap-1.5 flex-1">
+                        <div className="flex flex-wrap gap-1.5 items-center">
+                          {/* Selected labels as pills */}
                           {(task.labelIds ?? []).map((lid) => {
                             const l = labels.find((x) => x.id === lid)
                             if (!l) return null
                             return (
-                              <button key={l.id} onClick={() => toggleLabel(l.id)} title="Click to remove"
-                                className="rounded-full px-2.5 py-0.5 text-xs font-semibold transition-opacity hover:opacity-75"
+                              <span
+                                key={l.id}
+                                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium"
                                 style={{ backgroundColor: l.color, color: l.textColor }}
-                              >{l.name}</button>
+                              >
+                                {l.name}
+                                <button
+                                  onClick={() => toggleLabel(l.id)}
+                                  className="opacity-75 hover:opacity-100"
+                                  style={{ color: l.textColor }}
+                                >
+                                  ✕
+                                </button>
+                              </span>
                             )
                           })}
-                          <button
-                            onClick={() => setLabelPickerOpen((v) => !v)}
-                            className="rounded-full border border-dashed border-gray-300 dark:border-gray-600 px-2.5 py-0.5 text-xs text-gray-400 hover:border-green-500 hover:text-green-600 dark:hover:border-green-600 dark:hover:text-green-400 transition-colors"
-                          >{labelPickerOpen ? '✕' : '+ label'}</button>
-                          {labelPickerOpen && (
-                            <>
-                              <div className="fixed inset-0 z-10" onClick={() => setLabelPickerOpen(false)} />
-                              <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
-                                {labels.length === 0 ? (
-                                  <p className="px-3 py-3 text-xs text-gray-400">No labels yet — create them in Settings</p>
-                                ) : (
-                                  labels.map((l) => {
-                                    const active = (task.labelIds ?? []).includes(l.id)
-                                    return (
-                                      <button key={l.id} onClick={() => toggleLabel(l.id)}
-                                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                                      >
-                                        <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
-                                        <span className="flex-1 text-gray-700 dark:text-gray-300">{l.name}</span>
-                                        {active && (
-                                          <svg className="h-3.5 w-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                          </svg>
-                                        )}
-                                      </button>
-                                    )
-                                  })
-                                )}
-                              </div>
-                            </>
-                          )}
+                          {/* Dropdown for adding labels */}
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                toggleLabel(e.target.value)
+                                e.target.value = ''
+                              }
+                            }}
+                            className="text-sm rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-gray-400 focus:outline-none focus:border-green-500"
+                          >
+                            <option value="">+ label</option>
+                            {labels
+                              .filter((l) => !(task.labelIds ?? []).includes(l.id))
+                              .map((l) => (
+                                <option key={l.id} value={l.id}>
+                                  {l.name}
+                                </option>
+                              ))}
+                          </select>
                         </div>
                       </PropRow>
                     )
@@ -541,16 +558,8 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                     )
 
                   case 'builtin-notes':
-                    return (
-                      <PropRow key={prop.id} icon={<StickyNote size={14} />} label={prop.name}>
-                        <textarea defaultValue={task.notes}
-                          onBlur={(e) => { if (e.target.value !== task.notes) save('notes', e.target.value, task.notes) }}
-                          rows={3}
-                          className="flex-1 resize-none rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
-                          placeholder="Add notes…"
-                        />
-                      </PropRow>
-                    )
+                    // Notes field removed - not needed
+                    return null
 
                   default:
                     return (
@@ -590,21 +599,8 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
               <AttachmentPanel task={task} />
             </div>
           </>
-        )}
 
-        {/* ── ACTIVITY TAB ── */}
-        {activeTab === 'activity' && <ActivityLog taskId={task.id} />}
 
-        {/* ── COMMENTS TAB ── */}
-        {activeTab === 'comments' && (
-          <CommentSection
-            taskId={task.id}
-            taskTitle={task.title}
-            boardId={task.boardId}
-            boardType={board?.type ?? 'planner'}
-            assignees={task.assignees}
-          />
-        )}
       </div>
     </div>
   )

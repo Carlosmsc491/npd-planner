@@ -78,12 +78,6 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* Flight Status */}
-        <FlightStatusPanel
-          tasks={flightTasks}
-          onTaskClick={(boardId) => navigate(`/board/${boardId}`)}
-        />
-
         {/* Boards quick access */}
         {boards.length > 0 && (
           <div className="mb-8">
@@ -110,6 +104,12 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        {/* Flight Status */}
+        <FlightStatusPanel
+          tasks={flightTasks}
+          onTaskClick={(boardId) => navigate(`/board/${boardId}`)}
+        />
 
         {/* My tasks */}
         {mine.length > 0 && (

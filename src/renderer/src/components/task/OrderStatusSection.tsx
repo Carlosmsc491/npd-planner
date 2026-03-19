@@ -8,7 +8,7 @@
  * Only shown for Planner Board tasks.
  */
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Timestamp }     from 'firebase/firestore';
 import type { AwbEntry, EtaHistoryEntry } from '../../types';
 import { nanoid }        from 'nanoid';
@@ -260,11 +260,14 @@ export function OrderStatusSection({
   // Ensure awbs is always an array
   const safeAwbs = awbs || [];
 
-  // Merge single poNumber + array for display (backward compatibility)
-  const allPoNumbers = useMemo(() => {
-    const combined = poNumber ? [poNumber, ...poNumbers] : [...poNumbers]
-    return combined.length > 0 ? combined : []
-  }, [poNumber, poNumbers])
+  // Local state for PO numbers to avoid duplications from prop merging
+  const [localPos, setLocalPos] = useState<string[]>(() =>
+    poNumbers.length > 0 ? poNumbers : (poNumber ? [poNumber] : [''])
+  )
+
+  useEffect(() => {
+    setLocalPos(poNumbers.length > 0 ? poNumbers : (poNumber ? [poNumber] : ['']))
+  }, [poNumbers, poNumber])
 
   // Smart refresh hook with 30-min cache logic
   const { isRefreshing, lastRefreshMessage, refreshAwbs } = useTrazeRefresh();
@@ -366,7 +369,7 @@ export function OrderStatusSection({
             </span>
             {!readonly && (
               <button
-                onClick={() => onPoNumbersChange([...allPoNumbers, ''])}
+                onClick={() => setLocalPos([...localPos, ''])}
                 className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:text-green-700"
                 title="Add PO Number"
               >
@@ -375,16 +378,21 @@ export function OrderStatusSection({
             )}
           </div>
           <div className="space-y-1">
-            {allPoNumbers.map((po, idx) => (
+            {localPos.map((po, idx) => (
               <div key={idx} className="flex items-center gap-1">
                 <input
                   type="text"
                   value={po}
                   onChange={(e) => {
-                    // Solo actualizar estado local, NO guardar aún
-                    const updated = [...allPoNumbers]
+                    const updated = [...localPos]
                     updated[idx] = e.target.value
-                    onPoNumbersChange(updated)
+                    setLocalPos(updated)
+                  }}
+                  onBlur={() => {
+                    const cleaned = localPos.filter(p => p.trim() !== '')
+                    const next = cleaned.length > 0 ? cleaned : []
+                    setLocalPos(next.length > 0 ? next : [''])
+                    onPoNumbersChange(cleaned)
                   }}
                   placeholder="e.g. PO-12345"
                   readOnly={readonly}
@@ -392,9 +400,12 @@ export function OrderStatusSection({
                 />
                 {!readonly && (
                   <button
+                    type="button"
                     onClick={() => {
-                      const filtered = allPoNumbers.filter((_, i) => i !== idx)
-                      onPoNumbersChange(filtered.length > 0 ? filtered : [''])
+                      const next = localPos.filter((_, i) => i !== idx)
+                      const final = next.length > 0 ? next : ['']
+                      setLocalPos(final)
+                      onPoNumbersChange(next.filter(p => p.trim() !== ''))
                     }}
                     className="text-gray-400 hover:text-red-500 text-xs p-1"
                     title="Remove"

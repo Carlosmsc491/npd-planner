@@ -137,7 +137,23 @@ export default function FlightStatusPanel({ tasks, onTaskClick }: Props) {
     return result.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
   }, [tasks])  // tick not in deps — re-sort only when tasks change; status badge re-renders via tick
 
-  if (rows.length === 0) return null
+  if (rows.length === 0) {
+    return (
+      <div className="mb-8">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3 flex items-center gap-2">
+          <Plane size={13} />
+          Flight Status
+        </h2>
+        <div className="rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-6 py-8 flex flex-col items-center justify-center text-center">
+          <Plane size={28} className="text-gray-300 dark:text-gray-600 mb-2" />
+          <p className="text-sm font-medium text-gray-400 dark:text-gray-500">No active flights</p>
+          <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">
+            Add an AWB with ETA or ATA to a task to track it here
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="mb-8">
