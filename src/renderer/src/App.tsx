@@ -14,6 +14,8 @@ import TaskFullPage from './pages/TaskFullPage'
 import CalendarPage from './pages/CalendarPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import SettingsPage from './pages/SettingsPage'
+import MyTasksPage from './pages/MyTasksPage'
+import MySpacePage from './pages/MySpacePage'
 import GlobalSearch from './components/search/GlobalSearch'
 import { useKeyboardShortcuts, useGlobalSearchState } from './hooks/useKeyboardShortcuts'
 
@@ -82,6 +84,8 @@ export default function App() {
       <Route path="/emergency" element={<EmergencyPage />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/my-tasks" element={<MyTasksPage />} />
+        <Route path="/my-space" element={<MySpacePage />} />
         <Route path="/board/:boardId" element={<BoardPage />} />
         <Route path="/task/:taskId" element={<TaskFullPage />} />
         <Route path="/calendar" element={<CalendarPage />} />

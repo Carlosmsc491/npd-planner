@@ -10,15 +10,13 @@ import AppLayout from '../components/ui/AppLayout'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import {
-  subscribeToAllTasks, subscribeToArchive, getArchiveByYear, archiveOldTasks,
-  getOldTasksToArchive, COLLECTIONS
+  subscribeToAllTasks, subscribeToArchive, getArchiveByYear
 } from '../lib/firestore'
 import { exportSummaryToCSV } from '../utils/exportUtils'
 import type { Task, AnnualSummary, AppUser, Board } from '../types'
-import { Timestamp } from 'firebase/firestore'
 import {
   TrendingUp, TrendingDown, Calendar, Users, Briefcase, LayoutGrid,
-  Download, FileText, FileSpreadsheet, Archive, AlertCircle, CheckCircle2
+  FileText, FileSpreadsheet, Archive, CheckCircle2
 } from 'lucide-react'
 
 // Color palette matching the app
@@ -26,19 +24,6 @@ const CHART_COLORS = [
   '#1D9E75', '#378ADD', '#D4537E', '#F59E0B', '#8B5CF6',
   '#EC4899', '#14B8A6', '#F97316', '#EF4444', '#6B7280'
 ]
-
-const STATUS_COLORS = {
-  todo: '#F1EFE8',
-  inprogress: '#FAEEDA',
-  review: '#E6F1FB',
-  done: '#E1F5EE'
-}
-
-const BOARD_COLORS: Record<string, string> = {
-  planner: '#1D9E75',
-  trips: '#378ADD',
-  vacations: '#D4537E'
-}
 
 type TabType = 'dashboard' | 'annual'
 
@@ -384,7 +369,7 @@ function DashboardTab({ boards }: DashboardTabProps) {
                   dataKey="count"
                   nameKey="name"
                 >
-                  {boardData.map((entry, index) => (
+                  {boardData.map((_entry, index) => (
                     <Cell
                       key={`cell-${index}`}
                       fill={CHART_COLORS[index % CHART_COLORS.length]}

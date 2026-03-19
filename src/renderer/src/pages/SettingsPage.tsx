@@ -13,7 +13,7 @@ import { getBoardColor } from '../utils/colorUtils'
 import type { AppUser, Board, Theme, ShortcutAction } from '../types'
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTION_LABELS } from '../types'
 
-type SettingsTab = 'profile' | 'members' | 'boards' | 'clients' | 'labels' | 'files' | 'appearance' | 'notifications' | 'shortcuts' | 'traze'
+type SettingsTab = 'profile' | 'members' | 'boards' | 'clients' | 'labels' | 'files' | 'appearance' | 'notifications' | 'shortcuts' | 'archive' | 'traze'
 
 const TABS: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
   { id: 'profile',       label: 'Profile' },
@@ -26,6 +26,7 @@ const TABS: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
   { id: 'appearance',    label: 'Appearance' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'shortcuts',     label: 'Keyboard' },
+  { id: 'archive',       label: 'Archive',        adminOnly: true },
 ]
 
 export default function SettingsPage() {
@@ -133,6 +134,19 @@ export default function SettingsPage() {
 
         {activeTab === 'shortcuts' && user && (
           <KeyboardShortcutsPanel user={user} onUpdate={(u) => setUser(u)} />
+        )}
+
+        {activeTab === 'archive' && isAdmin && (
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+              Archive Old Tasks
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              Archive completed tasks older than 12 months to keep your workspace fast and organized.
+              Archived tasks are moved to a separate collection and included in annual reports.
+            </p>
+            <ArchivePanel />
+          </div>
         )}
 
         {activeTab === 'traze' && <TrazeSettings />}
@@ -621,6 +635,192 @@ function NotificationsPanel({ user, onUpdate }: { user: AppUser; onUpdate: (u: A
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </form>
+    </div>
+  )
+}
+
+// ─── Archive Panel ─────────────────────────────────────────────────────────
+
+import { Archive, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { getOldTasksToArchive, archiveOldTasks } from '../lib/firestore'
+
+function ArchivePanel() {
+  const [taskCount, setTaskCount] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [archiving, setArchiving] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
+
+  useEffect(() => {
+    loadTaskCount()
+  }, [])
+
+  async function loadTaskCount() {
+    setLoading(true)
+    try {
+      const count = await getOldTasksToArchive()
+      setTaskCount(count)
+    } catch (err) {
+      console.error('Failed to load task count:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleArchive() {
+    setArchiving(true)
+    setShowConfirm(false)
+    try {
+      const archived = await archiveOldTasks()
+      setResult({
+        success: true,
+        message: `Successfully archived ${archived} tasks older than 12 months.`,
+      })
+      // Refresh count
+      const newCount = await getOldTasksToArchive()
+      setTaskCount(newCount)
+    } catch (err) {
+      setResult({
+        success: false,
+        message: 'Failed to archive tasks. Please try again.',
+      })
+      console.error('Archive failed:', err)
+    } finally {
+      setArchiving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-green-500" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-w-lg space-y-6">
+      {/* Status Card */}
+      <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+        <div className="flex items-start gap-4">
+          <div className="rounded-full bg-green-100 p-3 dark:bg-green-900/20">
+            <Archive className="h-6 w-6 text-green-600 dark:text-green-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+              Tasks Ready for Archive
+            </h3>
+            <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
+              {taskCount === 0 ? '0' : taskCount?.toLocaleString() ?? '0'}
+            </p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Completed tasks older than 12 months
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Info Box */}
+      <div className="rounded-lg bg-blue-50 px-4 py-3 dark:bg-blue-900/20">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+          <div className="text-sm text-blue-700 dark:text-blue-300">
+            <p className="font-medium">What happens when you archive?</p>
+            <ul className="mt-1 list-disc list-inside space-y-0.5 text-xs">
+              <li>Completed tasks older than 12 months are moved to archive storage</li>
+              <li>Tasks are included in annual summary reports</li>
+              <li>Active tasks and recent completed tasks are not affected</li>
+              <li>This action cannot be undone</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* Result Message */}
+      {result && (
+        <div
+          className={`rounded-lg px-4 py-3 ${
+            result.success
+              ? 'bg-green-50 dark:bg-green-900/20'
+              : 'bg-red-50 dark:bg-red-900/20'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {result.success ? (
+              <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+            ) : (
+              <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+            )}
+            <p
+              className={`text-sm ${
+                result.success
+                  ? 'text-green-700 dark:text-green-300'
+                  : 'text-red-700 dark:text-red-300'
+              }`}
+            >
+              {result.message}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Action Button */}
+      {taskCount && taskCount > 0 ? (
+        <button
+          onClick={() => setShowConfirm(true)}
+          disabled={archiving}
+          className="flex items-center gap-2 rounded-lg bg-green-500 px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {archiving ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Archiving...
+            </>
+          ) : (
+            <>
+              <Archive className="h-4 w-4" />
+              Archive {taskCount} Tasks
+            </>
+          )}
+        </button>
+      ) : (
+        <div className="rounded-lg bg-gray-50 px-4 py-3 text-center dark:bg-gray-800">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            No tasks ready for archive. All completed tasks are within the last 12 months.
+          </p>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Confirm Archive
+            </h3>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              You are about to archive <strong>{taskCount} tasks</strong> that were completed more than 12 months ago.
+            </p>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              These tasks will be moved to archive storage and included in annual reports.
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleArchive}
+                className="rounded-lg bg-green-500 px-4 py-2 text-sm font-medium text-white hover:bg-green-600"
+              >
+                Yes, Archive Tasks
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

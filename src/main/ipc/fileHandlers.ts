@@ -132,4 +132,15 @@ export function registerFileHandlers(ipcMain: IpcMain): void {
       return null
     }
   })
+
+  // Open URL in external browser
+  ipcMain.handle(IPC.OPEN_EXTERNAL, async (_event, url: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      await shell.openExternal(url)
+      return { success: true }
+    } catch (err) {
+      console.error('shell:openExternal failed:', err)
+      return { success: false, error: String(err) }
+    }
+  })
 }

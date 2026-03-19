@@ -3,7 +3,7 @@
 // Every function has try/catch — never let Firestore errors crash silently
 
 import {
-  collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
+  collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, setDoc,
   query, where, orderBy, onSnapshot, runTransaction, serverTimestamp,
   Unsubscribe, writeBatch, limit, getCountFromServer
 } from 'firebase/firestore'
@@ -348,16 +348,15 @@ export async function updateTaskField(
           await createNotification({
             userId: uid,
             taskId,
-            taskTitle: taskData.title,
-            boardId: taskData.boardId,
+            taskTitle: (taskData as Task).title,
+            boardId: (taskData as Task).boardId,
             boardType,
             type: 'assigned',
             message: notificationMessage,
             read: false,
             triggeredBy: updatedBy,
             triggeredByName: updatedByName,
-            createdAt: serverTimestamp(),
-          })
+          } as any)
         } catch (notifErr) {
           console.error('Failed to create assignment notification:', notifErr)
         }
@@ -409,23 +408,22 @@ export async function completeTask(
     })
 
     // Notify assignees about task completion (only for planner boards)
-    if (taskData && boardType === 'planner' && taskData.assignees?.length > 0) {
-      for (const assigneeUid of taskData.assignees) {
+    if (taskData && boardType === 'planner' && (taskData as Task).assignees?.length > 0) {
+      for (const assigneeUid of (taskData as Task).assignees!) {
         if (assigneeUid === userId) continue // Don't notify the completer
         try {
           await createNotification({
             userId: assigneeUid,
             taskId,
-            taskTitle: taskData.title,
-            boardId: taskData.boardId,
+            taskTitle: (taskData as Task).title,
+            boardId: (taskData as Task).boardId,
             boardType,
             type: 'completed',
             message: `${userName} completed a task`,
             read: false,
             triggeredBy: userId,
             triggeredByName: userName,
-            createdAt: serverTimestamp(),
-          })
+          } as any)
         } catch (notifErr) {
           console.error('Failed to create completion notification:', notifErr)
         }
@@ -1056,5 +1054,153 @@ export async function deleteQuickLink(userId: string, linkId: string): Promise<v
     await deleteDoc(doc(db, COLLECTIONS.USER_PRIVATE, userId, 'links', linkId))
   } catch (err) {
     throw new Error(`Failed to delete quick link: ${err}`)
+  }
+}
+
+
+// ─────────────────────────────────────────
+// ARCHIVE SYSTEM
+// ─────────────────────────────────────────
+
+/**
+ * Count completed tasks older than 12 months that are ready for archiving
+ */
+export async function getOldTasksToArchive(): Promise<number> {
+  try {
+    const { Timestamp: FBTimestamp } = await import('firebase/firestore')
+    const twelveMonthsAgo = new Date()
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12)
+    
+    const snap = await getDocs(
+      query(
+        collection(db, COLLECTIONS.TASKS),
+        where('completed', '==', true),
+        where('completedAt', '<', FBTimestamp.fromDate(twelveMonthsAgo))
+      )
+    )
+    return snap.size
+  } catch (err) {
+    console.error('getOldTasksToArchive failed:', err)
+    return 0
+  }
+}
+
+/**
+ * Archive completed tasks older than 12 months
+ * Returns the number of tasks archived
+ */
+export async function archiveOldTasks(): Promise<number> {
+  try {
+    const { Timestamp: FBTimestamp } = await import('firebase/firestore')
+    const twelveMonthsAgo = new Date()
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12)
+    
+    // Get old completed tasks
+    const snap = await getDocs(
+      query(
+        collection(db, COLLECTIONS.TASKS),
+        where('completed', '==', true),
+        where('completedAt', '<', FBTimestamp.fromDate(twelveMonthsAgo))
+      )
+    )
+    
+    if (snap.empty) return 0
+    
+    const tasks = snap.docs.map(d => ({ id: d.id, ...d.data() } as Task))
+    const year = new Date().getFullYear()
+    
+    // Calculate summary stats
+    const summary = {
+      totalTasks: tasks.length,
+      byBoard: {} as Record<string, number>,
+      byClient: {} as Record<string, number>,
+      byAssignee: {} as Record<string, number>,
+      byMonth: Array(12).fill(0),
+    }
+    
+    tasks.forEach(task => {
+      // By board
+      summary.byBoard[task.boardId] = (summary.byBoard[task.boardId] || 0) + 1
+      
+      // By client
+      if (task.clientId) {
+        summary.byClient[task.clientId] = (summary.byClient[task.clientId] || 0) + 1
+      }
+      
+      // By assignee
+      task.assignees?.forEach(uid => {
+        summary.byAssignee[uid] = (summary.byAssignee[uid] || 0) + 1
+      })
+      
+      // By month
+      if (task.completedAt) {
+        const month = task.completedAt.toDate().getMonth()
+        summary.byMonth[month]++
+      }
+    })
+    
+    // Create archive document
+    const archiveRef = doc(db, COLLECTIONS.ARCHIVE, year.toString())
+    await setDoc(
+      archiveRef,
+      {
+        year,
+        generatedAt: serverTimestamp(),
+        summary,
+        taskCount: tasks.length,
+      },
+      { merge: true }
+    )
+    
+    // Move tasks to archivedTasks subcollection and delete from tasks
+    const batch = writeBatch(db)
+    
+    for (const task of tasks) {
+      // Add to archivedTasks
+      const archivedRef = doc(db, COLLECTIONS.ARCHIVE, year.toString(), 'archivedTasks', task.id)
+      batch.set(archivedRef, {
+        ...task,
+        archivedAt: serverTimestamp(),
+      })
+      
+      // Delete from tasks
+      const taskRef = doc(db, COLLECTIONS.TASKS, task.id)
+      batch.delete(taskRef)
+    }
+    
+    await batch.commit()
+    
+    return tasks.length
+  } catch (err) {
+    console.error('archiveOldTasks failed:', err)
+    throw new Error(`Failed to archive tasks: ${err}`)
+  }
+}
+
+
+
+
+// ─── ARCHIVE QUERIES ─────────────────────────────────────────────────────────
+
+export function subscribeToArchive(
+  callback: (archives: AnnualSummary[]) => void
+): Unsubscribe {
+  return onSnapshot(
+    query(
+      collection(db, COLLECTIONS.ARCHIVE),
+      orderBy('year', 'desc')
+    ),
+    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as AnnualSummary)),
+    (err) => console.error('subscribeToArchive error:', err)
+  )
+}
+
+export async function getArchiveByYear(year: number): Promise<AnnualSummary | null> {
+  try {
+    const snap = await getDoc(doc(db, COLLECTIONS.ARCHIVE, year.toString()))
+    return snap.exists() ? ({ id: snap.id, ...snap.data() } as AnnualSummary) : null
+  } catch (err) {
+    console.error('getArchiveByYear failed:', err)
+    return null
   }
 }

@@ -33,6 +33,7 @@
     "firebase": "^11.0.0",
     "lucide-react": "^0.577.0",
     "nanoid": "^5.1.7",
+    "pdfjs-dist": "^5.5.207",
     "playwright": "^1.58.2",
     "zustand": "^5.0.0"
   },

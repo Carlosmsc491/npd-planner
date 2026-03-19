@@ -593,14 +593,14 @@ Update these as you complete each feature. Add [x] when done.
 ### Phase 7 — Notifications & UX
 - [ ] Desktop notifications (Electron Notification API) — Planner only
 - [ ] Sound on notification
-- [ ] DND schedule respected (no sound/popup during DND hours)
+- [x] DND schedule respected (no sound/popup during DND hours)
 - [ ] Notification bell with unread badge
 - [ ] Notification center (dropdown from bell)
 - [ ] Notification on: task update, task complete, assigned, @mention
 - [x] Global search Ctrl+K / Cmd+K (Fuse.js)
 - [x] Search across tasks, clients, comments
-- [ ] Keyboard shortcuts configurable per user in Settings
-- [ ] Dark mode / Light mode toggle per user
+- [x] Keyboard shortcuts configurable per user in Settings
+- [x] Dark mode / Light mode toggle per user
 
 ### Phase 8 — Analytics & Build
 - [ ] Analytics dashboard (admin only): tasks/week, load by person, top clients
@@ -609,8 +609,8 @@ Update these as you complete each feature. Add [x] when done.
 - [ ] Annual summary page with Recharts charts (bar, line)
 - [ ] Export PDF (jsPDF + html2canvas) with Elite Flower header
 - [ ] Export CSV (all filterable data)
-- [ ] Client management page in Settings
-- [ ] Label management page in Settings
+- [x] Client management page in Settings
+- [x] Label management page in Settings
 - [ ] electron-builder config for Windows (.exe) + Mac (.dmg)
 - [ ] Test build on both platforms
 - [ ] Final QA pass

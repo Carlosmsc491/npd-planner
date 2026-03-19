@@ -201,7 +201,14 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────
-    // DENY ALL OTHER PATHS
+        // -------------------------------------
+    // USER PRIVATE (personal space - only owner can access)
+    // -------------------------------------
+
+    match /userPrivate/{userId}/{document=**} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+// DENY ALL OTHER PATHS
     // ─────────────────────────────────────────
 
     match /{document=**} {

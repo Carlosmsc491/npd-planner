@@ -56,6 +56,9 @@ const electronAPI = {
   resolveSharePointPath: (sharePointRoot: string, relativePath: string) =>
     ipcRenderer.invoke(IPC.SHAREPOINT_RESOLVE_PATH, sharePointRoot, relativePath),
 
+  openExternal: (url: string) =>
+    ipcRenderer.invoke(IPC.OPEN_EXTERNAL, url),
+
   sendNotification: (title: string, body: string, taskId: string, boardType: string, silent?: boolean) =>
     ipcRenderer.send(IPC.NOTIFICATION_SEND, { title, body, taskId, boardType, silent }),
 

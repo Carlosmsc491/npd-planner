@@ -6,6 +6,7 @@ import {
   MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Search,
   LayoutDashboard, CheckSquare, Package, Truck, Camera, Users, Calendar,
   Star, Folder, ShoppingCart, FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
+  User, Lock,
   type LucideIcon,
 } from 'lucide-react'
 import { auth } from '../../lib/firebase'
@@ -150,20 +151,34 @@ export default function AppLayout({ children }: AppLayoutProps) {
         <nav className="flex-1 overflow-y-auto px-2 py-2">
           {[
             { path: '/dashboard',      label: 'Dashboard' },
+            { path: '/my-tasks',       label: 'My Tasks', icon: CheckSquare },
+            { path: '/my-space',       label: 'My Space', icon: User, isPrivate: true },
             { path: '/calendar',       label: 'Master Calendar' },
-          ].map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mb-0.5 transition-colors ${
-                location.pathname === item.path
-                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
+          ].map((item) => {
+            const Icon = item.icon
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mb-0.5 transition-colors ${
+                  location.pathname === item.path
+                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                }`}
+              >
+                {Icon && <Icon size={14} className="shrink-0" />}
+                <div className="flex flex-col">
+                  <span>{item.label}</span>
+                  {item.isPrivate && (
+                    <span className="flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500">
+                      <Lock size={10} />
+                      Private
+                    </span>
+                  )}
+                </div>
+              </Link>
+            )
+          })}
 
           {/* Boards section */}
           {boards.length > 0 && (

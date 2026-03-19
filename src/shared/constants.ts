@@ -24,4 +24,5 @@ export const IPC = {
   APP_VERSION: 'app:version',
   UPDATE_AVAILABLE: 'update:available',
   UPDATE_DOWNLOADED: 'update:downloaded',
+  OPEN_EXTERNAL: 'shell:openExternal',
 } as const

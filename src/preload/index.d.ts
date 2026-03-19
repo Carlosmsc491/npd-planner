@@ -8,6 +8,7 @@ export interface IElectronAPI {
   readFileBase64: (filePath: string) => Promise<string | null>
   openFile: (filePath: string) => Promise<void>
   resolveSharePointPath: (sharePointRoot: string, relativePath: string) => Promise<string>
+  openExternal: (url: string) => Promise<{ success: boolean; error?: string }>
   sendNotification: (title: string, body: string, taskId: string, boardType: string, silent?: boolean) => void
   getAppVersion: () => Promise<string>
   onUpdateAvailable: (callback: () => void) => () => void

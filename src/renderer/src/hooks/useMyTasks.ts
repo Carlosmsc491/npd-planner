@@ -71,8 +71,8 @@ export function useMyTasks(): UseMyTasksReturn {
           return a.dateStart.toMillis() - b.dateStart.toMillis()
 
         case 'board':
-          const boardA = boards.find((b) => b.id === a.boardId)?.name || ''
-          const boardB = boards.find((b) => b.id === b.boardId)?.name || ''
+          const boardA = boards.find((board) => board.id === a.boardId)?.name || ''
+          const boardB = boards.find((board) => board.id === b.boardId)?.name || ''
           return boardA.localeCompare(boardB)
 
         case 'priority':

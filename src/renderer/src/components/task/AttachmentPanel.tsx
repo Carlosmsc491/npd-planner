@@ -1,15 +1,22 @@
 // src/renderer/src/components/task/AttachmentPanel.tsx
 // File attachment panel inside TaskPage — handles attach, preview, open, remove
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
   Paperclip, Upload, FileText, Image, FileSpreadsheet,
   File, Trash2, ExternalLink, AlertTriangle, RefreshCw,
-  CheckCircle, Clock, X, ZoomIn,
+  CheckCircle, Clock, X, ZoomIn, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { useSharePoint } from '../../hooks/useSharePoint'
 import { useSettingsStore } from '../../store/settingsStore'
+import * as pdfjsLib from 'pdfjs-dist'
 import type { Task, TaskAttachment } from '../../types'
+
+// Initialize PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString()
 
 interface Props {
   task: Task
@@ -33,6 +40,12 @@ function isImage(mimeType: string | null, name: string): boolean {
   if (mimeType?.startsWith('image/')) return true
   const ext = name.split('.').pop()?.toLowerCase() ?? ''
   return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)
+}
+
+function isPDF(mimeType: string | null, name: string): boolean {
+  if (mimeType === 'application/pdf') return true
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  return ext === 'pdf'
 }
 
 function StatusBadge({ status }: { status: TaskAttachment['status'] }) {
@@ -109,6 +122,128 @@ function ImagePreviewModal({ name, base64, mimeType, onClose }: PreviewModalProp
   )
 }
 
+// ─── PDF Preview Modal ────────────────────────────────────────────────────────
+interface PDFPreviewModalProps {
+  name: string
+  base64: string
+  onClose: () => void
+}
+
+function PDFPreviewModal({ name, base64, onClose }: PDFPreviewModalProps) {
+  const [pages, setPages] = useState<string[]>([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    async function renderPDF() {
+      try {
+        setLoading(true)
+        const pdfData = atob(base64)
+        const pdfArray = new Uint8Array(pdfData.length)
+        for (let i = 0; i < pdfData.length; i++) {
+          pdfArray[i] = pdfData.charCodeAt(i)
+        }
+        
+        const pdf = await pdfjsLib.getDocument({ data: pdfArray }).promise
+        const pageImages: string[] = []
+        
+        for (let i = 1; i <= Math.min(pdf.numPages, 10); i++) {
+          const page = await pdf.getPage(i)
+          const scale = 1.5
+          const viewport = page.getViewport({ scale })
+          
+          const canvas = document.createElement('canvas')
+          const context = canvas.getContext('2d')
+          canvas.width = viewport.width
+          canvas.height = viewport.height
+          
+          await (page.render({
+            canvasContext: context!,
+            viewport: viewport
+          } as any).promise)
+          
+          pageImages.push(canvas.toDataURL('image/png'))
+        }
+        
+        setPages(pageImages)
+      } catch (err) {
+        console.error('Failed to render PDF:', err)
+        setError('Failed to load PDF preview')
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    renderPDF()
+  }, [base64])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative max-h-[90vh] max-w-[90vw] w-full max-w-3xl overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-gray-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <span className="truncate text-sm font-medium text-gray-700 dark:text-gray-300 max-w-xs">
+            {name}
+          </span>
+          <div className="flex items-center gap-2">
+            {pages.length > 1 && (
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span>Page {currentPage} of {pages.length}</span>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(pages.length, p + 1))}
+                  disabled={currentPage === pages.length}
+                  className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
+            <button
+              onClick={onClose}
+              className="ml-4 shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+        
+        {/* Content */}
+        <div className="p-4 overflow-auto max-h-[70vh] bg-gray-100 dark:bg-gray-800">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <RefreshCw size={24} className="animate-spin text-green-500" />
+            </div>
+          ) : error ? (
+            <div className="text-center py-12 text-red-500">{error}</div>
+          ) : pages.length > 0 ? (
+            <img
+              src={pages[currentPage - 1]}
+              alt={`Page ${currentPage}`}
+              className="mx-auto max-w-full rounded shadow-lg"
+            />
+          ) : (
+            <div className="text-center py-12 text-gray-500">No pages found</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Attachment Row ───────────────────────────────────────────────────────────
 interface RowProps {
   attachment: TaskAttachment
@@ -119,7 +254,7 @@ interface RowProps {
 }
 
 function AttachmentRow({ attachment, onRemove, onOpen, onPreview }: RowProps) {
-  const canPreview = isImage(attachment.mimeType, attachment.name)
+  const canPreview = isImage(attachment.mimeType, attachment.name) || isPDF(attachment.mimeType, attachment.name)
 
   return (
     <div className="group flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-700/60 dark:bg-gray-800/60">
@@ -179,7 +314,7 @@ export default function AttachmentPanel({ task }: Props) {
 
   const [attaching, setAttaching] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'error' | 'info'; message: string } | null>(null)
-  const [preview, setPreview] = useState<{ name: string; base64: string; mimeType: string } | null>(null)
+  const [preview, setPreview] = useState<{ name: string; base64: string; mimeType: string; type: 'image' | 'pdf' } | null>(null)
   const [settingUp, setSettingUp] = useState(false)
 
   const clientName = clients.find((c) => c.id === task.clientId)?.name ?? 'Unknown Client'
@@ -214,7 +349,8 @@ export default function AttachmentPanel({ task }: Props) {
         setFeedback({ type: 'error', message: 'Could not read file for preview.' })
         return
       }
-      setPreview({ name: att.name, base64, mimeType: att.mimeType ?? 'image/png' })
+      const type = isPDF(att.mimeType, att.name) ? 'pdf' : 'image'
+      setPreview({ name: att.name, base64, mimeType: att.mimeType ?? 'image/png', type })
     },
     [isElectron, readAttachmentBase64]
   )
@@ -316,8 +452,15 @@ export default function AttachmentPanel({ task }: Props) {
         </p>
       )}
 
-      {/* Image preview modal */}
-      {preview && (
+      {/* Preview modal */}
+      {preview && preview.type === 'pdf' && (
+        <PDFPreviewModal
+          name={preview.name}
+          base64={preview.base64}
+          onClose={() => setPreview(null)}
+        />
+      )}
+      {preview && preview.type === 'image' && (
         <ImagePreviewModal
           name={preview.name}
           base64={preview.base64}
