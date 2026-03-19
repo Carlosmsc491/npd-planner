@@ -3,6 +3,7 @@ import { ArrowLeft, Trash2, GripVertical, Plus, Settings, X, Star } from 'lucide
 import { updateBoard, updateBoardProperties } from '../../lib/firestore'
 import { DynamicIcon, PROPERTY_TYPE_LABELS, OPTION_COLORS } from '../../utils/propertyUtils'
 import { BOARD_BUCKETS } from '../../utils/colorUtils'
+import { useSettingsStore } from '../../store/settingsStore'
 import IconPickerPopover from './IconPickerPopover'
 import AddPropertyModal from './AddPropertyModal'
 import type { Board, BoardProperty, PropertyType, SelectOption } from '../../types'
@@ -70,6 +71,7 @@ interface Props {
 }
 
 export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Props) {
+  const { clients } = useSettingsStore()
   const [properties, setProperties] = useState<BoardProperty[]>(() => {
     const existing = board.customProperties ?? []
     if (existing.length === 0) return getDefaultProperties(board.type)
@@ -462,6 +464,28 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                             <Plus size={13} />
                             Add option
                           </button>
+                        </div>
+                      ) : prop.id === 'builtin-client' ? (
+                        /* Client field - show dynamic clients from store */
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">
+                            Available Clients ({clients.length})
+                          </p>
+                          <div className="space-y-1.5 mb-2 max-h-40 overflow-y-auto">
+                            {clients.length === 0 ? (
+                              <p className="text-xs text-gray-400 italic">No clients found. Create clients from the task modal.</p>
+                            ) : (
+                              clients.map((client) => (
+                                <div key={client.id} className="flex items-center gap-2">
+                                  <div className="h-2 w-2 rounded-full bg-green-500" />
+                                  <span className="text-xs text-gray-700 dark:text-gray-300">{client.name}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-2">
+                            Clients are managed dynamically and appear automatically in task dropdowns.
+                          </p>
                         </div>
                       ) : (
                         /* Required toggle for non-option types */

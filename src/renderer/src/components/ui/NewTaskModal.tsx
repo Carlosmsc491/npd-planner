@@ -17,7 +17,7 @@ interface Props {
 
 export default function NewTaskModal({ board, defaultBucket, defaultDate, onClose, onCreated }: Props) {
   const { user } = useAuthStore()
-  const { clients } = useSettingsStore()
+  const { clients, setClients } = useSettingsStore()
   const [title, setTitle] = useState('')
   const [clientId, setClientId] = useState('')
   const [bucket, setBucket] = useState(defaultBucket ?? '')
@@ -32,6 +32,18 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
     if (!newClientName.trim() || !user) return
     const { createClient } = await import('../../lib/firestore')
     const id = await createClient(newClientName.trim(), user.uid)
+    
+    // Add to local store immediately so it appears in the dropdown
+    const trimmedName = newClientName.trim()
+    const newClient = { 
+      id, 
+      name: trimmedName, 
+      active: true, 
+      createdBy: user.uid,
+      createdAt: new Date()
+    }
+    setClients([...clients, newClient].sort((a, b) => a.name.localeCompare(b.name)))
+    
     setClientId(id)
     setNewClientName('')
     setShowNewClient(false)
