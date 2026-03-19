@@ -34,13 +34,14 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
     const id = await createClient(newClientName.trim(), user.uid)
     
     // Add to local store immediately so it appears in the dropdown
+    // Note: Firestore will sync the actual createdAt Timestamp
     const trimmedName = newClientName.trim()
-    const newClient = { 
+    const newClient: import('../../types').Client = { 
       id, 
       name: trimmedName, 
       active: true, 
       createdBy: user.uid,
-      createdAt: new Date()
+      createdAt: Timestamp.now() as unknown as import('firebase/firestore').Timestamp
     }
     setClients([...clients, newClient].sort((a, b) => a.name.localeCompare(b.name)))
     
