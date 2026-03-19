@@ -1,25 +1,31 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import AppLayout from '../components/ui/AppLayout'
 import MembersPanel from '../components/settings/MembersPanel'
 import BoardTemplateEditor from '../components/settings/BoardTemplateEditor'
 import SharePointSetup from '../components/settings/SharePointSetup'
 import TrazeSettings from '../components/settings/TrazeSettings'
+import ClientManager from '../components/settings/ClientManager'
+import LabelManager from '../components/settings/LabelManager'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import { updateUserName, updateUserPreferences } from '../lib/firestore'
 import { getBoardColor } from '../utils/colorUtils'
-import type { AppUser, Board, Theme } from '../types'
+import type { AppUser, Board, Theme, ShortcutAction } from '../types'
+import { DEFAULT_SHORTCUTS, SHORTCUT_ACTION_LABELS } from '../types'
 
-type SettingsTab = 'profile' | 'members' | 'boards' | 'files' | 'appearance' | 'notifications' | 'traze'
+type SettingsTab = 'profile' | 'members' | 'boards' | 'clients' | 'labels' | 'files' | 'appearance' | 'notifications' | 'shortcuts' | 'traze'
 
 const TABS: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
   { id: 'profile',       label: 'Profile' },
   { id: 'members',       label: 'Members',       adminOnly: true },
   { id: 'boards',        label: 'Boards',         adminOnly: true },
+  { id: 'clients',       label: 'Clients',        adminOnly: true },
+  { id: 'labels',        label: 'Labels',         adminOnly: true },
   { id: 'files',         label: 'Files' },
   { id: 'traze',         label: 'Traze' },
   { id: 'appearance',    label: 'Appearance' },
   { id: 'notifications', label: 'Notifications' },
+  { id: 'shortcuts',     label: 'Keyboard' },
 ]
 
 export default function SettingsPage() {
@@ -80,6 +86,30 @@ export default function SettingsPage() {
             : <BoardsPanel boards={boards} onEdit={setEditingBoard} />
         )}
 
+        {activeTab === 'clients' && isAdmin && (
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+              Client Management
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              Manage clients for your organization. Inactive clients won't appear in dropdowns but their task history is preserved.
+            </p>
+            <ClientManager />
+          </div>
+        )}
+
+        {activeTab === 'labels' && isAdmin && (
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+              Label Management
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              Create and manage labels to categorize tasks across all boards.
+            </p>
+            <LabelManager />
+          </div>
+        )}
+
         {activeTab === 'files' && (
           <div className="max-w-lg">
             <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
@@ -99,6 +129,10 @@ export default function SettingsPage() {
 
         {activeTab === 'notifications' && user && (
           <NotificationsPanel user={user} onUpdate={(u) => setUser(u)} />
+        )}
+
+        {activeTab === 'shortcuts' && user && (
+          <KeyboardShortcutsPanel user={user} onUpdate={(u) => setUser(u)} />
         )}
 
         {activeTab === 'traze' && <TrazeSettings />}
@@ -320,9 +354,168 @@ function AppearancePanel({ user, onUpdate }: { user: AppUser; onUpdate: (u: AppU
   )
 }
 
+// ─── Keyboard Shortcuts Panel ───────────────────────────────────────────────
+
+function KeyboardShortcutsPanel({ user, onUpdate }: { user: AppUser; onUpdate: (u: AppUser) => void }) {
+  const [shortcuts, setShortcuts] = useState<Record<ShortcutAction, string>>({
+    ...DEFAULT_SHORTCUTS,
+    ...(user.preferences?.shortcuts ?? {}),
+  })
+  const [editingAction, setEditingAction] = useState<ShortcutAction | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  // Listen for keypress when editing
+  useEffect(() => {
+    if (!editingAction) return
+
+    const action = editingAction // capture for type safety
+
+    function handleKeyDown(e: KeyboardEvent) {
+      e.preventDefault()
+      e.stopPropagation()
+
+      // Ignore modifier-only keys
+      if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return
+
+      // Build the shortcut string
+      const parts: string[] = []
+      if (e.ctrlKey || e.metaKey) parts.push('ctrl')
+      if (e.shiftKey) parts.push('shift')
+      if (e.altKey) parts.push('alt')
+      parts.push(e.key.toLowerCase())
+
+      const newBinding = parts.join('+')
+
+      setShortcuts((prev) => ({ ...prev, [action]: newBinding }))
+      setEditingAction(null)
+    }
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true })
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
+  }, [editingAction])
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await updateUserPreferences(user.uid, { shortcuts })
+      onUpdate({ ...user, preferences: { ...user.preferences, shortcuts } })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch {
+      // Error handled silently
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleReset() {
+    setShortcuts(DEFAULT_SHORTCUTS)
+  }
+
+  function formatBinding(binding: string): string {
+    return binding
+      .replace('ctrl', 'Ctrl')
+      .replace('shift', 'Shift')
+      .replace('alt', 'Alt')
+      .replace('meta', 'Cmd')
+      .replace('+', ' + ')
+  }
+
+  const actions: ShortcutAction[] = [
+    'newTask',
+    'editTask',
+    'deleteTask',
+    'closeModal',
+    'globalSearch',
+    'toggleDarkMode',
+    'goToDashboard',
+    'goToCalendar',
+    'goToSettings',
+  ]
+
+  return (
+    <div className="max-w-lg space-y-5">
+      <div>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+          Keyboard Shortcuts
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Customize keyboard shortcuts for common actions. Click "Edit" and press your desired key combination.
+        </p>
+      </div>
+
+      {/* Shortcuts table */}
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="divide-y divide-gray-200 dark:divide-gray-700">
+          {actions.map((action) => (
+            <div
+              key={action}
+              className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+            >
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                {SHORTCUT_ACTION_LABELS[action]}
+              </span>
+              <div className="flex items-center gap-2">
+                {editingAction === action ? (
+                  <span className="text-sm font-medium text-green-600 dark:text-green-400 animate-pulse">
+                    Press keys...
+                  </span>
+                ) : (
+                  <kbd className="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded border border-gray-200 dark:border-gray-600">
+                    {formatBinding(shortcuts[action])}
+                  </kbd>
+                )}
+                <button
+                  onClick={() => setEditingAction(action)}
+                  disabled={editingAction !== null}
+                  className="ml-2 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                >
+                  {editingAction === action ? '...' : 'Edit'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Cancel editing button */}
+      {editingAction && (
+        <button
+          onClick={() => setEditingAction(null)}
+          className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+        >
+          Cancel editing
+        </button>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-3 pt-2">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-lg bg-green-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save Changes'}
+        </button>
+        <button
+          onClick={handleReset}
+          className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+        >
+          Reset to Defaults
+        </button>
+        {saved && (
+          <span className="text-sm text-green-600 dark:text-green-400">Saved!</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Notifications Panel ────────────────────────────────────────────────────
 
 function NotificationsPanel({ user, onUpdate }: { user: AppUser; onUpdate: (u: AppUser) => void }) {
+  const [dndEnabled, setDndEnabled] = useState(user.preferences?.dndEnabled ?? true)
   const [dndStart, setDndStart] = useState(user.preferences?.dndStart ?? '22:00')
   const [dndEnd, setDndEnd]     = useState(user.preferences?.dndEnd ?? '08:00')
   const [saving, setSaving] = useState(false)
@@ -334,8 +527,8 @@ function NotificationsPanel({ user, onUpdate }: { user: AppUser; onUpdate: (u: A
     setSaving(true)
     setError('')
     try {
-      await updateUserPreferences(user.uid, { dndStart, dndEnd })
-      onUpdate({ ...user, preferences: { ...user.preferences, dndStart, dndEnd } })
+      await updateUserPreferences(user.uid, { dndEnabled, dndStart, dndEnd })
+      onUpdate({ ...user, preferences: { ...user.preferences, dndEnabled, dndStart, dndEnd } })
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch {
@@ -358,33 +551,56 @@ function NotificationsPanel({ user, onUpdate }: { user: AppUser; onUpdate: (u: A
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Start time
-            </label>
+        {/* DND Toggle */}
+        <label className="flex items-center gap-3 cursor-pointer">
+          <div className="relative">
             <input
-              type="time"
-              value={dndStart}
-              onChange={(e) => setDndStart(e.target.value)}
-              className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              type="checkbox"
+              checked={dndEnabled}
+              onChange={(e) => setDndEnabled(e.target.checked)}
+              className="sr-only"
             />
+            <div className={`h-6 w-11 rounded-full transition-colors ${dndEnabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+              <div className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${dndEnabled ? 'translate-x-5' : 'translate-x-0.5'} mt-0.5`} />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              End time
-            </label>
-            <input
-              type="time"
-              value={dndEnd}
-              onChange={(e) => setDndEnd(e.target.value)}
-              className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
-          </div>
-        </div>
-        <p className="text-xs text-gray-400 dark:text-gray-500">
-          Overnight ranges are supported (e.g., 22:00 → 08:00).
-        </p>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {dndEnabled ? 'DND Enabled' : 'DND Disabled'}
+          </span>
+        </label>
+
+        {/* Time range (only show if DND enabled) */}
+        {dndEnabled && (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Start time
+                </label>
+                <input
+                  type="time"
+                  value={dndStart}
+                  onChange={(e) => setDndStart(e.target.value)}
+                  className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  End time
+                </label>
+                <input
+                  type="time"
+                  value={dndEnd}
+                  onChange={(e) => setDndEnd(e.target.value)}
+                  className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              Overnight ranges are supported (e.g., 22:00 → 08:00).
+            </p>
+          </>
+        )}
 
         {error && (
           <div className="rounded-lg bg-red-50 px-3 py-2 dark:bg-red-900/30">

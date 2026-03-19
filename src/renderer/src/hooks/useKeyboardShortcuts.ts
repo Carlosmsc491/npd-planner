@@ -70,3 +70,55 @@ export function useGlobalSearchState(): { open: boolean; openSearch: () => void;
     closeSearch: () => setOpen(false),
   }
 }
+
+// ─── Do Not Disturb helper ───────────────────────────────────────────────────
+
+/**
+ * Check if the current time is within Do Not Disturb hours.
+ * Supports overnight ranges (e.g., 22:00 → 08:00).
+ * 
+ * @param dndStart - Start time in "HH:MM" format (24h)
+ * @param dndEnd - End time in "HH:MM" format (24h)
+ * @param dndEnabled - Whether DND is enabled (defaults to true)
+ * @returns true if currently within DND hours
+ */
+export function isWithinDNDHours(
+  dndStart: string = '22:00',
+  dndEnd: string = '08:00',
+  dndEnabled: boolean = true
+): boolean {
+  if (!dndEnabled) return false
+
+  const now = new Date()
+  const currentMinutes = now.getHours() * 60 + now.getMinutes()
+
+  const [startHours, startMins] = dndStart.split(':').map(Number)
+  const [endHours, endMins] = dndEnd.split(':').map(Number)
+  const startMinutes = startHours * 60 + startMins
+  const endMinutes = endHours * 60 + endMins
+
+  if (startMinutes <= endMinutes) {
+    // Same day range (e.g., 09:00 → 17:00)
+    return currentMinutes >= startMinutes && currentMinutes < endMinutes
+  } else {
+    // Overnight range (e.g., 22:00 → 08:00)
+    return currentMinutes >= startMinutes || currentMinutes < endMinutes
+  }
+}
+
+/**
+ * Check if notifications should be suppressed for a user
+ * 
+ * @param preferences - User preferences object
+ * @returns true if notifications should be suppressed
+ */
+export function shouldSuppressNotifications(
+  preferences?: { dndEnabled?: boolean; dndStart?: string; dndEnd?: string }
+): boolean {
+  if (!preferences) return false
+  return isWithinDNDHours(
+    preferences.dndStart,
+    preferences.dndEnd,
+    preferences.dndEnabled ?? true
+  )
+}

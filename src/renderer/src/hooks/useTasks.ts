@@ -12,7 +12,7 @@ import { useAuthStore } from '../store/authStore'
 import { Timestamp } from 'firebase/firestore'
 import type { Task, RecurringConfig } from '../types'
 
-export function useTasks(boardId: string | undefined) {
+export function useTasks(boardId: string | undefined, boardType?: string) {
   const { tasks, setTasks, selectedTask, setSelectedTask, setToast } = useTaskStore()
   const { user } = useAuthStore()
 
@@ -25,7 +25,7 @@ export function useTasks(boardId: string | undefined) {
   const complete = useCallback(async (task: Task) => {
     if (!user) return
     const snapshot = { ...task }
-    await completeTask(task.id, user.uid, user.name)
+    await completeTask(task.id, user.uid, user.name, boardType)
 
     // Auto-create next recurring instance
     if (task.recurring?.enabled && task.recurring.nextDate) {
@@ -61,9 +61,9 @@ export function useTasks(boardId: string | undefined) {
       message: `Completed: ${task.title}`,
       type: 'info',
       undoAction: async () => {
-        await updateTaskField(task.id, 'completed', false, user.uid, user.name, true)
-        await updateTaskField(task.id, 'completedAt', null, user.uid, user.name, snapshot.completedAt)
-        await updateTaskField(task.id, 'completedBy', null, user.uid, user.name, snapshot.completedBy)
+        await updateTaskField(task.id, 'completed', false, user.uid, user.name, true, boardType)
+        await updateTaskField(task.id, 'completedAt', null, user.uid, user.name, snapshot.completedAt, boardType)
+        await updateTaskField(task.id, 'completedBy', null, user.uid, user.name, snapshot.completedBy, boardType)
       },
       duration: 5000,
     })
@@ -92,7 +92,7 @@ export function useTasks(boardId: string | undefined) {
 
   const setRecurring = useCallback(async (task: Task, config: RecurringConfig) => {
     if (!user) return
-    await updateTaskField(task.id, 'recurring', config, user.uid, user.name, task.recurring)
+    await updateTaskField(task.id, 'recurring', config, user.uid, user.name, task.recurring, boardType)
   }, [user])
 
   return { tasks, selectedTask, setSelectedTask, complete, remove, duplicate, setRecurring }

@@ -64,6 +64,7 @@ export default function LoginPage() {
             lastSeen: Timestamp.now(),
             preferences: {
               theme: 'system',
+              dndEnabled: true,
               dndStart: '22:00',
               dndEnd: '08:00',
               shortcuts: {},

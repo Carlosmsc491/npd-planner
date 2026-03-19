@@ -24,7 +24,7 @@ export default function BoardPage() {
   const { labels } = useLabels()
 
   const { tasks, selectedTask, setSelectedTask, complete, remove, duplicate, setRecurring } =
-    useTasks(activeBoard?.id)
+    useTasks(activeBoard?.id, activeBoard?.type)
 
   const { view, setView, groupBy } = useBoardStore()
   const [users, setUsers] = useState<AppUser[]>([])

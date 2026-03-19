@@ -72,17 +72,19 @@ export default function CalendarPage() {
   async function handleEventDrop({ event }: EventDropArg) {
     if (!user || !event.start) return
     const task = event.extendedProps.task as Task
+    const board = event.extendedProps.board as Board | undefined
     const newStart = toFirestoreDate(event.start)
     const newEnd = event.end ? toFirestoreDate(event.end) : null
-    await updateTaskField(task.id, 'dateStart', newStart, user.uid, user.name, task.dateStart)
-    if (newEnd) await updateTaskField(task.id, 'dateEnd', newEnd, user.uid, user.name, task.dateEnd)
+    await updateTaskField(task.id, 'dateStart', newStart, user.uid, user.name, task.dateStart, board?.type)
+    if (newEnd) await updateTaskField(task.id, 'dateEnd', newEnd, user.uid, user.name, task.dateEnd, board?.type)
   }
 
   async function handleEventResize({ event }: EventResizeDoneArg) {
     if (!user) return
     const task = event.extendedProps.task as Task
-    if (event.start) await updateTaskField(task.id, 'dateStart', toFirestoreDate(event.start), user.uid, user.name, task.dateStart)
-    if (event.end)   await updateTaskField(task.id, 'dateEnd',   toFirestoreDate(event.end),   user.uid, user.name, task.dateEnd)
+    const board = event.extendedProps.board as Board | undefined
+    if (event.start) await updateTaskField(task.id, 'dateStart', toFirestoreDate(event.start), user.uid, user.name, task.dateStart, board?.type)
+    if (event.end)   await updateTaskField(task.id, 'dateEnd',   toFirestoreDate(event.end),   user.uid, user.name, task.dateEnd, board?.type)
   }
 
   function handleEventClick({ event }: EventClickArg) {

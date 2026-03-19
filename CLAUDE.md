@@ -597,8 +597,8 @@ Update these as you complete each feature. Add [x] when done.
 - [ ] Notification bell with unread badge
 - [ ] Notification center (dropdown from bell)
 - [ ] Notification on: task update, task complete, assigned, @mention
-- [ ] Global search Ctrl+K / Cmd+K (Fuse.js)
-- [ ] Search across tasks, clients, comments
+- [x] Global search Ctrl+K / Cmd+K (Fuse.js)
+- [x] Search across tasks, clients, comments
 - [ ] Keyboard shortcuts configurable per user in Settings
 - [ ] Dark mode / Light mode toggle per user
 

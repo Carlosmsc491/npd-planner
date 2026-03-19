@@ -112,7 +112,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   // Last-write-wins: just save, no conflict dialog
   async function save(field: string, value: unknown, old?: unknown) {
     if (!user) return
-    await updateTaskField(task.id, field, value, user.uid, user.name, old)
+    await updateTaskField(task.id, field, value, user.uid, user.name, old, board?.type)
   }
 
   async function saveTitle() {
@@ -178,7 +178,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   async function saveDescription(html: string) {
     if (!user) return
     // Description: last write wins, no old value passed — no conflict detection
-    await updateTaskField(task.id, 'description', html, user.uid, user.name)
+    await updateTaskField(task.id, 'description', html, user.uid, user.name, undefined, board?.type)
   }
 
   async function handleAwbsChange(updated: AwbEntry[]) {

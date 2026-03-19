@@ -14,6 +14,7 @@ export type Theme = 'light' | 'dark' | 'system'
 
 export interface UserPreferences {
   theme: Theme
+  dndEnabled: boolean     // master toggle for DND
   dndStart: string        // "22:00"
   dndEnd: string          // "08:00"
   shortcuts: Record<string, string>  // action → key binding
@@ -295,6 +296,10 @@ export interface SearchResult {
   subtitle: string
   boardId?: string
   taskId?: string
+  clientName?: string
+  boardName?: string
+  authorName?: string
+  date?: string | null
 }
 
 export interface ConflictData {
@@ -371,6 +376,45 @@ export type ShortcutAction =
   | 'goToCalendar'
   | 'goToSettings'
 
+// ─────────────────────────────────────────
+// PERSONAL SPACE (userPrivate collection)
+// ─────────────────────────────────────────
+
+export interface PersonalTask {
+  id: string
+  title: string
+  dueDate: Timestamp | null
+  completed: boolean
+  completedAt: Timestamp | null
+  createdAt: Timestamp
+  updatedAt: Timestamp
+}
+
+export interface PersonalNote {
+  id: string
+  content: string
+  updatedAt: Timestamp
+}
+
+export interface QuickLink {
+  id: string
+  title: string
+  url: string
+  icon: string  // lucide icon name
+  createdAt: Timestamp
+}
+
+// ─────────────────────────────────────────
+// MY TASKS GROUPING
+// ─────────────────────────────────────────
+
+export type MyTaskGroup = 'today' | 'thisWeek' | 'thisMonth' | 'later' | 'noDate' | 'completed'
+
+export interface MyTaskFilter {
+  boardId: string | 'all'
+  sortBy: 'dueDate' | 'board' | 'priority' | 'created'
+}
+
 export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   newTask:        'n',
   editTask:       'e',
@@ -381,4 +425,16 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   goToDashboard:  'ctrl+1',
   goToCalendar:   'ctrl+2',
   goToSettings:   'ctrl+,',
+}
+
+export const SHORTCUT_ACTION_LABELS: Record<ShortcutAction, string> = {
+  newTask:        'New Task',
+  editTask:       'Edit Task',
+  deleteTask:     'Delete Task',
+  closeModal:     'Close Modal',
+  globalSearch:   'Global Search',
+  toggleDarkMode: 'Toggle Dark Mode',
+  goToDashboard:  'Go to Dashboard',
+  goToCalendar:   'Go to Calendar',
+  goToSettings:   'Go to Settings',
 }

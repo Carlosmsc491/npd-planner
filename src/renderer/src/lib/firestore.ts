@@ -5,13 +5,14 @@
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, onSnapshot, runTransaction, serverTimestamp,
-  Unsubscribe, writeBatch, limit
+  Unsubscribe, writeBatch, limit, getCountFromServer
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type {
   AppUser, Board, BoardType, BoardProperty, Task, Client, Label, Comment,
   TaskHistoryEntry, AppNotification, AnnualSummary,
-  GlobalSettings, HistoryAction, ConflictData
+  GlobalSettings, HistoryAction, ConflictData,
+  PersonalNote, PersonalTask, QuickLink
 } from '../types'
 
 // ─────────────────────────────────────────
@@ -28,6 +29,7 @@ export const COLLECTIONS = {
   NOTIFICATIONS:'notifications',
   ARCHIVE:      'archive',
   SETTINGS:     'settings',
+  USER_PRIVATE: 'userPrivate',
 } as const
 
 // ─────────────────────────────────────────
@@ -266,10 +268,14 @@ export async function updateTaskField(
   value: unknown,
   updatedBy: string,
   updatedByName: string,
-  oldValue?: unknown
+  oldValue?: unknown,
+  boardType?: string
 ): Promise<ConflictData | null> {
   try {
     let detectedConflict: ConflictData | null = null
+    let taskData: Task | null = null
+    let shouldNotifyAssignees = false
+    let notificationMessage = ''
 
     await runTransaction(db, async (transaction) => {
       const taskRef = doc(db, COLLECTIONS.TASKS, taskId)
@@ -277,7 +283,7 @@ export async function updateTaskField(
 
       if (!taskSnap.exists()) throw new Error('Task not found')
 
-      const taskData = taskSnap.data() as Task
+      taskData = taskSnap.data() as Task
       const currentValue = (taskData as unknown as Record<string, unknown>)[field]
 
       // Conflict detection (last write wins — log only, never block the user)
@@ -299,6 +305,18 @@ export async function updateTaskField(
         // falls through — always write
       }
 
+      // Check if we need to notify assignees about specific field changes
+      if (field === 'assignees' && boardType === 'planner') {
+        const oldAssignees = (oldValue as string[]) ?? []
+        const newAssignees = (value as string[]) ?? []
+        const addedAssignees = newAssignees.filter(uid => !oldAssignees.includes(uid))
+        
+        if (addedAssignees.length > 0) {
+          shouldNotifyAssignees = true
+          notificationMessage = `${updatedByName} assigned you to a task`
+        }
+      }
+
       transaction.update(taskRef, {
         [field]: value,
         updatedAt: serverTimestamp(),
@@ -318,6 +336,34 @@ export async function updateTaskField(
       })
     })
 
+    // Create notifications outside of transaction to avoid affecting the main operation
+    if (shouldNotifyAssignees && taskData && boardType === 'planner') {
+      const newAssignees = (value as string[]) ?? []
+      const oldAssignees = (oldValue as string[]) ?? []
+      const addedAssignees = newAssignees.filter(uid => !oldAssignees.includes(uid))
+      
+      for (const uid of addedAssignees) {
+        if (uid === updatedBy) continue // Don't notify the user who made the change
+        try {
+          await createNotification({
+            userId: uid,
+            taskId,
+            taskTitle: taskData.title,
+            boardId: taskData.boardId,
+            boardType,
+            type: 'assigned',
+            message: notificationMessage,
+            read: false,
+            triggeredBy: updatedBy,
+            triggeredByName: updatedByName,
+            createdAt: serverTimestamp(),
+          })
+        } catch (notifErr) {
+          console.error('Failed to create assignment notification:', notifErr)
+        }
+      }
+    }
+
     return detectedConflict
   } catch (err) {
     throw new Error(`Failed to update task field "${field}": ${err}`)
@@ -327,11 +373,20 @@ export async function updateTaskField(
 export async function completeTask(
   taskId: string,
   userId: string,
-  userName: string
+  userName: string,
+  boardType?: string
 ): Promise<void> {
   try {
+    let taskData: Task | null = null
+
     await runTransaction(db, async (transaction) => {
       const taskRef = doc(db, COLLECTIONS.TASKS, taskId)
+      const taskSnap = await transaction.get(taskRef)
+      
+      if (taskSnap.exists()) {
+        taskData = taskSnap.data() as Task
+      }
+
       transaction.update(taskRef, {
         completed: true,
         completedAt: serverTimestamp(),
@@ -352,6 +407,30 @@ export async function completeTask(
         timestamp: serverTimestamp(),
       })
     })
+
+    // Notify assignees about task completion (only for planner boards)
+    if (taskData && boardType === 'planner' && taskData.assignees?.length > 0) {
+      for (const assigneeUid of taskData.assignees) {
+        if (assigneeUid === userId) continue // Don't notify the completer
+        try {
+          await createNotification({
+            userId: assigneeUid,
+            taskId,
+            taskTitle: taskData.title,
+            boardId: taskData.boardId,
+            boardType,
+            type: 'completed',
+            message: `${userName} completed a task`,
+            read: false,
+            triggeredBy: userId,
+            triggeredByName: userName,
+            createdAt: serverTimestamp(),
+          })
+        } catch (notifErr) {
+          console.error('Failed to create completion notification:', notifErr)
+        }
+      }
+    }
   } catch (err) {
     throw new Error(`Failed to complete task: ${err}`)
   }
@@ -423,6 +502,38 @@ export function subscribeToClients(callback: (clients: Client[]) => void): Unsub
   )
 }
 
+export function subscribeToAllClients(callback: (clients: Client[]) => void): Unsubscribe {
+  return onSnapshot(
+    query(collection(db, COLLECTIONS.CLIENTS), orderBy('name')),
+    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Client)),
+    (err) => console.error('subscribeToAllClients error:', err)
+  )
+}
+
+export async function deleteClient(id: string): Promise<void> {
+  try {
+    // Check if client has any tasks before deleting
+    const taskCount = await getClientTaskCount(id)
+    if (taskCount > 0) {
+      throw new Error('Cannot delete client with existing tasks')
+    }
+    await deleteDoc(doc(db, COLLECTIONS.CLIENTS, id))
+  } catch (err) {
+    throw new Error(`Failed to delete client: ${err}`)
+  }
+}
+
+export async function getClientTaskCount(clientId: string): Promise<number> {
+  try {
+    const q = query(collection(db, COLLECTIONS.TASKS), where('clientId', '==', clientId))
+    const snapshot = await getCountFromServer(q)
+    return snapshot.data().count
+  } catch (err) {
+    console.error('getClientTaskCount failed:', err)
+    return 0
+  }
+}
+
 export async function createClient(name: string, createdBy: string): Promise<string> {
   try {
     const ref = await addDoc(collection(db, COLLECTIONS.CLIENTS), {
@@ -457,9 +568,12 @@ export function subscribeToLabels(callback: (labels: Label[]) => void): Unsubscr
   )
 }
 
-export async function createLabel(data: Omit<Label, 'id'>): Promise<string> {
+export async function createLabel(data: Omit<Label, 'id' | 'createdAt'>): Promise<string> {
   try {
-    const ref = await addDoc(collection(db, COLLECTIONS.LABELS), data)
+    const ref = await addDoc(collection(db, COLLECTIONS.LABELS), {
+      ...data,
+      createdAt: serverTimestamp(),
+    })
     return ref.id
   } catch (err) {
     throw new Error(`Failed to create label: ${err}`)
@@ -482,6 +596,18 @@ export async function deleteLabel(id: string): Promise<void> {
   }
 }
 
+export async function getLabelTaskCount(labelId: string): Promise<number> {
+  try {
+    // Labels are stored in an array on tasks, so we need to query where labelIds contains the labelId
+    const q = query(collection(db, COLLECTIONS.TASKS), where('labelIds', 'array-contains', labelId))
+    const snapshot = await getCountFromServer(q)
+    return snapshot.data().count
+  } catch (err) {
+    console.error('getLabelTaskCount failed:', err)
+    return 0
+  }
+}
+
 // ─────────────────────────────────────────
 // COMMENTS
 // ─────────────────────────────────────────
@@ -498,6 +624,64 @@ export function subscribeToComments(
     ),
     (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Comment)),
     (err) => console.error('subscribeToComments error:', err)
+  )
+}
+
+export function subscribeToCommentsForBoards(
+  boardIds: string[],
+  callback: (comments: Comment[]) => void
+): Unsubscribe {
+  if (boardIds.length === 0) {
+    callback([])
+    return () => {}
+  }
+  // First get all tasks for these boards
+  const ids = boardIds.slice(0, 30)
+  return onSnapshot(
+    query(collection(db, COLLECTIONS.TASKS), where('boardId', 'in', ids)),
+    (taskSnap) => {
+      const taskIds = taskSnap.docs.map(d => d.id)
+      if (taskIds.length === 0) {
+        callback([])
+        return
+      }
+      // Firestore 'in' supports max 30 elements, split if needed
+      const batches: string[][] = []
+      for (let i = 0; i < taskIds.length; i += 30) {
+        batches.push(taskIds.slice(i, i + 30))
+      }
+      
+      const unsubscribers: Unsubscribe[] = []
+      const allComments: Comment[] = []
+      let completedCount = 0
+
+      batches.forEach((batchIds) => {
+        const unsub = onSnapshot(
+          query(
+            collection(db, COLLECTIONS.COMMENTS),
+            where('taskId', 'in', batchIds),
+            orderBy('createdAt', 'desc')
+          ),
+          (snap) => {
+            const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Comment)
+            // Merge results
+            allComments.push(...comments)
+            completedCount++
+            if (completedCount >= batches.length) {
+              // Remove duplicates and sort
+              const unique = Array.from(new Map(allComments.map(c => [c.id, c])).values())
+                .sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis())
+              callback(unique.slice(0, 100)) // Limit to 100 most recent
+            }
+          },
+          (err) => console.error('subscribeToCommentsForBoards error:', err)
+        )
+        unsubscribers.push(unsub)
+      })
+
+      return () => unsubscribers.forEach(unsub => unsub())
+    },
+    (err) => console.error('subscribeToCommentsForBoards error:', err)
   )
 }
 
@@ -694,5 +878,183 @@ export async function verifyEmergencyKey(inputKey: string): Promise<boolean> {
   } catch (err) {
     console.error('Failed to verify emergency key:', err)
     return false
+  }
+}
+
+// ─────────────────────────────────────────
+// MY TASKS (assigned to current user)
+// ─────────────────────────────────────────
+
+export function subscribeToMyTasks(
+  userId: string,
+  callback: (tasks: Task[]) => void
+): Unsubscribe {
+  return onSnapshot(
+    query(
+      collection(db, COLLECTIONS.TASKS),
+      where('assignees', 'array-contains', userId),
+      orderBy('dateStart', 'asc')
+    ),
+    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Task)),
+    (err) => console.error('subscribeToMyTasks error:', err)
+  )
+}
+
+// ─────────────────────────────────────────
+// USER PRIVATE - My Space
+// ─────────────────────────────────────────
+
+// Notes
+export function subscribeToPersonalNotes(
+  userId: string,
+  callback: (note: PersonalNote | null) => void
+): Unsubscribe {
+  return onSnapshot(
+    doc(db, COLLECTIONS.USER_PRIVATE, userId, 'notes', 'main'),
+    (snap) => {
+      if (snap.exists()) {
+        callback({ id: snap.id, ...snap.data() } as PersonalNote)
+      } else {
+        callback(null)
+      }
+    },
+    (err) => console.error('subscribeToPersonalNotes error:', err)
+  )
+}
+
+export async function updatePersonalNotes(userId: string, content: string): Promise<void> {
+  try {
+    const { setDoc } = await import('firebase/firestore')
+    await setDoc(
+      doc(db, COLLECTIONS.USER_PRIVATE, userId, 'notes', 'main'),
+      {
+        content,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    )
+  } catch (err) {
+    console.error('updatePersonalNotes failed:', err)
+    throw new Error(`Failed to save notes: ${err}`)
+  }
+}
+
+// Personal Tasks
+export function subscribeToPersonalTasks(
+  userId: string,
+  callback: (tasks: PersonalTask[]) => void
+): Unsubscribe {
+  return onSnapshot(
+    query(
+      collection(db, COLLECTIONS.USER_PRIVATE, userId, 'tasks'),
+      orderBy('createdAt', 'desc')
+    ),
+    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as PersonalTask)),
+    (err) => console.error('subscribeToPersonalTasks error:', err)
+  )
+}
+
+export async function createPersonalTask(
+  userId: string,
+  data: Omit<PersonalTask, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<string> {
+  try {
+    const ref = await addDoc(
+      collection(db, COLLECTIONS.USER_PRIVATE, userId, 'tasks'),
+      {
+        ...data,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }
+    )
+    return ref.id
+  } catch (err) {
+    throw new Error(`Failed to create personal task: ${err}`)
+  }
+}
+
+export async function updatePersonalTask(
+  userId: string,
+  taskId: string,
+  data: Partial<Omit<PersonalTask, 'id'>>
+): Promise<void> {
+  try {
+    await updateDoc(
+      doc(db, COLLECTIONS.USER_PRIVATE, userId, 'tasks', taskId),
+      {
+        ...data,
+        updatedAt: serverTimestamp(),
+      }
+    )
+  } catch (err) {
+    throw new Error(`Failed to update personal task: ${err}`)
+  }
+}
+
+export async function deletePersonalTask(userId: string, taskId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.USER_PRIVATE, userId, 'tasks', taskId))
+  } catch (err) {
+    throw new Error(`Failed to delete personal task: ${err}`)
+  }
+}
+
+export async function togglePersonalTaskComplete(
+  userId: string,
+  taskId: string,
+  completed: boolean
+): Promise<void> {
+  try {
+    await updateDoc(
+      doc(db, COLLECTIONS.USER_PRIVATE, userId, 'tasks', taskId),
+      {
+        completed,
+        completedAt: completed ? serverTimestamp() : null,
+        updatedAt: serverTimestamp(),
+      }
+    )
+  } catch (err) {
+    throw new Error(`Failed to update task completion: ${err}`)
+  }
+}
+
+// Quick Links
+export function subscribeToQuickLinks(
+  userId: string,
+  callback: (links: QuickLink[]) => void
+): Unsubscribe {
+  return onSnapshot(
+    query(
+      collection(db, COLLECTIONS.USER_PRIVATE, userId, 'links'),
+      orderBy('createdAt', 'desc')
+    ),
+    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as QuickLink)),
+    (err) => console.error('subscribeToQuickLinks error:', err)
+  )
+}
+
+export async function createQuickLink(
+  userId: string,
+  data: Omit<QuickLink, 'id' | 'createdAt'>
+): Promise<string> {
+  try {
+    const ref = await addDoc(
+      collection(db, COLLECTIONS.USER_PRIVATE, userId, 'links'),
+      {
+        ...data,
+        createdAt: serverTimestamp(),
+      }
+    )
+    return ref.id
+  } catch (err) {
+    throw new Error(`Failed to create quick link: ${err}`)
+  }
+}
+
+export async function deleteQuickLink(userId: string, linkId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.USER_PRIVATE, userId, 'links', linkId))
+  } catch (err) {
+    throw new Error(`Failed to delete quick link: ${err}`)
   }
 }
