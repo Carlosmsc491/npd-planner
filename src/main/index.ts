@@ -9,21 +9,57 @@ import { registerAwbIpcHandlers } from './ipc/awbIpcHandlers'
 const isDev = process.env.NODE_ENV === 'development' || !!process.env.ELECTRON_RENDERER_URL
 
 function createWindow(): BrowserWindow {
+  console.log('[Main] Creating window...')
+  console.log('[Main] __dirname:', __dirname)
+  console.log('[Main] app.getAppPath():', app.getAppPath())
+  console.log('[Main] isDev:', isDev)
+  
+  // Use app.getAppPath() for reliable path resolution in packaged app
+  const appPath = app.getAppPath()
+  const preloadPath = join(appPath, 'out/preload/index.js')
+  
+  console.log('[Main] Preload path:', preloadPath)
+  
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     show: false,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: preloadPath,
       contextIsolation: true,
       sandbox: false,
     },
   })
-  win.on('ready-to-show', () => win.show())
+  
+  // Open DevTools immediately so we catch errors from page initialization
+  win.webContents.openDevTools()
+
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.error('[Main] Failed to load:', errorCode, errorDescription)
+  })
+  
+  win.webContents.on('dom-ready', () => {
+    console.log('[Main] DOM ready')
+  })
+  
+  win.webContents.on('console-message', (_event, level, message, _line, _sourceId) => {
+    console.log(`[Renderer:${level}] ${message}`)
+  })
+  
+  win.on('ready-to-show', () => {
+    console.log('[Main] Window ready to show')
+    win.show()
+  })
+  
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
+    console.log('[Main] Loading dev URL:', process.env.ELECTRON_RENDERER_URL)
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
+    const htmlPath = join(appPath, 'out/renderer/index.html')
+    console.log('[Main] Loading file:', htmlPath)
+    win.loadFile(htmlPath).catch(err => {
+      console.error('[Main] Error loading file:', err)
+    })
   }
   return win
 }
