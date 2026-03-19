@@ -199,21 +199,6 @@ function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
         </span>
       </td>
 
-      {/* Guia */}
-      <td className="py-2 pr-2">
-        {readonly ? (
-          <span className="text-sm text-gray-600 dark:text-gray-400">{safeAwb.guia || '—'}</span>
-        ) : (
-          <input
-            type="text"
-            value={safeAwb.guia ?? ''}
-            onChange={(e) => onChange({ ...safeAwb, guia: e.target.value || null })}
-            placeholder="Guía #"
-            className="w-28 text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-gray-900 dark:text-white focus:outline-none focus:border-green-500"
-          />
-        )}
-      </td>
-
       {/* Actions */}
       {!readonly && (
         <td className="py-2 text-right">
