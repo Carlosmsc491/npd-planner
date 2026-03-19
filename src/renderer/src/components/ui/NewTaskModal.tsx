@@ -74,6 +74,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
         description: '',
         notes: '',
         poNumber: '',
+        poNumbers: [],
         awbs: [],
         subtasks: [],
         attachments: [],

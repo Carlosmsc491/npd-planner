@@ -3,9 +3,10 @@ import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
-import type { EventDropArg, EventClickArg } from '@fullcalendar/core'
+import type { EventDropArg, EventClickArg, DayCellContentArg } from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import AppLayout from '../components/ui/AppLayout'
+import NewTaskModal from '../components/ui/NewTaskModal'
 import { subscribeToAllTasks, updateTaskField } from '../lib/firestore'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
@@ -29,6 +30,12 @@ export default function CalendarPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [hiddenBoards, setHiddenBoards] = useState<Set<string>>(loadHidden)
   const calendarRef = useRef<FullCalendar>(null)
+
+  // New task from calendar states
+  const [newTaskDate, setNewTaskDate] = useState<Date | null>(null)
+  const [showBoardPicker, setShowBoardPicker] = useState(false)
+  const [pendingDate, setPendingDate] = useState<Date | null>(null)
+  const [selectedBoardForNew, setSelectedBoardForNew] = useState<Board | null>(null)
 
   useEffect(() => {
     if (boards.length === 0) return
@@ -140,9 +147,20 @@ export default function CalendarPage() {
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
             initialView="dayGridMonth"
             headerToolbar={{
-              left: 'prev,next today',
-              center: 'title',
-              right: 'dayGridMonth,timeGridWeek',
+              left: 'title',
+              center: 'dayGridMonth,timeGridWeek',
+              right: 'prev,today,next',
+            }}
+            titleFormat={() => ' '}
+            datesSet={(arg) => {
+              setTimeout(() => {
+                const el = (calendarRef.current?.getApi() as unknown as { el: HTMLElement }).el.querySelector('.fc-toolbar-title')
+                if (!el) return
+                const d = arg.view.currentStart
+                const month = d.toLocaleString('en-US', { month: 'long' })
+                const year = d.getFullYear()
+                el.innerHTML = `<strong>${month}</strong><span>${year}</span>`
+              }, 0)
             }}
             events={events}
             height="100%"
@@ -161,8 +179,72 @@ export default function CalendarPage() {
                 <span className="truncate text-xs font-medium">{arg.event.title}</span>
               </div>
             )}
+            dayCellContent={(arg: DayCellContentArg) => (
+              <div className="group/day relative flex items-center justify-between w-full px-1">
+                <span className="text-sm">{arg.dayNumberText}</span>
+                <button
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setPendingDate(arg.date)
+                    setShowBoardPicker(true)
+                  }}
+                  className="hidden group-hover/day:flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300 hover:bg-green-500 hover:text-white text-xs font-bold transition-colors"
+                >
+                  +
+                </button>
+              </div>
+            )}
           />
         </div>
+
+        {/* Board Picker */}
+        {showBoardPicker && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-2xl w-80">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4">
+                Select Board
+              </h3>
+              <div className="space-y-2">
+                {boards.map((board) => (
+                  <button
+                    key={board.id}
+                    onClick={() => {
+                      setSelectedBoardForNew(board)
+                      setNewTaskDate(pendingDate)
+                      setShowBoardPicker(false)
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left"
+                  >
+                    <span
+                      className="h-3 w-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: board.color }}
+                    />
+                    <span className="text-sm text-gray-800 dark:text-gray-200">{board.name}</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => { setShowBoardPicker(false); setPendingDate(null) }}
+                className="mt-4 w-full text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* New Task Modal */}
+        {newTaskDate && selectedBoardForNew && user && (
+          <NewTaskModal
+            board={selectedBoardForNew}
+            defaultDate={newTaskDate}
+            onClose={() => {
+              setNewTaskDate(null)
+              setSelectedBoardForNew(null)
+            }}
+          />
+        )}
       </div>
     </AppLayout>
   )

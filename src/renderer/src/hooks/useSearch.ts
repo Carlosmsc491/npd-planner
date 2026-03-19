@@ -18,6 +18,7 @@ const TASK_FUSE_KEYS = [
   { name: 'notes', weight: 1 },
   { name: 'description', weight: 1 },
   { name: 'poNumber', weight: 1.5 },
+  { name: 'poNumbers', weight: 1.5 },
   { name: 'awbs.number', weight: 1 },
 ]
 

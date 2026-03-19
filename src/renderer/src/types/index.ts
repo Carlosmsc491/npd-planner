@@ -95,6 +95,7 @@ export interface AwbEntry {
   shipDate: string | null      // "MM/DD/YYYY" from CSV (SHIP DATE column)
   eta: string | null           // from CSV (ETA column)
   ata: string | null           // from CSV (ATA column)
+  guia: string | null          // house AWB / local tracking guide number
   etaChanged: boolean          // true if ETA changed in the last CSV check
   lastCheckedAt: Timestamp | null
   etaHistory: EtaHistoryEntry[]
@@ -150,6 +151,7 @@ export interface Task {
   description: string   // rich text HTML
   notes: string
   poNumber: string
+  poNumbers: string[]   // additional PO/Order numbers beyond the first
   awbs: AwbEntry[]
   subtasks: Subtask[]
   attachments: TaskAttachment[]

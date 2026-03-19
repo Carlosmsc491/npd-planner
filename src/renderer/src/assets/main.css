@@ -186,8 +186,22 @@ body {
   align-items: center !important;
 }
 .fc .fc-toolbar-title {
-  font-size: 18px !important;
-  font-weight: 600 !important;
+  font-size: 28px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.5px !important;
+  line-height: 1.1 !important;
+}
+.fc .fc-toolbar-title strong {
+  font-weight: 700 !important;
+}
+.dark .fc .fc-toolbar-title strong {
+  color: #f9fafb;
+}
+.fc .fc-toolbar-title span {
+  font-weight: 300 !important;
+  font-size: 0.78em !important;
+  opacity: 0.6;
+  margin-left: 4px;
 }
 /* Consistent button sizing */
 .fc .fc-button {

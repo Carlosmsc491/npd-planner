@@ -64,11 +64,22 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   // ── Order Status (AWB + PO) state ────────────────────────────────────────
   const [localAwbs, setLocalAwbs] = useState<AwbEntry[]>(task.awbs ?? [])
   const [localPoNumber, setLocalPoNumber] = useState(task.poNumber ?? '')
+  const [localPoNumbers, setLocalPoNumbers] = useState<string[]>(task.poNumbers ?? [])
   const { csvStatus, lookupAwbsInTask } = useAwbLookup()
 
   // Sync local state when task changes (e.g., Firestore real-time update)
   useEffect(() => { setLocalAwbs(task.awbs ?? []) }, [task.awbs])
   useEffect(() => { setLocalPoNumber(task.poNumber ?? '') }, [task.poNumber])
+  useEffect(() => { setLocalPoNumbers(task.poNumbers ?? []) }, [task.poNumbers])
+
+  // Cleanup debounce timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (poSaveTimeoutRef.current) {
+        clearTimeout(poSaveTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Auto-lookup AWBs when task opens and has AWBs
   useEffect(() => {
@@ -186,13 +197,27 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     await save('awbs', updated, task.awbs)
   }
 
-  async function handlePoNumberChange(value: string) {
-    setLocalPoNumber(value)
-    // Debounce: save 600ms after user stops typing
-    clearTimeout((handlePoNumberChange as { _t?: ReturnType<typeof setTimeout> })._t)
-    ;(handlePoNumberChange as { _t?: ReturnType<typeof setTimeout> })._t = setTimeout(() => {
-      save('poNumber', value, task.poNumber)
-    }, 600)
+  // Debounce ref para evitar múltiples guardados
+  const poSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  async function handlePoNumbersChange(numbers: string[]) {
+    setLocalPoNumbers(numbers)
+    
+    // Cancelar guardado anterior si existe
+    if (poSaveTimeoutRef.current) {
+      clearTimeout(poSaveTimeoutRef.current)
+    }
+    
+    // Debounce: guardar después de 1 segundo de inactividad
+    poSaveTimeoutRef.current = setTimeout(() => {
+      const firstPo = numbers.find(n => n.trim() !== '') ?? ''
+      save('poNumbers', numbers, task.poNumbers ?? [])
+      if (firstPo !== task.poNumber) {
+        save('poNumber', firstPo, task.poNumber)
+        setLocalPoNumber(firstPo)
+      }
+      poSaveTimeoutRef.current = null
+    }, 1000)
   }
 
   return (
@@ -490,8 +515,9 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                           <OrderStatusSection
                             taskId={task.id}
                             poNumber={localPoNumber}
+                            poNumbers={localPoNumbers}
                             awbs={localAwbs}
-                            onPoNumberChange={handlePoNumberChange}
+                            onPoNumbersChange={handlePoNumbersChange}
                             onAwbsChange={handleAwbsChange}
                             readonly={false}
                             csvStatus={csvStatus}

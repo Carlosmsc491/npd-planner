@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AppLayout from '../components/ui/AppLayout'
+import FlightStatusPanel from '../components/dashboard/FlightStatusPanel'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import { subscribeToTasks, seedDefaultBoards, deduplicateDefaultBoards } from '../lib/firestore'
@@ -52,6 +53,11 @@ export default function DashboardPage() {
     { label: 'Completed Today', value: doneToday.length, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-900/20 dark:text-purple-400' },
   ]
 
+  // Tasks with at least one AWB that has ETA or ATA — from ALL boards, not just planner
+  const flightTasks = allTasks.filter(
+    (t) => !t.completed && t.awbs?.some((a) => a.eta || a.ata)
+  )
+
   return (
     <AppLayout>
       <div className="p-6 w-full">
@@ -71,6 +77,12 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
+
+        {/* Flight Status */}
+        <FlightStatusPanel
+          tasks={flightTasks}
+          onTaskClick={(boardId) => navigate(`/board/${boardId}`)}
+        />
 
         {/* Boards quick access */}
         {boards.length > 0 && (

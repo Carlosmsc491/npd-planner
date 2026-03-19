@@ -1,6 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
 import AppLayout from '../components/ui/AppLayout'
-import PersonalNotes from '../components/myspace/PersonalNotes'
 import PersonalTasks from '../components/myspace/PersonalTasks'
 import PersonalCalendar from '../components/myspace/PersonalCalendar'
 import QuickLinks from '../components/myspace/QuickLinks'
@@ -9,7 +8,6 @@ import { useMySpace } from '../hooks/useMySpace'
 import { useMyTasks } from '../hooks/useMyTasks'
 import { useBoardStore } from '../store/boardStore'
 import { useAuthStore } from '../store/authStore'
-import { User, Lock } from 'lucide-react'
 import type { Task } from '../types'
 import { Timestamp } from 'firebase/firestore'
 
@@ -19,11 +17,16 @@ export default function MySpacePage() {
   const { tasks: boardTasks } = useMyTasks()
   
   const {
-    // Notes
+    // Notes (keep subscription alive even though we don't render it)
+    // @ts-ignore - intentionally unused but needed for subscription
     notesContent,
+    // @ts-ignore
     setNotesContent,
+    // @ts-ignore
     saveNotes,
+    // @ts-ignore
     notesSaving,
+    // @ts-ignore
     notesSaved,
     // Tasks
     tasks: personalTasks,
@@ -40,6 +43,7 @@ export default function MySpacePage() {
   } = useMySpace()
 
   const [selectedBoardTask, setSelectedBoardTask] = useState<Task | null>(null)
+  const [activeTab, setActiveTab] = useState<'tasks' | 'calendar' | 'links'>('tasks')
 
   // Get assigned tasks for calendar (only assigned to me)
   const myBoardTasks = useMemo(() => {
@@ -64,45 +68,39 @@ export default function MySpacePage() {
 
   return (
     <AppLayout>
-      <div className="p-6 w-full max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-              <User className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                My Space
-              </h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Your personal workspace — only you can see this
-              </p>
-            </div>
-            <div className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 text-xs font-medium">
-              <Lock size={12} />
-              Private
-            </div>
+      <div className="flex h-full flex-col overflow-hidden">
+        {/* Header con título y tabs al lado */}
+        <div className="flex-shrink-0 flex items-center gap-6 px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">My Space</h1>
+          
+          {/* Tabs al lado del título, estilo pills */}
+          <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+            {(
+              [
+                { id: 'tasks', label: 'My Tasks' },
+                { id: 'calendar', label: 'My Calendar' },
+                { id: 'links', label: 'Quick Links' },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                  activeTab === tab.id
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Left Column (60% on large screens) */}
-          <div className="lg:col-span-3 space-y-6">
-            {/* Personal Notes */}
-            <div className="h-[400px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
-              <PersonalNotes
-                content={notesContent}
-                onChange={setNotesContent}
-                onSave={saveNotes}
-                saving={notesSaving}
-                saved={notesSaved}
-              />
-            </div>
-
-            {/* Personal Tasks */}
-            <div className="h-[400px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
+        {/* Tab Content */}
+        <div className="flex-1 overflow-hidden">
+          {activeTab === 'tasks' && (
+            <div className="h-full overflow-y-auto p-6">
               <PersonalTasks
                 tasks={activeTasks}
                 completedTasks={completedTasks}
@@ -112,12 +110,9 @@ export default function MySpacePage() {
                 onUpdateTask={handleUpdatePersonalTask}
               />
             </div>
-          </div>
-
-          {/* Right Column (40% on large screens) */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Personal Calendar */}
-            <div className="h-[400px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
+          )}
+          {activeTab === 'calendar' && (
+            <div className="h-full overflow-hidden p-6">
               <PersonalCalendar
                 boardTasks={myBoardTasks}
                 personalTasks={personalTasks}
@@ -126,39 +121,39 @@ export default function MySpacePage() {
                 onPersonalTaskClick={() => {}}
               />
             </div>
-
-            {/* Quick Links */}
-            <div className="h-[400px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
+          )}
+          {activeTab === 'links' && (
+            <div className="h-full overflow-y-auto p-6">
               <QuickLinks
                 links={links}
                 onAddLink={addLink}
                 onDeleteLink={deleteLink}
               />
             </div>
-          </div>
+          )}
         </div>
-      </div>
 
-      {/* Task Page Modal for Board Tasks */}
-      {selectedBoardTask && user && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/40"
-            onClick={() => setSelectedBoardTask(null)}
-          />
-          <div className="fixed inset-4 md:inset-10 lg:inset-16 z-50 rounded-2xl overflow-hidden shadow-2xl">
-            <TaskPage
-              task={selectedBoardTask}
-              board={getBoardForTask(selectedBoardTask) || null}
-              users={[]}
-              onClose={() => setSelectedBoardTask(null)}
-              onDelete={() => setSelectedBoardTask(null)}
-              onRecurring={() => {}}
-              onDuplicate={() => {}}
+        {/* Task Page Modal for Board Tasks */}
+        {selectedBoardTask && user && (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/40"
+              onClick={() => setSelectedBoardTask(null)}
             />
-          </div>
-        </>
-      )}
+            <div className="fixed inset-4 md:inset-10 lg:inset-16 z-50 rounded-2xl overflow-hidden shadow-2xl">
+              <TaskPage
+                task={selectedBoardTask}
+                board={getBoardForTask(selectedBoardTask) || null}
+                users={[]}
+                onClose={() => setSelectedBoardTask(null)}
+                onDelete={() => setSelectedBoardTask(null)}
+                onRecurring={() => {}}
+                onDuplicate={() => {}}
+              />
+            </div>
+          </>
+        )}
+      </div>
     </AppLayout>
   )
 }

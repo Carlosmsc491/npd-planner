@@ -8,7 +8,7 @@
  * Only shown for Planner Board tasks.
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Timestamp }     from 'firebase/firestore';
 import type { AwbEntry, EtaHistoryEntry } from '../../types';
 import { nanoid }        from 'nanoid';
@@ -107,6 +107,7 @@ function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
     shipDate: awb.shipDate || null,
     eta: awb.eta || null,
     ata: awb.ata || null,
+    guia: awb.guia || null,
     etaChanged: awb.etaChanged || false,
     lastCheckedAt: awb.lastCheckedAt || null,
     etaHistory: awb.etaHistory || [],
@@ -198,6 +199,21 @@ function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
         </span>
       </td>
 
+      {/* Guia */}
+      <td className="py-2 pr-2">
+        {readonly ? (
+          <span className="text-sm text-gray-600 dark:text-gray-400">{safeAwb.guia || '—'}</span>
+        ) : (
+          <input
+            type="text"
+            value={safeAwb.guia ?? ''}
+            onChange={(e) => onChange({ ...safeAwb, guia: e.target.value || null })}
+            placeholder="Guía #"
+            className="w-28 text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-gray-900 dark:text-white focus:outline-none focus:border-green-500"
+          />
+        )}
+      </td>
+
       {/* Actions */}
       {!readonly && (
         <td className="py-2 text-right">
@@ -217,12 +233,13 @@ function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 interface OrderStatusSectionProps {
-  taskId:           string
-  poNumber:         string
-  awbs:             AwbEntry[]
-  onPoNumberChange: (value: string) => void
-  onAwbsChange:     (awbs: AwbEntry[]) => void
-  readonly?:        boolean
+  taskId:            string
+  poNumber:          string
+  poNumbers:         string[]
+  awbs:              AwbEntry[]
+  onPoNumbersChange: (numbers: string[]) => void
+  onAwbsChange:      (awbs: AwbEntry[]) => void
+  readonly?:         boolean
   csvStatus?: {
     exists:       boolean
     downloadedAt: string | null
@@ -232,8 +249,9 @@ interface OrderStatusSectionProps {
 export function OrderStatusSection({
   taskId,
   poNumber,
+  poNumbers,
   awbs,
-  onPoNumberChange,
+  onPoNumbersChange,
   onAwbsChange,
   readonly = false,
   csvStatus,
@@ -241,6 +259,12 @@ export function OrderStatusSection({
   
   // Ensure awbs is always an array
   const safeAwbs = awbs || [];
+
+  // Merge single poNumber + array for display (backward compatibility)
+  const allPoNumbers = useMemo(() => {
+    const combined = poNumber ? [poNumber, ...poNumbers] : [...poNumbers]
+    return combined.length > 0 ? combined : []
+  }, [poNumber, poNumbers])
 
   // Smart refresh hook with 30-min cache logic
   const { isRefreshing, lastRefreshMessage, refreshAwbs } = useTrazeRefresh();
@@ -265,6 +289,7 @@ export function OrderStatusSection({
       shipDate:      null,
       eta:           null,
       ata:           null,
+      guia:          null,
       etaChanged:    false,
       lastCheckedAt: null,
       etaHistory:    [],
@@ -333,24 +358,53 @@ export function OrderStatusSection({
       </div>
 
       <div className="p-4 space-y-4">
-        {/* PO / Order Number */}
-        <div className="flex items-center gap-3">
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 w-24 shrink-0">
-            PO / Order #
-          </label>
-          {readonly ? (
-            <span className="text-sm text-gray-800 dark:text-gray-100">
-              {poNumber || '—'}
+        {/* PO / Order # — multiple entries */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+              P.O. / Order #
             </span>
-          ) : (
-            <input
-              type="text"
-              value={poNumber}
-              onChange={e => onPoNumberChange(e.target.value)}
-              placeholder="PO12345"
-              className="flex-1 text-sm bg-transparent border-b border-gray-200 dark:border-gray-600 focus:border-[#1D9E75] outline-none text-gray-800 dark:text-gray-100 placeholder-gray-300 py-0.5"
-            />
-          )}
+            {!readonly && (
+              <button
+                onClick={() => onPoNumbersChange([...allPoNumbers, ''])}
+                className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:text-green-700"
+                title="Add PO Number"
+              >
+                <span className="text-base leading-none">+</span>
+              </button>
+            )}
+          </div>
+          <div className="space-y-1">
+            {allPoNumbers.map((po, idx) => (
+              <div key={idx} className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={po}
+                  onChange={(e) => {
+                    // Solo actualizar estado local, NO guardar aún
+                    const updated = [...allPoNumbers]
+                    updated[idx] = e.target.value
+                    onPoNumbersChange(updated)
+                  }}
+                  placeholder="e.g. PO-12345"
+                  readOnly={readonly}
+                  className="flex-1 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-gray-900 dark:text-white focus:outline-none focus:border-green-500"
+                />
+                {!readonly && (
+                  <button
+                    onClick={() => {
+                      const filtered = allPoNumbers.filter((_, i) => i !== idx)
+                      onPoNumbersChange(filtered.length > 0 ? filtered : [''])
+                    }}
+                    className="text-gray-400 hover:text-red-500 text-xs p-1"
+                    title="Remove"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* AWB Table - Sin scroll, todo visible */}

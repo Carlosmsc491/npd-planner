@@ -1,7 +1,8 @@
-import { useRef, useMemo } from 'react'
+import { useRef, useMemo, useState } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
+import interactionPlugin from '@fullcalendar/interaction'
 import type { EventClickArg, EventInput } from '@fullcalendar/core'
 import { getBoardColor } from '../../utils/colorUtils'
 import type { Task, PersonalTask, Board } from '../../types'
@@ -25,6 +26,7 @@ export default function PersonalCalendar({
   onPersonalTaskClick,
 }: Props) {
   const calRef = useRef<FullCalendar>(null)
+  const [currentView, setCurrentView] = useState<'dayGridMonth' | 'timeGridWeek' | 'timeGridDay'>('dayGridMonth')
 
   // Build board lookup map for colors
   const boardMap = useMemo(() => {
@@ -91,12 +93,9 @@ export default function PersonalCalendar({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-          My Calendar
-        </h3>
-        <div className="flex items-center gap-3 text-xs">
+      {/* Header - Solo leyenda a la derecha */}
+      <div className="flex items-center justify-end px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60">
+        <div className="flex items-center gap-4 text-xs">
           <div className="flex items-center gap-1.5">
             <span
               className="h-2.5 w-2.5 rounded-full"
@@ -111,16 +110,53 @@ export default function PersonalCalendar({
         </div>
       </div>
 
+      {/* View Switcher */}
+      <div className="flex items-center justify-between px-4 py-2">
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+          {([
+            { key: 'dayGridMonth', label: 'Month' },
+            { key: 'timeGridWeek', label: 'Week' },
+            { key: 'timeGridDay', label: 'Day' },
+          ] as const).map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => {
+                setCurrentView(key)
+                calRef.current?.getApi().changeView(key)
+              }}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                currentView === key
+                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Calendar */}
       <div className="flex-1 overflow-hidden p-2">
         <FullCalendar
           ref={calRef}
-          plugins={[dayGridPlugin, timeGridPlugin]}
-          initialView="dayGridWeek"
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          initialView={currentView}
           headerToolbar={{
-            left: 'prev,next',
-            center: 'title',
-            right: 'dayGridWeek,timeGridDay',
+            left: 'title',
+            center: '',
+            right: 'prev,today,next',
+          }}
+          titleFormat={() => ' '}
+          datesSet={(arg) => {
+            setTimeout(() => {
+              const el = (calRef.current?.getApi() as unknown as { el: HTMLElement }).el.querySelector('.fc-toolbar-title')
+              if (!el) return
+              const d = arg.view.currentStart
+              const month = d.toLocaleString('en-US', { month: 'long' })
+              const year = d.getFullYear()
+              el.innerHTML = `<strong>${month}</strong><span>${year}</span>`
+            }, 0)
           }}
           height="100%"
           editable={false}

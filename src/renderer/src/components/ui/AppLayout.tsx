@@ -6,7 +6,7 @@ import {
   MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Search,
   LayoutDashboard, CheckSquare, Package, Truck, Camera, Users, Calendar,
   Star, Folder, ShoppingCart, FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
-  User, Lock,
+  User, Lock, List, CalendarDays,
   type LucideIcon,
 } from 'lucide-react'
 import { auth } from '../../lib/firebase'
@@ -150,10 +150,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-2 py-2">
           {[
-            { path: '/dashboard',      label: 'Dashboard' },
-            { path: '/my-tasks',       label: 'My Tasks', icon: CheckSquare },
+            { path: '/dashboard',      label: 'Dashboard', icon: LayoutGrid },
+            { path: '/my-tasks',       label: 'My Tasks', icon: List },
             { path: '/my-space',       label: 'My Space', icon: User, isPrivate: true },
-            { path: '/calendar',       label: 'Master Calendar' },
+            { path: '/calendar',       label: 'Master Calendar', icon: CalendarDays },
           ].map((item) => {
             const Icon = item.icon
             return (

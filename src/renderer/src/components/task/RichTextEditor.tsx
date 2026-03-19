@@ -72,7 +72,7 @@ function EditorToolbar({ editor, onExpand }: { editor: Editor; onExpand: () => v
   }, [])
 
   return (
-    <div className="flex items-center gap-0.5 px-2 py-1 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex-wrap">
+    <div className="flex items-center gap-0.5 px-2 py-1 border-b border-gray-200 dark:border-gray-700 flex-wrap sticky top-0 z-10 bg-gray-50 dark:bg-gray-800/50 rounded-t-lg">
       <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive('bold')} title="Bold">
         <Bold size={13} />
       </ToolbarButton>
@@ -216,12 +216,12 @@ function RichTextEditorInner({ content, onBlur, placeholder = 'Add a description
 
   return (
     <>
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden focus-within:border-green-500 transition-colors">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-visible focus-within:border-green-500 transition-colors">
         <EditorToolbar editor={editor} onExpand={() => setExpanded(true)} />
         {!editor.getText() && !editor.isFocused && (
           <div className="absolute pointer-events-none px-3 py-3 text-sm text-gray-400">{placeholder}</div>
         )}
-        <div className="relative">
+        <div className="max-h-[300px] overflow-y-auto">
           <EditorContent editor={editor} />
         </div>
       </div>

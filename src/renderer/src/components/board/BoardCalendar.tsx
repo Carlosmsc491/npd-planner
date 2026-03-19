@@ -71,9 +71,20 @@ export default function BoardCalendar({ tasks, board, onOpenTask, onDateClick }:
         plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
         initialView="dayGridMonth"
         headerToolbar={{
-          left: 'prev,next today',
-          center: 'title',
-          right: 'dayGridMonth,timeGridWeek,timeGridDay',
+          left: 'title',
+          center: 'dayGridMonth,timeGridWeek,timeGridDay',
+          right: 'prev,today,next',
+        }}
+        titleFormat={() => ' '}
+        datesSet={(arg) => {
+          setTimeout(() => {
+            const el = (calRef.current?.getApi() as unknown as { el: HTMLElement }).el.querySelector('.fc-toolbar-title')
+            if (!el) return
+            const d = arg.view.currentStart
+            const month = d.toLocaleString('en-US', { month: 'long' })
+            const year = d.getFullYear()
+            el.innerHTML = `<strong>${month}</strong><span>${year}</span>`
+          }, 0)
         }}
         height="100%"
         editable={true}
