@@ -195,7 +195,7 @@ function RichTextEditorInner({ content, onBlur, placeholder = 'Add a description
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ underline: false }),
       Underline,
       TextStyle,
       Color,
