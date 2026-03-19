@@ -1,6 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { HashRouter } from 'react-router-dom'
 import App from './App'
 import './assets/main.css'
 
@@ -39,9 +39,9 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <BrowserRouter>
+      <HashRouter>
         <App />
-      </BrowserRouter>
+      </HashRouter>
     </ErrorBoundary>
   </React.StrictMode>
 )

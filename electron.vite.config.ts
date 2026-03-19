@@ -1,5 +1,16 @@
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import type { Plugin } from 'vite'
+
+// Remove crossorigin attributes from generated HTML — they break file:// loading in Electron
+function removeCrossorigin(): Plugin {
+  return {
+    name: 'remove-crossorigin',
+    transformIndexHtml(html: string) {
+      return html.replace(/ crossorigin/g, '')
+    },
+  }
+}
 
 export default defineConfig({
   main: {
@@ -22,6 +33,6 @@ export default defineConfig({
     }
   },
   renderer: {
-    plugins: [react()],
+    plugins: [react(), removeCrossorigin()],
   },
 })
