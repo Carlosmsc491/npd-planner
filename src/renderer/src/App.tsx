@@ -91,6 +91,8 @@ export default function App() {
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/my-tasks" element={<MyTasksPage />} />
+        <Route path="/my-space" element={<MySpacePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
