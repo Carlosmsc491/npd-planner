@@ -112,7 +112,7 @@ export default function MySpacePage() {
             </div>
           )}
           {activeTab === 'calendar' && (
-            <div className="h-full overflow-hidden p-6">
+            <div className="h-full overflow-hidden">
               <PersonalCalendar
                 boardTasks={myBoardTasks}
                 personalTasks={personalTasks}

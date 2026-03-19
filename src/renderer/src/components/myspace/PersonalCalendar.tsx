@@ -93,25 +93,9 @@ export default function PersonalCalendar({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header - Solo leyenda a la derecha */}
-      <div className="flex items-center justify-end px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60">
-        <div className="flex items-center gap-4 text-xs">
-          <div className="flex items-center gap-1.5">
-            <span
-              className="h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: PERSONAL_TASK_COLOR }}
-            />
-            <span className="text-gray-600 dark:text-gray-400">Personal</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
-            <span className="text-gray-600 dark:text-gray-400">Board Tasks</span>
-          </div>
-        </div>
-      </div>
-
-      {/* View Switcher */}
-      <div className="flex items-center justify-between px-4 py-2">
+      {/* Single toolbar row: view switcher (left) + legend + nav (right) */}
+      <div className="flex-shrink-0 flex items-center justify-between px-2 py-2">
+        {/* View switcher */}
         <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
           {([
             { key: 'dayGridMonth', label: 'Month' },
@@ -134,9 +118,38 @@ export default function PersonalCalendar({
             </button>
           ))}
         </div>
+
+        {/* Legend + nav arrows */}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 text-xs">
+            <div className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PERSONAL_TASK_COLOR }} />
+              <span className="text-gray-500 dark:text-gray-400">Personal</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+              <span className="text-gray-500 dark:text-gray-400">Board Tasks</span>
+            </div>
+          </div>
+          {/* Nav buttons */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => calRef.current?.getApi().prev()}
+              className="h-7 w-7 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 text-base font-bold transition-colors"
+            >‹</button>
+            <button
+              onClick={() => calRef.current?.getApi().today()}
+              className="px-3 h-7 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >today</button>
+            <button
+              onClick={() => calRef.current?.getApi().next()}
+              className="h-7 w-7 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 text-base font-bold transition-colors"
+            >›</button>
+          </div>
+        </div>
       </div>
 
-      {/* Calendar */}
+      {/* Calendar — title only in toolbar, no FC nav buttons */}
       <div className="flex-1 overflow-hidden p-2">
         <FullCalendar
           ref={calRef}
@@ -145,7 +158,7 @@ export default function PersonalCalendar({
           headerToolbar={{
             left: 'title',
             center: '',
-            right: 'prev,today,next',
+            right: '',
           }}
           titleFormat={() => ' '}
           datesSet={(arg) => {
