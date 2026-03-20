@@ -255,7 +255,19 @@ export function OrderStatusSection({
   }, [poNumbers, poNumber])
 
   // Smart refresh hook with 30-min cache logic
-  const { isRefreshing, lastRefreshMessage, refreshAwbs } = useTrazeRefresh();
+  const { isRefreshing, lastRefreshMessage, lastRefreshError, refreshAwbs, clearError } = useTrazeRefresh();
+  
+  // Show error alert if refresh fails
+  useEffect(() => {
+    if (lastRefreshError) {
+      // Auto-clear error after 5 seconds
+      const timer = setTimeout(() => {
+        clearError();
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [lastRefreshError, clearError]);
   
   // Handle Update button click
   const handleUpdate = async () => {
@@ -325,24 +337,33 @@ export function OrderStatusSection({
           Order Status
         </span>
         
-        {/* Update Button */}
-        <button
-          onClick={handleUpdate}
-          disabled={isRefreshing}
-          className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-[#1D9E75] disabled:opacity-50 transition-colors"
-          title={lastRefreshMessage || 'Update AWB data from Traze'}
-        >
-          <RefreshCw
-            size={14}
-            className={isRefreshing ? 'animate-spin' : ''}
-          />
-          <span>Update</span>
-          {csvStatus?.exists && (
-            <span className="text-gray-400 dark:text-gray-500">
-              · {formatLastDownload()}
+        <div className="flex items-center gap-2">
+          {/* Error message */}
+          {lastRefreshError && (
+            <span className="text-xs text-red-500 dark:text-red-400 max-w-[200px] truncate" title={lastRefreshError}>
+              ⚠ {lastRefreshError}
             </span>
           )}
-        </button>
+          
+          {/* Update Button */}
+          <button
+            onClick={handleUpdate}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-[#1D9E75] disabled:opacity-50 transition-colors"
+            title={lastRefreshMessage || 'Update AWB data from Traze'}
+          >
+            <RefreshCw
+              size={14}
+              className={isRefreshing ? 'animate-spin' : ''}
+            />
+            <span>Update</span>
+            {csvStatus?.exists && (
+              <span className="text-gray-400 dark:text-gray-500">
+                · {formatLastDownload()}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="p-4 space-y-4">

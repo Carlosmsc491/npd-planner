@@ -30,7 +30,9 @@ interface RefreshResult {
 interface UseTrazeRefreshReturn {
   isRefreshing: boolean;
   lastRefreshMessage: string | null;
+  lastRefreshError: string | null;
   refreshAwbs: (taskId: string, awbs: AwbEntry[]) => Promise<AwbEntry[]>;
+  clearError: () => void;
 }
 
 export function useTrazeRefresh(): UseTrazeRefreshReturn {
@@ -39,6 +41,11 @@ export function useTrazeRefresh(): UseTrazeRefreshReturn {
   
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshMessage, setLastRefreshMessage] = useState<string | null>(null);
+  const [lastRefreshError, setLastRefreshError] = useState<string | null>(null);
+  
+  const clearError = useCallback(() => {
+    setLastRefreshError(null);
+  }, []);
   
   // Cleanup on unmount
   useEffect(() => {
@@ -67,6 +74,9 @@ export function useTrazeRefresh(): UseTrazeRefreshReturn {
       
       if (refreshResult.error) {
         console.error('[useTrazeRefresh] Refresh failed:', refreshResult.message);
+        if (isMountedRef.current) {
+          setLastRefreshError(refreshResult.message);
+        }
         return awbs;
       }
       
@@ -79,7 +89,11 @@ export function useTrazeRefresh(): UseTrazeRefreshReturn {
       };
       
       if (!csvResult.exists || !csvResult.content) {
-        console.warn('[useTrazeRefresh] No CSV available after refresh');
+        const msg = 'No CSV data available. Please check Traze credentials.';
+        console.warn('[useTrazeRefresh]', msg);
+        if (isMountedRef.current) {
+          setLastRefreshError(msg);
+        }
         return awbs;
       }
       
@@ -152,9 +166,11 @@ export function useTrazeRefresh(): UseTrazeRefreshReturn {
       return updatedAwbs;
       
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
       console.error('[useTrazeRefresh] Error during refresh:', err);
       if (isMountedRef.current) {
-        setLastRefreshMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        setLastRefreshError(errorMsg);
+        setLastRefreshMessage(`Error: ${errorMsg}`);
       }
       return awbs;
     } finally {
@@ -167,6 +183,8 @@ export function useTrazeRefresh(): UseTrazeRefreshReturn {
   return {
     isRefreshing,
     lastRefreshMessage,
+    lastRefreshError,
     refreshAwbs,
+    clearError,
   };
 }
