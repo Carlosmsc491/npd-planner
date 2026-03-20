@@ -6,6 +6,7 @@ import { registerNotificationHandlers } from './ipc/notificationHandlers'
 import { startTrazeIntegration, stopTrazeIntegration } from './services/trazeIntegrationService'
 import { registerAwbIpcHandlers } from './ipc/awbIpcHandlers'
 import { errorReporter } from './services/errorReporter'
+import { startTrashCleanupService, registerTrashCleanupHandlers } from './services/trashCleanupService'
 
 const isDev = process.env.NODE_ENV === 'development' || !!process.env.ELECTRON_RENDERER_URL
 
@@ -32,8 +33,8 @@ function createWindow(): BrowserWindow {
     },
   })
   
-  // Open DevTools immediately so we catch errors from page initialization
-  win.webContents.openDevTools()
+  // DevTools disabled in production - use Ctrl+Shift+R to reload if needed
+  // win.webContents.openDevTools()
 
   win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     console.error('[Main] Failed to load:', errorCode, errorDescription)
@@ -82,6 +83,8 @@ app.whenReady().then(() => {
   registerFileHandlers(ipcMain)
   registerNotificationHandlers(ipcMain)
   registerAwbIpcHandlers()
+  registerTrashCleanupHandlers()
+  startTrashCleanupService()
   errorReporter.log('App started')
 
   const mainWindow = createWindow()
@@ -121,6 +124,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   stopTrazeIntegration()
+  // Trash cleanup service will stop automatically when app exits
 })
 
 // Global error handlers

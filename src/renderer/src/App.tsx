@@ -94,6 +94,7 @@ export default function App() {
         <Route path="/my-tasks" element={<MyTasksPage />} />
         <Route path="/my-space" element={<MySpacePage />} />
       </Route>
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
     </>

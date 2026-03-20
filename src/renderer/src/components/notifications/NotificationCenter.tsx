@@ -21,6 +21,7 @@ function notifIcon(type: AppNotification['type']): string {
     case 'comment':    return '💬'
     case 'mentioned':  return '@'
     case 'reopened':   return '↩'
+    case 'new_user_pending': return '👋'
     default:           return '🔔'
   }
 }
@@ -43,7 +44,13 @@ export default function NotificationCenter({ onClose }: Props) {
   async function handleClick(notif: AppNotification) {
     if (!notif.read) await markNotificationRead(notif.id)
     onClose()
-    navigate(`/task/${notif.taskId}`)
+    // For task-related notifications, navigate to task
+    // For user approval notifications, navigate to settings/members
+    if (notif.taskId) {
+      navigate(`/task/${notif.taskId}`)
+    } else if (notif.type === 'new_user_pending') {
+      navigate('/settings?tab=members')
+    }
   }
 
   async function handleMarkAllRead() {
@@ -100,9 +107,11 @@ export default function NotificationCenter({ onClose }: Props) {
                 <p className="text-xs font-medium text-gray-800 dark:text-gray-200 leading-snug">
                   {notif.message}
                 </p>
-                <p className="mt-0.5 truncate text-[11px] text-green-600 dark:text-green-400 font-medium">
-                  {notif.taskTitle}
-                </p>
+                {notif.taskTitle && (
+                  <p className="mt-0.5 truncate text-[11px] text-green-600 dark:text-green-400 font-medium">
+                    {notif.taskTitle}
+                  </p>
+                )}
                 <p className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
                   {formatRelativeTime(notif.createdAt)}
                 </p>

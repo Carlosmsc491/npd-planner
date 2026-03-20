@@ -35,9 +35,11 @@ export function useNotifications(): void {
         if (notifiedIds.current.has(notif.id)) continue
         notifiedIds.current.add(notif.id)
 
-        // Only desktop-notify for new (unread) Planner notifications
+        // Only desktop-notify for new (unread) Planner task notifications
         if (notif.read) continue
-        if (notif.boardType !== 'planner') continue
+        if (notif.type === 'new_user_pending') continue  // Skip user approval notifications
+        if (!notif.boardType || notif.boardType !== 'planner') continue
+        if (!notif.taskId || !notif.taskTitle) continue
 
         window.electronAPI.sendNotification(
           notif.message,

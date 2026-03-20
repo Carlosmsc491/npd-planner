@@ -20,6 +20,8 @@ const INVOKE_CHANNELS = [
   // Traze preferences
   'traze:get-preferences',
   'traze:set-view-browser',
+  // SharePoint template files
+  'file:save-text',
 ] as const
 
 const EVENT_CHANNELS = [
@@ -83,6 +85,12 @@ const electronAPI = {
 
   sendErrorReport: (report: unknown) =>
     ipcRenderer.invoke('error-report:send', report),
+
+  deleteTrashFolder: (folderPath: string) =>
+    ipcRenderer.invoke('trash:delete-folder', folderPath),
+
+  saveTextFile: (destPath: string, content: string) =>
+    ipcRenderer.invoke('file:save-text', destPath, content),
 
   // ── Generic invoke for Traze / AWB channels ───────────────────────────────
   invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {

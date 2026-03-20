@@ -8,18 +8,20 @@ import { Timestamp } from 'firebase/firestore'
 // AUTH & USERS
 // ─────────────────────────────────────────
 
-export type UserRole = 'admin' | 'member'
+export type UserRole = 'owner' | 'admin' | 'member'
 export type UserStatus = 'active' | 'awaiting' | 'suspended'
 export type Theme = 'light' | 'dark' | 'system'
 
 export interface UserPreferences {
   theme: Theme
+  dndEnabled: boolean     // master toggle for DND
   dndStart: string        // "22:00"
   dndEnd: string          // "08:00"
   shortcuts: Record<string, string>  // action → key binding
   sharePointPath: string  // local path verified on setup
   calendarView: 'day' | 'week' | 'month'
   defaultBoardView: 'cards' | 'list' | 'gantt' | 'calendar'
+  trashRetentionDays: number  // days before permanent deletion (default: 30)
 }
 
 export interface AppUser {
@@ -167,15 +169,15 @@ export interface Comment {
 // NOTIFICATIONS
 // ─────────────────────────────────────────
 
-export type NotificationType = 'assigned' | 'updated' | 'completed' | 'comment' | 'mentioned' | 'reopened'
+export type NotificationType = 'assigned' | 'updated' | 'completed' | 'comment' | 'mentioned' | 'reopened' | 'new_user_pending'
 
 export interface AppNotification {
   id: string
   userId: string      // recipient uid
-  taskId: string
-  taskTitle: string
-  boardId: string
-  boardType: BoardType
+  taskId?: string     // optional for non-task notifications (e.g., user approval)
+  taskTitle?: string
+  boardId?: string
+  boardType?: BoardType
   type: NotificationType
   message: string
   read: boolean
@@ -321,6 +323,53 @@ export type ShortcutAction =
   | 'goToCalendar'
   | 'goToSettings'
 
+// ─────────────────────────────────────────
+// TRASH QUEUE (Soft delete for tasks)
+// ─────────────────────────────────────────
+
+export type TrashItemStatus = 'pending' | 'restored' | 'deleted' | 'failed'
+
+export interface TrashQueueItem {
+  id: string
+  taskId: string
+  taskTitle: string
+  boardId: string
+  boardName: string
+  clientName: string
+  sharePointFolderPath: string
+  deletedBy: string
+  deletedByName: string
+  deletedAt: Timestamp
+  scheduledDeleteAt: Timestamp
+  status: TrashItemStatus
+  taskData: {
+    title: string
+    description: string
+    clientId: string
+    boardId: string
+    assignees: string[]
+    labelIds: string[]
+    status: 'todo' | 'inprogress' | 'review' | 'done'
+    priority: 'normal' | 'high'
+    bucket: string
+    dateStart: Timestamp | null
+    dateEnd: Timestamp | null
+    poNumber: string
+    poNumbers: string[]
+    awbs: AwbEntry[]
+    subtasks: Subtask[]
+    recurring: RecurringConfig | null
+    customFields?: Record<string, unknown>
+  }
+  attachments: Array<{
+    id: string
+    name: string
+    relativePath: string
+    sizeBytes: number | null
+    mimeType: string | null
+  }>
+}
+
 export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   newTask:        'n',
   editTask:       'e',
@@ -330,5 +379,5 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   toggleDarkMode: 'ctrl+shift+d',
   goToDashboard:  'ctrl+1',
   goToCalendar:   'ctrl+2',
-  goToSettings:   'ctrl+,',
+  goToSettings:   'ctrl+',
 }

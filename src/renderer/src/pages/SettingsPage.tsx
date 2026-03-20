@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import AppLayout from '../components/ui/AppLayout'
 import MembersPanel from '../components/settings/MembersPanel'
 import BoardTemplateEditor from '../components/settings/BoardTemplateEditor'
@@ -6,6 +7,7 @@ import SharePointSetup from '../components/settings/SharePointSetup'
 import TrazeSettings from '../components/settings/TrazeSettings'
 import ClientManager from '../components/settings/ClientManager'
 import LabelManager from '../components/settings/LabelManager'
+import TrashPanel from '../components/settings/TrashPanel'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import { updateUserName, updateUserPreferences } from '../lib/firestore'
@@ -13,7 +15,7 @@ import { getBoardColor } from '../utils/colorUtils'
 import type { AppUser, Board, Theme, ShortcutAction } from '../types'
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTION_LABELS } from '../types'
 
-type SettingsTab = 'profile' | 'members' | 'boards' | 'clients' | 'labels' | 'files' | 'appearance' | 'notifications' | 'shortcuts' | 'archive' | 'traze'
+type SettingsTab = 'profile' | 'members' | 'boards' | 'clients' | 'labels' | 'files' | 'appearance' | 'notifications' | 'shortcuts' | 'archive' | 'trash' | 'traze'
 
 const TABS: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
   { id: 'profile',       label: 'Profile' },
@@ -27,14 +29,30 @@ const TABS: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'shortcuts',     label: 'Keyboard' },
   { id: 'archive',       label: 'Archive',        adminOnly: true },
+  { id: 'trash',         label: 'Trash' },
 ]
 
 export default function SettingsPage() {
   const { user, setUser } = useAuthStore()
   const { boards, setBoards } = useBoardStore()
+  const [searchParams, setSearchParams] = useSearchParams()
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
-  const [activeTab, setActiveTab] = useState<SettingsTab>(isAdmin ? 'members' : 'profile')
+  
+  // Read tab from query params or default based on role
+  const tabFromUrl = searchParams.get('tab') as SettingsTab | null
+  const initialTab = tabFromUrl && TABS.some(t => t.id === tabFromUrl && (!t.adminOnly || isAdmin))
+    ? tabFromUrl
+    : isAdmin ? 'members' : 'profile'
+  
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
   const [editingBoard, setEditingBoard] = useState<Board | null>(null)
+
+  // Update URL when tab changes
+  function handleTabChange(tab: SettingsTab) {
+    setActiveTab(tab)
+    setEditingBoard(null)
+    setSearchParams({ tab })
+  }
 
   const visibleTabs = TABS.filter((t) => !t.adminOnly || isAdmin)
 
@@ -53,7 +71,7 @@ export default function SettingsPage() {
           {visibleTabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => { setActiveTab(tab.id); setEditingBoard(null) }}
+              onClick={() => handleTabChange(tab.id)}
               className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                 activeTab === tab.id
                   ? 'border-green-500 text-green-600 dark:text-green-400'
@@ -146,6 +164,18 @@ export default function SettingsPage() {
               Archived tasks are moved to a separate collection and included in annual reports.
             </p>
             <ArchivePanel />
+          </div>
+        )}
+
+        {activeTab === 'trash' && (
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+              Trash
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              Restore deleted tasks or permanently delete them before the automatic cleanup.
+            </p>
+            <TrashPanel />
           </div>
         )}
 

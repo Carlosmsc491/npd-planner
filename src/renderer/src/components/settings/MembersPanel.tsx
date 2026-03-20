@@ -2,14 +2,28 @@
 // Admin/Owner panel to manage team members: approve, reject, change role, suspend
 
 import { useEffect, useState } from 'react'
-import { subscribeToUsers, updateUserStatus, updateUserRole } from '../../lib/firestore'
+import { Plus, Eye, EyeOff, Loader2, X } from 'lucide-react'
+import { 
+  subscribeToUsers, 
+  updateUserStatus, 
+  updateUserRole
+} from '../../lib/firestore'
 import { getInitials, getInitialsColor } from '../../utils/colorUtils'
 import { useAuthStore } from '../../store/authStore'
+import { useTaskStore } from '../../store/taskStore'
 import type { AppUser, UserStatus, UserRole } from '../../types'
+import type { Timestamp } from 'firebase/firestore'
+import { 
+  createUserWithEmailAndPassword,
+  signOut
+} from 'firebase/auth'
+import { auth } from '../../lib/firebase'
 
 export default function MembersPanel() {
   const { user: currentUser } = useAuthStore()
+  const { setToast } = useTaskStore()
   const [users, setUsers] = useState<AppUser[]>([])
+  const [showAddModal, setShowAddModal] = useState(false)
 
   useEffect(() => {
     const unsub = subscribeToUsers(setUsers)
@@ -45,6 +59,33 @@ export default function MembersPanel() {
 
   return (
     <div className="space-y-8">
+      {/* Header with Add Member button (Owner only) */}
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-gray-500 dark:text-gray-400">
+          Manage team members, approve new registrations, and assign roles.
+        </div>
+        {isOwner && (
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors"
+          >
+            <Plus size={16} />
+            Add Member
+          </button>
+        )}
+      </div>
+
+      {/* Add Member Modal */}
+      {showAddModal && (
+        <AddMemberModal 
+          onClose={() => setShowAddModal(false)} 
+          onSuccess={() => {
+            setShowAddModal(false)
+            setToast({ message: 'Member added successfully', type: 'success', id: Date.now().toString() })
+          }}
+        />
+      )}
+
       {/* Awaiting Approval */}
       {awaiting.length > 0 && (
         <section>
@@ -127,6 +168,275 @@ export default function MembersPanel() {
           </div>
         </section>
       )}
+    </div>
+  )
+}
+
+// ─── Add Member Modal ───────────────────────────────────────────
+
+interface AddMemberModalProps {
+  onClose: () => void
+  onSuccess: () => void
+}
+
+function AddMemberModal({ onClose, onSuccess }: AddMemberModalProps) {
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [role, setRole] = useState<UserRole>('member')
+  const [showPassword, setShowPassword] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const { setToast } = useTaskStore()
+
+  const ALLOWED_DOMAIN = import.meta.env.VITE_ALLOWED_DOMAIN || 'eliteflower.com'
+
+  function validate(): boolean {
+    const errs: Record<string, string> = {}
+
+    if (!firstName.trim()) {
+      errs.firstName = 'First name is required'
+    }
+
+    if (!email.trim()) {
+      errs.email = 'Email is required'
+    } else if (!email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`)) {
+      errs.email = `Only @${ALLOWED_DOMAIN} emails are allowed`
+    }
+
+    if (!password) {
+      errs.password = 'Password is required'
+    } else if (password.length < 6) {
+      errs.password = 'Password must be at least 6 characters'
+    }
+
+    setErrors(errs)
+    return Object.keys(errs).length === 0
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!validate()) return
+
+    setIsLoading(true)
+
+    try {
+      // Note: After creating a user, Firebase Auth signs in as that user automatically
+      // We need to sign out and have the owner sign back in
+
+      // Create new user with Firebase Auth
+      const credential = await createUserWithEmailAndPassword(auth, email.toLowerCase(), password)
+      const { user: firebaseUser } = credential
+
+      // Create user profile in Firestore
+      const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
+      const { serverTimestamp } = await import('firebase/firestore')
+      
+      const { createUser } = await import('../../lib/firestore')
+      await createUser(firebaseUser.uid, {
+        email: email.toLowerCase(),
+        name: fullName,
+        role,
+        status: 'active', // Owner-created users are active immediately
+        preferences: {
+          theme: 'system',
+          dndEnabled: false,
+          dndStart: '22:00',
+          dndEnd: '08:00',
+          shortcuts: {},
+          sharePointPath: '',
+          calendarView: 'week',
+          defaultBoardView: 'cards',
+          trashRetentionDays: 30,
+        },
+        createdAt: serverTimestamp() as unknown as Timestamp,
+        lastSeen: serverTimestamp() as unknown as Timestamp,
+      })
+
+      // Sign out the new user
+      await signOut(auth)
+
+      // Sign back in as the original owner (we need to re-authenticate)
+      // Since we don't have the owner's password, show a message to sign in again
+      setToast({ 
+        message: 'Member created successfully. Please sign in again.', 
+        type: 'success',
+        duration: 5000,
+        id: Date.now().toString()
+      })
+      
+      // Redirect to login after a moment
+      setTimeout(() => {
+        window.location.href = '/login'
+      }, 2000)
+
+      onSuccess()
+    } catch (err: any) {
+      console.error('Add member error:', err)
+      if (err.code === 'auth/email-already-in-use') {
+        setErrors({ email: 'An account with this email already exists' })
+      } else if (err.code === 'auth/invalid-email') {
+        setErrors({ email: 'Invalid email address' })
+      } else if (err.code === 'auth/weak-password') {
+        setErrors({ password: 'Password is too weak' })
+      } else {
+        setToast({ message: err.message || 'Failed to create member', type: 'error', id: Date.now().toString() })
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-800">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Add New Member</h2>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Name fields */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                First Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="John"
+                className={`w-full rounded-lg border px-3 py-2.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-green-500/20 dark:bg-gray-700 dark:text-white ${
+                  errors.firstName
+                    ? 'border-red-300 focus:border-red-500 dark:border-red-700'
+                    : 'border-gray-300 focus:border-green-500 dark:border-gray-600'
+                }`}
+              />
+              {errors.firstName && (
+                <p className="mt-1 text-xs text-red-500">{errors.firstName}</p>
+              )}
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Last Name
+              </label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Doe"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              />
+            </div>
+          </div>
+
+          {/* Email */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Email <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder={`user@${ALLOWED_DOMAIN}`}
+              className={`w-full rounded-lg border px-3 py-2.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-green-500/20 dark:bg-gray-700 dark:text-white ${
+                errors.email
+                  ? 'border-red-300 focus:border-red-500 dark:border-red-700'
+                  : 'border-gray-300 focus:border-green-500 dark:border-gray-600'
+              }`}
+            />
+            {errors.email && (
+              <p className="mt-1 text-xs text-red-500">{errors.email}</p>
+            )}
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Only @{ALLOWED_DOMAIN} emails are allowed
+            </p>
+          </div>
+
+          {/* Password */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Password <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Set a password"
+                className={`w-full rounded-lg border px-3 py-2.5 pr-10 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-green-500/20 dark:bg-gray-700 dark:text-white ${
+                  errors.password
+                    ? 'border-red-300 focus:border-red-500 dark:border-red-700'
+                    : 'border-gray-300 focus:border-green-500 dark:border-gray-600'
+                }`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            {errors.password && (
+              <p className="mt-1 text-xs text-red-500">{errors.password}</p>
+            )}
+          </div>
+
+          {/* Role */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Role <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as UserRole)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            >
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Members can view and edit tasks. Admins can also manage boards, clients, and labels.
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="flex-1 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 size={16} className="animate-spin" />
+                  Creating...
+                </span>
+              ) : (
+                'Add Member'
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

@@ -10,10 +10,10 @@ import AppLayout from '../components/ui/AppLayout'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import {
-  subscribeToAllTasks, subscribeToArchive, getArchiveByYear
+  subscribeToAllTasks, subscribeToArchive, getArchiveByYear, subscribeToUsers as subscribeToUsersFn, subscribeToClients
 } from '../lib/firestore'
 import { exportSummaryToCSV } from '../utils/exportUtils'
-import type { Task, AnnualSummary, AppUser, Board } from '../types'
+import type { Task, AnnualSummary, AppUser, Board, Client } from '../types'
 import {
   TrendingUp, TrendingDown, Calendar, Users, Briefcase, LayoutGrid,
   FileText, FileSpreadsheet, Archive, CheckCircle2
@@ -97,6 +97,9 @@ function DashboardTab({ boards }: DashboardTabProps) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [users, setUsers] = useState<AppUser[]>([])
+  const [, setClients] = useState<Client[]>([])
+  const [exporting, setExporting] = useState(false)
+  const dashboardRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -112,12 +115,18 @@ function DashboardTab({ boards }: DashboardTabProps) {
 
   // Fetch users for assignee names
   useEffect(() => {
-    import('../lib/firestore').then(({ subscribeToUsers }) => {
-      const unsub = subscribeToUsers((allUsers) => {
-        setUsers(allUsers)
-      })
-      return unsub
+    const unsub = subscribeToUsersFn((allUsers) => {
+      setUsers(allUsers)
     })
+    return unsub
+  }, [])
+
+  // Fetch clients
+  useEffect(() => {
+    const unsub = subscribeToClients((allClients) => {
+      setClients(allClients)
+    })
+    return unsub
   }, [])
 
   const stats = useMemo(() => {
@@ -203,14 +212,12 @@ function DashboardTab({ boards }: DashboardTabProps) {
   // Fetch client names
   const [clientNames, setClientNames] = useState<Record<string, string>>({})
   useEffect(() => {
-    import('../lib/firestore').then(({ subscribeToClients }) => {
-      const unsub = subscribeToClients((clients) => {
-        const names: Record<string, string> = {}
-        clients.forEach(c => { names[c.id] = c.name })
-        setClientNames(names)
-      })
-      return unsub
+    const unsub = subscribeToClients((allClients) => {
+      const names: Record<string, string> = {}
+      allClients.forEach(c => { names[c.id] = c.name })
+      setClientNames(names)
     })
+    return unsub
   }, [])
 
   const clientChartData = useMemo(() => {
@@ -257,6 +264,139 @@ function DashboardTab({ boards }: DashboardTabProps) {
     }))
   }, [tasks])
 
+  const exportDashboardPDF = async () => {
+    if (!dashboardRef.current) return
+    setExporting(true)
+
+    try {
+      const htmlEl = document.documentElement
+      const wasDark = htmlEl.classList.contains('dark')
+      if (wasDark) htmlEl.classList.remove('dark')
+      await new Promise(r => setTimeout(r, 100))
+
+      const canvas = await html2canvas(dashboardRef.current, {
+        scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
+      })
+
+      if (wasDark) htmlEl.classList.add('dark')
+
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+
+      // Header
+      pdf.setFontSize(18)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('NPD Planner — Dashboard Report', pageWidth / 2, 15, { align: 'center' })
+      pdf.setFontSize(9)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(120, 120, 120)
+      pdf.text(
+        `Elite Flower · Generated ${new Date().toLocaleDateString('en-US', {
+          month: 'long', day: 'numeric', year: 'numeric'
+        })}`,
+        pageWidth / 2, 22, { align: 'center' }
+      )
+      pdf.setTextColor(0, 0, 0)
+
+      // Use same pagination logic as Annual Reports
+      const margins = { top: 10, left: 10, right: 10, bottom: 10 }
+      const contentWidth = pageWidth - margins.left - margins.right
+      const pxPerMm = canvas.width / contentWidth
+      const headerOffset = 30
+      const firstAvail = pageHeight - headerOffset - margins.bottom
+      const otherAvail = pageHeight - margins.top - margins.bottom
+      const totalMm = canvas.height / pxPerMm
+
+      let remaining = totalMm
+      let srcY = 0
+      let page = 0
+
+      while (remaining > 0) {
+        const avail = page === 0 ? firstAvail : otherAvail
+        const sliceMm = Math.min(remaining, avail)
+        const slicePx = sliceMm * pxPerMm
+
+        if (page > 0) pdf.addPage()
+
+        const sliceCanvas = document.createElement('canvas')
+        sliceCanvas.width = canvas.width
+        sliceCanvas.height = Math.ceil(slicePx)
+        const ctx = sliceCanvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(canvas, 0, srcY, canvas.width, Math.ceil(slicePx),
+                         0, 0, canvas.width, Math.ceil(slicePx))
+        }
+
+        pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG',
+          margins.left, page === 0 ? headerOffset : margins.top,
+          contentWidth, sliceMm)
+
+        srcY += slicePx
+        remaining -= sliceMm
+        page++
+      }
+
+      pdf.save(`NPD-Planner-Dashboard-${new Date().toISOString().slice(0, 10)}.pdf`)
+    } catch (err) {
+      console.error('Dashboard PDF export failed:', err)
+      alert('Export failed. Please try again.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const exportDashboardCSV = () => {
+    const BOM = '\uFEFF'
+    const lines: string[] = []
+    const esc = (v: string | number) => {
+      const s = String(v)
+      return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s
+    }
+
+    lines.push(`NPD Planner — Dashboard Snapshot`)
+    lines.push(`Generated:,${new Date().toLocaleDateString()}`)
+    lines.push('')
+
+    lines.push('Overview')
+    lines.push('Metric,Value')
+    lines.push(`Tasks Completed This Week,${stats.thisWeekCount}`)
+    lines.push(`Tasks Completed Last Week,${stats.lastWeekCount}`)
+    lines.push(`Week-over-Week Change,${stats.percentChange > 0 ? '+' : ''}${stats.percentChange.toFixed(1)}%`)
+    lines.push(`Total Active Tasks,${stats.activeTasksCount}`)
+    lines.push('')
+
+    lines.push('Tasks by Assignee')
+    lines.push('Assignee,Active Tasks')
+    assigneeData.forEach(({ name, count }) => {
+      lines.push(`${esc(name)},${count}`)
+    })
+    lines.push('')
+
+    lines.push('Tasks by Client (Top 10)')
+    lines.push('Client,Tasks')
+    clientChartData.slice(0, 10).forEach(({ name, count }) => {
+      lines.push(`${esc(name)},${count}`)
+    })
+    lines.push('')
+
+    lines.push('Tasks by Board')
+    lines.push('Board,Tasks')
+    boardData.forEach(({ name, count }) => {
+      lines.push(`${esc(name)},${count}`)
+    })
+
+    const csv = BOM + lines.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `NPD-Planner-Dashboard-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(link.href)
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -267,52 +407,162 @@ function DashboardTab({ boards }: DashboardTabProps) {
 
   return (
     <div className="space-y-6">
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* This Week vs Last Week */}
-        <StatCard
-          title="Completed This Week"
-          value={stats.thisWeekCount}
-          subtitle={`vs ${stats.lastWeekCount} last week`}
-          trend={stats.percentChange}
-          icon={<Calendar size={20} className="text-green-500" />}
-        />
-
-        {/* Active Tasks */}
-        <StatCard
-          title="Active Tasks"
-          value={stats.activeTasksCount}
-          subtitle="Across all boards"
-          icon={<CheckCircle2 size={20} className="text-blue-500" />}
-        />
-
-        {/* Total Tasks */}
-        <StatCard
-          title="Total Tasks"
-          value={tasks.length}
-          subtitle="All time"
-          icon={<LayoutGrid size={20} className="text-purple-500" />}
-        />
-
-        {/* Completion Rate */}
-        <StatCard
-          title="Completion Rate"
-          value={`${tasks.length > 0 ? Math.round((tasks.filter(t => t.completed).length / tasks.length) * 100) : 0}%`}
-          subtitle="Overall"
-          icon={<TrendingUp size={20} className="text-orange-500" />}
-        />
+      {/* Export Controls */}
+      <div className="flex gap-2 justify-end" data-no-export>
+        <button
+          onClick={exportDashboardPDF}
+          disabled={exporting || loading}
+          className="flex items-center gap-2 rounded-lg border border-gray-200
+                     dark:border-gray-700 px-3 py-1.5 text-xs text-gray-600
+                     dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700
+                     transition-colors disabled:opacity-50"
+        >
+          {exporting ? 'Generating...' : <><FileText size={14} /> PDF</>}
+        </button>
+        <button
+          onClick={exportDashboardCSV}
+          disabled={loading}
+          className="flex items-center gap-2 rounded-lg border border-gray-200
+                     dark:border-gray-700 px-3 py-1.5 text-xs text-gray-600
+                     dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700
+                     transition-colors disabled:opacity-50"
+        >
+          <FileSpreadsheet size={14} /> CSV
+        </button>
       </div>
 
-      {/* Charts Row 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Tasks by Assignee */}
-        <ChartCard title="Workload by Team Member" icon={<Users size={16} />}>
-          {assigneeData.length > 0 ? (
+      <div ref={dashboardRef}>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* This Week vs Last Week */}
+          <StatCard
+            title="Completed This Week"
+            value={stats.thisWeekCount}
+            subtitle={`vs ${stats.lastWeekCount} last week`}
+            trend={stats.percentChange}
+            icon={<Calendar size={20} className="text-green-500" />}
+          />
+
+          {/* Active Tasks */}
+          <StatCard
+            title="Active Tasks"
+            value={stats.activeTasksCount}
+            subtitle="Across all boards"
+            icon={<CheckCircle2 size={20} className="text-blue-500" />}
+          />
+
+          {/* Total Tasks */}
+          <StatCard
+            title="Total Tasks"
+            value={tasks.length}
+            subtitle="All time"
+            icon={<LayoutGrid size={20} className="text-purple-500" />}
+          />
+
+          {/* Completion Rate */}
+          <StatCard
+            title="Completion Rate"
+            value={`${tasks.length > 0 ? Math.round((tasks.filter(t => t.completed).length / tasks.length) * 100) : 0}%`}
+            subtitle="Overall"
+            icon={<TrendingUp size={20} className="text-orange-500" />}
+          />
+        </div>
+
+        {/* Charts Row 1 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          {/* Tasks by Assignee */}
+          <ChartCard title="Workload by Team Member" icon={<Users size={16} />}>
+            {assigneeData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={assigneeData} layout="vertical" margin={{ left: 80 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis type="number" />
+                  <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 12 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Bar dataKey="count" fill="#1D9E75" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyState message="No assignee data available" />
+            )}
+          </ChartCard>
+
+          {/* Tasks by Client */}
+          <ChartCard title="Top 10 Clients" icon={<Briefcase size={16} />}>
+            {clientChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={clientChartData} layout="vertical" margin={{ left: 80 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis type="number" />
+                  <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 12 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Bar dataKey="count" fill="#378ADD" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyState message="No client data available" />
+            )}
+          </ChartCard>
+        </div>
+
+        {/* Charts Row 2 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          {/* Tasks by Board */}
+          <ChartCard title="Tasks by Project" icon={<LayoutGrid size={16} />}>
+            {boardData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <PieChart>
+                  <Pie
+                    data={boardData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="count"
+                    nameKey="name"
+                  >
+                    {boardData.map((_entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={CHART_COLORS[index % CHART_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyState message="No board data available" />
+            )}
+          </ChartCard>
+
+          {/* Tasks by Month */}
+          <ChartCard title="Tasks by Month (This Year)" icon={<Calendar size={16} />}>
             <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={assigneeData} layout="vertical" margin={{ left: 80 }}>
+              <LineChart data={monthlyData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" />
-                <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 12 }} />
+                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                <YAxis />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: 'white',
@@ -320,102 +570,18 @@ function DashboardTab({ boards }: DashboardTabProps) {
                     borderRadius: '8px'
                   }}
                 />
-                <Bar dataKey="count" fill="#1D9E75" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <EmptyState message="No assignee data available" />
-          )}
-        </ChartCard>
-
-        {/* Tasks by Client */}
-        <ChartCard title="Top 10 Clients" icon={<Briefcase size={16} />}>
-          {clientChartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={clientChartData} layout="vertical" margin={{ left: 80 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" />
-                <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 12 }} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px'
-                  }}
-                />
-                <Bar dataKey="count" fill="#378ADD" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <EmptyState message="No client data available" />
-          )}
-        </ChartCard>
-      </div>
-
-      {/* Charts Row 2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Tasks by Board */}
-        <ChartCard title="Tasks by Board" icon={<LayoutGrid size={16} />}>
-          {boardData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={boardData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
+                <Line
+                  type="monotone"
                   dataKey="count"
-                  nameKey="name"
-                >
-                  {boardData.map((_entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={CHART_COLORS[index % CHART_COLORS.length]}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px'
-                  }}
+                  stroke="#1D9E75"
+                  strokeWidth={2}
+                  dot={{ fill: '#1D9E75', r: 4 }}
+                  activeDot={{ r: 6 }}
                 />
-                <Legend />
-              </PieChart>
+              </LineChart>
             </ResponsiveContainer>
-          ) : (
-            <EmptyState message="No board data available" />
-          )}
-        </ChartCard>
-
-        {/* Tasks by Month */}
-        <ChartCard title="Tasks by Month (This Year)" icon={<Calendar size={16} />}>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={monthlyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-              <YAxis />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'white',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px'
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="count"
-                stroke="#1D9E75"
-                strokeWidth={2}
-                dot={{ fill: '#1D9E75', r: 4 }}
-                activeDot={{ r: 6 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartCard>
+          </ChartCard>
+        </div>
       </div>
     </div>
   )
@@ -429,6 +595,7 @@ function AnnualReportsTab() {
   const [archives, setArchives] = useState<AnnualSummary[]>([])
   const [selectedYear, setSelectedYear] = useState<number | null>(null)
   const [summary, setSummary] = useState<AnnualSummary | null>(null)
+  const [exporting, setExporting] = useState(false)
   const reportRef = useRef<HTMLDivElement>(null)
 
   // Fetch available years from archive
@@ -451,35 +618,137 @@ function AnnualReportsTab() {
 
   const handleExportPDF = async () => {
     if (!reportRef.current || !summary) return
+    setExporting(true)
 
     try {
+      // Force light mode for capture
+      const htmlEl = document.documentElement
+      const wasDark = htmlEl.classList.contains('dark')
+      if (wasDark) htmlEl.classList.remove('dark')
+
+      // Small delay for repaint
+      await new Promise(r => setTimeout(r, 100))
+
       const canvas = await html2canvas(reportRef.current, {
         scale: 2,
         useCORS: true,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        logging: false,
+        ignoreElements: (el) => el.hasAttribute('data-no-export'),
       })
 
-      const imgData = canvas.toDataURL('image/png')
+      // Restore dark mode if it was active
+      if (wasDark) htmlEl.classList.add('dark')
+
       const pdf = new jsPDF('p', 'mm', 'a4')
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const margins = { top: 15, bottom: 15, left: 10, right: 10 }
+      const contentWidth = pageWidth - margins.left - margins.right
 
-      // Header
+      // Header (page 1 only)
+      const headerHeight = 30
       pdf.setFontSize(18)
-      pdf.text('NPD Planner', pdfWidth / 2, 15, { align: 'center' })
-      pdf.setFontSize(14)
-      pdf.text(`Annual Summary ${summary.year}`, pdfWidth / 2, 23, { align: 'center' })
-      pdf.setFontSize(10)
-      pdf.text(`Elite Flower`, pdfWidth / 2, 28, { align: 'center' })
-      pdf.text(`Generated: ${new Date().toLocaleDateString()}`, pdfWidth / 2, 33, { align: 'center' })
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('NPD Planner', pageWidth / 2, margins.top, { align: 'center' })
+      pdf.setFontSize(12)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(
+        `Annual Summary ${summary.year}`,
+        pageWidth / 2, margins.top + 8,
+        { align: 'center' }
+      )
+      pdf.setFontSize(9)
+      pdf.setTextColor(120, 120, 120)
+      pdf.text('Elite Flower', pageWidth / 2, margins.top + 14, { align: 'center' })
+      pdf.text(
+        `Generated: ${new Date().toLocaleDateString('en-US', {
+          month: 'long', day: 'numeric', year: 'numeric'
+        })}`,
+        pageWidth / 2, margins.top + 19,
+        { align: 'center' }
+      )
+      pdf.setTextColor(0, 0, 0)
 
-      // Content
-      pdf.addImage(imgData, 'PNG', 10, 40, pdfWidth - 20, pdfHeight)
+      // Separator line
+      pdf.setDrawColor(200, 200, 200)
+      pdf.setLineWidth(0.3)
+      pdf.line(
+        margins.left, margins.top + headerHeight - 5,
+        pageWidth - margins.right, margins.top + headerHeight - 5
+      )
+
+      // Paginated image slicing
+      const imgWidthPx = canvas.width
+      const imgHeightPx = canvas.height
+
+      const pxPerMm = imgWidthPx / contentWidth
+
+      const firstPageAvail = pageHeight - margins.top - headerHeight - margins.bottom
+      const otherPageAvail = pageHeight - margins.top - margins.bottom
+
+      const totalImgHeightMm = imgHeightPx / pxPerMm
+
+      let remainingMm = totalImgHeightMm
+      let sourceYPx = 0
+      let pageNum = 0
+
+      while (remainingMm > 0) {
+        const availMm = pageNum === 0 ? firstPageAvail : otherPageAvail
+        const sliceHeightMm = Math.min(remainingMm, availMm)
+        const sliceHeightPx = sliceHeightMm * pxPerMm
+
+        if (pageNum > 0) {
+          pdf.addPage()
+        }
+
+        const sliceCanvas = document.createElement('canvas')
+        sliceCanvas.width = imgWidthPx
+        sliceCanvas.height = Math.ceil(sliceHeightPx)
+        const ctx = sliceCanvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(
+            canvas,
+            0, sourceYPx,
+            imgWidthPx, Math.ceil(sliceHeightPx),
+            0, 0,
+            imgWidthPx, Math.ceil(sliceHeightPx)
+          )
+        }
+
+        const sliceData = sliceCanvas.toDataURL('image/png')
+        const yPos = pageNum === 0
+          ? margins.top + headerHeight
+          : margins.top
+
+        pdf.addImage(
+          sliceData, 'PNG',
+          margins.left, yPos,
+          contentWidth, sliceHeightMm
+        )
+
+        // Page number footer
+        pdf.setFontSize(8)
+        pdf.setTextColor(160, 160, 160)
+        pdf.text(
+          `Page ${pageNum + 1}`,
+          pageWidth / 2,
+          pageHeight - 8,
+          { align: 'center' }
+        )
+        pdf.setTextColor(0, 0, 0)
+
+        sourceYPx += sliceHeightPx
+        remainingMm -= sliceHeightMm
+        pageNum++
+      }
 
       pdf.save(`NPD-Planner-Summary-${summary.year}.pdf`)
     } catch (error) {
       console.error('PDF export failed:', error)
       alert('Failed to export PDF. Please try again.')
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -491,7 +760,9 @@ function AnnualReportsTab() {
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
     link.download = `NPD-Planner-Summary-${summary.year}.csv`
+    document.body.appendChild(link)
     link.click()
+    document.body.removeChild(link)
     URL.revokeObjectURL(link.href)
   }
 
@@ -519,14 +790,28 @@ function AnnualReportsTab() {
           <div className="flex gap-2">
             <button
               onClick={handleExportPDF}
-              className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              disabled={exporting}
+              className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <FileText size={16} />
-              Export PDF
+              {exporting ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <FileText size={16} />
+                  Export PDF
+                </>
+              )}
             </button>
             <button
               onClick={handleExportCSV}
-              className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              disabled={exporting}
+              className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <FileSpreadsheet size={16} />
               Export CSV
@@ -536,7 +821,18 @@ function AnnualReportsTab() {
       </div>
 
       {/* Report Content */}
-      {summary ? (
+      {!summary && availableYears.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-6 py-12 flex flex-col items-center justify-center text-center">
+          <Archive size={32} className="text-gray-300 dark:text-gray-600 mb-3" />
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+            No annual reports yet
+          </p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 max-w-sm">
+            Reports are generated when tasks older than 12 months are archived.
+            You can trigger archiving from Settings → Archive.
+          </p>
+        </div>
+      ) : summary ? (
         <div ref={reportRef} className="space-y-6">
           {/* Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -547,29 +843,29 @@ function AnnualReportsTab() {
               icon={<LayoutGrid size={20} className="text-green-500" />}
             />
             <StatCard
+              title="Total Trips"
+              value={summary.totalTrips}
+              subtitle="Business trips"
+              icon={<Briefcase size={20} className="text-blue-500" />}
+            />
+            <StatCard
+              title="Total Vacations"
+              value={summary.totalVacations}
+              subtitle="Time off"
+              icon={<Calendar size={20} className="text-pink-500" />}
+            />
+            <StatCard
               title="Completion Rate"
               value={`${(summary.completionRate * 100).toFixed(1)}%`}
               subtitle="Of all tasks"
-              icon={<TrendingUp size={20} className="text-blue-500" />}
-            />
-            <StatCard
-              title="Top Client"
-              value={summary.topClients[0]?.clientName || 'N/A'}
-              subtitle={`${summary.topClients[0]?.count || 0} tasks`}
-              icon={<Briefcase size={20} className="text-purple-500" />}
-            />
-            <StatCard
-              title="Busiest Month"
-              value={getBusiestMonth(summary.byMonth)}
-              subtitle="Most tasks created"
-              icon={<Calendar size={20} className="text-orange-500" />}
+              icon={<TrendingUp size={20} className="text-orange-500" />}
             />
           </div>
 
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* By Board */}
-            <ChartCard title="Tasks by Board" icon={<LayoutGrid size={16} />}>
+            <ChartCard title="Tasks by Project" icon={<LayoutGrid size={16} />}>
               <ResponsiveContainer width="100%" height={250}>
                 <PieChart>
                   <Pie
@@ -674,14 +970,8 @@ function AnnualReportsTab() {
           </div>
         </div>
       ) : (
-        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-          <Archive size={48} className="mx-auto text-gray-300 dark:text-gray-600 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-            No Archive Data
-          </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-            There are no archived summaries available yet. Archives are created automatically when tasks older than 12 months are archived, or manually from Settings.
-          </p>
+        <div className="flex items-center justify-center py-12">
+          <p className="text-sm text-gray-400">Select a year to view the report.</p>
         </div>
       )}
     </div>
@@ -697,35 +987,45 @@ interface StatCardProps {
   value: string | number
   subtitle: string
   trend?: number
-  icon: React.ReactNode
+  icon?: React.ReactNode
 }
 
 function StatCard({ title, value, subtitle, trend, icon }: StatCardProps) {
   return (
-    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
             {title}
           </p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
             {value}
           </p>
           <div className="flex items-center gap-2 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400">{subtitle}</p>
             {trend !== undefined && (
-              <span className={`text-xs font-medium flex items-center gap-0.5 ${
-                trend >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+              <span className={`text-xs font-medium flex items-center ${
+                trend > 0
+                  ? 'text-green-600 dark:text-green-400'
+                  : trend < 0
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-gray-500 dark:text-gray-400'
               }`}>
-                {trend >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                {Math.abs(trend)}%
+                {trend > 0 ? (
+                  <TrendingUp size={12} className="mr-0.5" />
+                ) : trend < 0 ? (
+                  <TrendingDown size={12} className="mr-0.5" />
+                ) : null}
+                {trend > 0 ? '+' : ''}{trend}%
               </span>
             )}
-            <span className="text-xs text-gray-500 dark:text-gray-400">{subtitle}</span>
           </div>
         </div>
-        <div className="p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-          {icon}
-        </div>
+        {icon && (
+          <div className="p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+            {icon}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -733,15 +1033,15 @@ function StatCard({ title, value, subtitle, trend, icon }: StatCardProps) {
 
 interface ChartCardProps {
   title: string
-  icon: React.ReactNode
+  icon?: React.ReactNode
   children: React.ReactNode
 }
 
 function ChartCard({ title, icon, children }: ChartCardProps) {
   return (
-    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
       <div className="flex items-center gap-2 mb-4">
-        <span className="text-gray-500 dark:text-gray-400">{icon}</span>
+        {icon}
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{title}</h3>
       </div>
       {children}
@@ -751,21 +1051,8 @@ function ChartCard({ title, icon, children }: ChartCardProps) {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
-      <p className="text-sm">{message}</p>
+    <div className="flex items-center justify-center h-[250px] text-gray-400 text-sm">
+      {message}
     </div>
   )
-}
-
-function getBusiestMonth(byMonth: number[]): string {
-  let maxIndex = 0
-  let maxCount = 0
-  byMonth.forEach((count, i) => {
-    if (count > maxCount) {
-      maxCount = count
-      maxIndex = i
-    }
-  })
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  return maxCount > 0 ? months[maxIndex] : 'N/A'
 }

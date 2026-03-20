@@ -16,6 +16,8 @@ import { useLabels } from '../hooks/useLabels'
 import { subscribeToUsers } from '../lib/firestore'
 import { useBoardStore } from '../store/boardStore'
 import { getBoardColor } from '../utils/colorUtils'
+import { exportTasksToCSV, downloadCSV } from '../utils/exportUtils'
+import { Download } from 'lucide-react'
 import type { Task, AppUser, RecurringConfig, BoardView as BoardViewType } from '../types'
 
 export default function BoardPage() {
@@ -125,7 +127,21 @@ export default function BoardPage() {
 
           <GroupBySelector />
 
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => {
+                const csv = exportTasksToCSV(tasks, clients, users, activeBoard.name)
+                downloadCSV(csv, `${activeBoard.name}-tasks-${new Date().toISOString().slice(0, 10)}.csv`)
+              }}
+              className="flex items-center gap-1 rounded-lg border border-gray-200
+                         dark:border-gray-700 px-2.5 py-1.5 text-xs text-gray-500
+                         hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200
+                         hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              title="Export tasks as CSV"
+            >
+              <Download size={13} />
+              CSV
+            </button>
             <button
               onClick={() => { setNewTaskBucket(undefined); setShowNewTask(true) }}
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors"

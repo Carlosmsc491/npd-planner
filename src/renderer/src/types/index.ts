@@ -21,6 +21,7 @@ export interface UserPreferences {
   sharePointPath: string  // local path verified on setup
   calendarView: 'day' | 'week' | 'month'
   defaultBoardView: 'cards' | 'list' | 'gantt' | 'calendar'
+  trashRetentionDays: number  // days before permanent deletion (default: 30)
 }
 
 export interface AppUser {
@@ -220,15 +221,15 @@ export interface Comment {
 // NOTIFICATIONS
 // ─────────────────────────────────────────
 
-export type NotificationType = 'assigned' | 'updated' | 'completed' | 'comment' | 'mentioned' | 'reopened'
+export type NotificationType = 'assigned' | 'updated' | 'completed' | 'comment' | 'mentioned' | 'reopened' | 'new_user_pending'
 
 export interface AppNotification {
   id: string
   userId: string      // recipient uid
-  taskId: string
-  taskTitle: string
-  boardId: string
-  boardType: BoardType
+  taskId?: string     // optional for non-task notifications (e.g., user approval)
+  taskTitle?: string
+  boardId?: string
+  boardType?: BoardType
   type: NotificationType
   message: string
   read: boolean
@@ -415,6 +416,60 @@ export type MyTaskGroup = 'today' | 'thisWeek' | 'thisMonth' | 'later' | 'noDate
 export interface MyTaskFilter {
   boardId: string | 'all'
   sortBy: 'dueDate' | 'board' | 'priority' | 'created'
+}
+
+// ─────────────────────────────────────────
+// TRASH QUEUE (Soft delete for tasks)
+// ─────────────────────────────────────────
+
+export type TrashItemStatus = 'pending' | 'restored' | 'deleted' | 'failed'
+
+export interface TrashQueueItem {
+  id: string                    // same as taskId
+  taskId: string
+  taskTitle: string
+  boardId: string
+  boardName: string
+  clientName: string
+  sharePointFolderPath: string  // full path: year/client/task
+  
+  // Deletion info
+  deletedBy: string             // uid
+  deletedByName: string
+  deletedAt: Timestamp
+  scheduledDeleteAt: Timestamp  // deletedAt + retentionDays
+  
+  // Status
+  status: TrashItemStatus
+  
+  // Recovery data
+  taskData: {
+    title: string
+    description: string
+    clientId: string
+    boardId: string
+    assignees: string[]
+    labelIds: string[]
+    status: TaskStatus
+    priority: TaskPriority
+    bucket: string
+    dateStart: Timestamp | null
+    dateEnd: Timestamp | null
+    poNumber: string
+    poNumbers: string[]
+    awbs: AwbEntry[]
+    subtasks: Subtask[]
+    recurring: RecurringConfig | null
+    customFields?: Record<string, unknown>
+  }
+  
+  attachments: Array<{
+    id: string
+    name: string
+    relativePath: string
+    sizeBytes: number | null
+    mimeType: string | null
+  }>
 }
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {

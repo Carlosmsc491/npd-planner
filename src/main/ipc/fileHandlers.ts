@@ -143,4 +143,24 @@ export function registerFileHandlers(ipcMain: IpcMain): void {
       return { success: false, error: String(err) }
     }
   })
+
+  // Save text content to file (used for Trip/Vacation HTML templates)
+  // destPath uses ||| delimiter like FILE_COPY
+  ipcMain.handle('file:save-text', async (_event, destPath: string, content: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const segments = destPath.split('|||')
+      const fullPath = path.join(...segments)
+      
+      // Create directories if needed
+      const destDir = path.dirname(fullPath)
+      fs.mkdirSync(destDir, { recursive: true })
+      
+      // Write file
+      fs.writeFileSync(fullPath, content, 'utf-8')
+      return { success: true }
+    } catch (err) {
+      console.error('file:save-text failed:', err)
+      return { success: false, error: String(err) }
+    }
+  })
 }

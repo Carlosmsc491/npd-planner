@@ -5,14 +5,15 @@
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, setDoc,
   query, where, orderBy, onSnapshot, runTransaction, serverTimestamp,
-  Unsubscribe, writeBatch, limit, getCountFromServer
+  Unsubscribe, writeBatch, limit, getCountFromServer, Timestamp
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type {
   AppUser, Board, BoardType, BoardProperty, Task, Client, Label, Comment,
   TaskHistoryEntry, AppNotification, AnnualSummary,
   GlobalSettings, HistoryAction, ConflictData,
-  PersonalNote, PersonalTask, QuickLink
+  PersonalNote, PersonalTask, QuickLink, TrashQueueItem, TrashItemStatus,
+  AttachmentStatus
 } from '../types'
 
 // ─────────────────────────────────────────
@@ -30,6 +31,7 @@ export const COLLECTIONS = {
   ARCHIVE:      'archive',
   SETTINGS:     'settings',
   USER_PRIVATE: 'userPrivate',
+  TRASH:        'trashQueue',
 } as const
 
 // ─────────────────────────────────────────
@@ -46,10 +48,12 @@ export async function getUser(uid: string): Promise<AppUser | null> {
   }
 }
 
-export async function createUser(uid: string, data: Omit<AppUser, 'uid'>): Promise<void> {
+export async function createUser(uid: string, data: Omit<AppUser, 'uid'>): Promise<AppUser> {
   try {
     const { setDoc } = await import('firebase/firestore')
-    await setDoc(doc(db, COLLECTIONS.USERS, uid), { ...data, uid })
+    const userData = { ...data, uid }
+    await setDoc(doc(db, COLLECTIONS.USERS, uid), userData)
+    return userData as AppUser
   } catch (err) {
     throw new Error(`Failed to create user profile: ${err}`)
   }
@@ -95,6 +99,36 @@ export async function updateUserName(uid: string, name: string): Promise<void> {
     await updateDoc(doc(db, COLLECTIONS.USERS, uid), { name })
   } catch (err) {
     throw new Error(`Failed to update user name: ${err}`)
+  }
+}
+
+export async function notifyAdminsOfPendingUser(newUser: AppUser): Promise<void> {
+  try {
+    // Find all active owners and admins
+    const adminsSnapshot = await getDocs(
+      query(
+        collection(db, COLLECTIONS.USERS),
+        where('role', 'in', ['owner', 'admin']),
+        where('status', '==', 'active')
+      )
+    )
+
+    // Create notification for each admin
+    const notifications = adminsSnapshot.docs.map(adminDoc => {
+      const adminId = adminDoc.id
+      return createNotification({
+        userId: adminId,
+        type: 'new_user_pending',
+        message: `${newUser.name} (${newUser.email}) has registered and is awaiting approval`,
+        read: false,
+        triggeredBy: newUser.uid,
+        triggeredByName: newUser.name,
+      } as Omit<AppNotification, 'id'>)
+    })
+
+    await Promise.all(notifications)
+  } catch (err) {
+    console.error('Failed to notify admins of pending user:', err)
   }
 }
 
@@ -1202,5 +1236,212 @@ export async function getArchiveByYear(year: number): Promise<AnnualSummary | nu
   } catch (err) {
     console.error('getArchiveByYear failed:', err)
     return null
+  }
+}
+
+// ─────────────────────────────────────────
+// TRASH QUEUE (Soft delete with recovery)
+// ─────────────────────────────────────────
+
+export async function moveTaskToTrash(
+  task: Task,
+  sharePointFolderPath: string,
+  deletedBy: string,
+  deletedByName: string,
+  retentionDays: number
+): Promise<void> {
+  try {
+    const batch = writeBatch(db)
+    const now = serverTimestamp()
+    const scheduledDeleteAt = new Timestamp(
+      Math.floor(Date.now() / 1000) + (retentionDays * 24 * 60 * 60),
+      0
+    )
+
+    // Create trash queue item
+    const trashRef = doc(collection(db, COLLECTIONS.TRASH))
+    const trashItem: Omit<TrashQueueItem, 'id'> = {
+      taskId: task.id,
+      taskTitle: task.title,
+      boardId: task.boardId,
+      boardName: '', // Will be populated by caller
+      clientName: '', // Will be populated by caller
+      sharePointFolderPath,
+      deletedBy,
+      deletedByName,
+      deletedAt: now as unknown as Timestamp,
+      scheduledDeleteAt,
+      status: 'pending',
+      taskData: {
+        title: task.title,
+        description: task.description,
+        clientId: task.clientId,
+        boardId: task.boardId,
+        assignees: task.assignees,
+        labelIds: task.labelIds,
+        status: task.status,
+        priority: task.priority,
+        bucket: task.bucket,
+        dateStart: task.dateStart,
+        dateEnd: task.dateEnd,
+        poNumber: task.poNumber,
+        poNumbers: task.poNumbers,
+        awbs: task.awbs,
+        subtasks: task.subtasks,
+        recurring: task.recurring,
+        customFields: task.customFields,
+      },
+      attachments: task.attachments.map(a => ({
+        id: a.id,
+        name: a.name,
+        relativePath: a.sharePointRelativePath,
+        sizeBytes: a.sizeBytes,
+        mimeType: a.mimeType,
+      })),
+    }
+    batch.set(trashRef, { ...trashItem, id: trashRef.id })
+
+    // Delete the original task
+    batch.delete(doc(db, COLLECTIONS.TASKS, task.id))
+
+    // Log in history
+    const historyRef = doc(collection(db, COLLECTIONS.HISTORY))
+    batch.set(historyRef, {
+      taskId: task.id,
+      userId: deletedBy,
+      userName: deletedByName,
+      action: 'deleted' as HistoryAction,
+      field: null,
+      oldValue: null,
+      newValue: null,
+      timestamp: now,
+    })
+
+    await batch.commit()
+  } catch (err) {
+    throw new Error(`Failed to move task to trash: ${err}`)
+  }
+}
+
+export async function restoreTaskFromTrash(trashId: string): Promise<void> {
+  try {
+    const trashRef = doc(db, COLLECTIONS.TRASH, trashId)
+    const trashSnap = await getDoc(trashRef)
+    
+    if (!trashSnap.exists()) {
+      throw new Error('Trash item not found')
+    }
+    
+    const trashItem = trashSnap.data() as TrashQueueItem
+    
+    if (trashItem.status !== 'pending') {
+      throw new Error('Task cannot be restored')
+    }
+
+    const batch = writeBatch(db)
+
+    // Recreate the task
+    const taskRef = doc(db, COLLECTIONS.TASKS, trashItem.taskId)
+    const restoredTask: Task = {
+      id: trashItem.taskId,
+      ...trashItem.taskData,
+      attachments: trashItem.attachments.map(a => ({
+        id: a.id,
+        name: a.name,
+        sharePointRelativePath: a.relativePath,
+        uploadedBy: trashItem.deletedBy,
+        uploadedAt: trashItem.deletedAt,
+        status: 'synced' as AttachmentStatus,
+        sizeBytes: a.sizeBytes,
+        mimeType: a.mimeType,
+      })),
+      notes: '',
+      completed: false,
+      completedAt: null,
+      completedBy: null,
+      createdBy: trashItem.deletedBy,
+      createdAt: serverTimestamp() as unknown as Timestamp,
+      updatedAt: serverTimestamp() as unknown as Timestamp,
+      updatedBy: trashItem.deletedBy,
+    }
+    
+    batch.set(taskRef, restoredTask)
+
+    // Mark trash item as restored
+    batch.update(trashRef, { 
+      status: 'restored',
+      restoredAt: serverTimestamp(),
+    })
+
+    await batch.commit()
+  } catch (err) {
+    throw new Error(`Failed to restore task: ${err}`)
+  }
+}
+
+export async function permanentDeleteTrashItem(trashId: string): Promise<string | null> {
+  try {
+    const trashRef = doc(db, COLLECTIONS.TRASH, trashId)
+    const trashSnap = await getDoc(trashRef)
+    
+    if (!trashSnap.exists()) {
+      return null
+    }
+    
+    const trashItem = trashSnap.data() as TrashQueueItem
+    
+    if (trashItem.status !== 'pending') {
+      return null
+    }
+
+    // Update status to deleted
+    await updateDoc(trashRef, { status: 'deleted' })
+    
+    return trashItem.sharePointFolderPath
+  } catch (err) {
+    console.error('Failed to permanent delete trash item:', err)
+    throw new Error(`Failed to permanent delete: ${err}`)
+  }
+}
+
+export function subscribeToTrashQueue(
+  callback: (items: TrashQueueItem[]) => void
+): Unsubscribe {
+  return onSnapshot(
+    query(
+      collection(db, COLLECTIONS.TRASH),
+      where('status', 'in', ['pending', 'failed']),
+      orderBy('deletedAt', 'desc')
+    ),
+    (snap) => callback(snap.docs.map(d => ({ ...d.data(), id: d.id }) as TrashQueueItem)),
+    (err) => console.error('subscribeToTrashQueue error:', err)
+  )
+}
+
+export async function getTrashItemsDueForDeletion(): Promise<TrashQueueItem[]> {
+  try {
+    const now = Timestamp.now()
+    const snap = await getDocs(
+      query(
+        collection(db, COLLECTIONS.TRASH),
+        where('status', '==', 'pending'),
+        where('scheduledDeleteAt', '<=', now)
+      )
+    )
+    return snap.docs.map(d => ({ ...d.data(), id: d.id }) as TrashQueueItem)
+  } catch (err) {
+    console.error('Failed to get trash items due for deletion:', err)
+    return []
+  }
+}
+
+export async function updateTrashItemStatus(
+  trashId: string, 
+  status: TrashItemStatus
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.TRASH, trashId), { status })
+  } catch (err) {
+    console.error('Failed to update trash item status:', err)
   }
 }

@@ -2,15 +2,16 @@ import { useEffect, useCallback } from 'react'
 import {
   subscribeToTasks,
   completeTask,
-  deleteTask,
   duplicateTask,
   updateTaskField,
   createTask,
+  moveTaskToTrash,
 } from '../lib/firestore'
 import { useTaskStore } from '../store/taskStore'
 import { useAuthStore } from '../store/authStore'
 import { Timestamp } from 'firebase/firestore'
-import type { Task, RecurringConfig } from '../types'
+import type { Task, RecurringConfig, BoardType } from '../types'
+import { syncTaskToSharePoint } from '../lib/sharepointTemplates'
 
 export function useTasks(boardId: string | undefined, boardType?: string) {
   const { tasks, setTasks, selectedTask, setSelectedTask, setToast } = useTaskStore()
@@ -67,22 +68,37 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
       },
       duration: 5000,
     })
-  }, [user, setToast])
+  }, [user, setToast, boardType])
 
   const remove = useCallback(async (task: Task) => {
     if (!user) return
-    const snapshot = { ...task }
+    
+    // Get user's retention period (default 30 days)
+    const retentionDays = user.preferences?.trashRetentionDays ?? 30
+    
+    // Build SharePoint folder path: year/client/taskTitle
+    const year = task.createdAt?.toDate?.()?.getFullYear?.() ?? new Date().getFullYear()
+    const clientName = 'unknown' // Will be resolved by caller if needed
+    const sharePointFolderPath = `${year}/${clientName}/${task.title}`
+    
     setToast({
       id: `undo-delete-${task.id}`,
-      message: `Deleted: ${task.title}`,
+      message: `Moved to trash: ${task.title}`,
       type: 'warning',
       undoAction: async () => {
-        const { id: _id, ...data } = snapshot
-        await createTask(data)
+        // Restore from trash is handled via Settings > Trash
+        // This is a simplified undo that just shows a message
+        setToast({
+          id: `undo-info-${task.id}`,
+          message: 'Go to Settings > Trash to restore this task',
+          type: 'info',
+          duration: 5000,
+        })
       },
       duration: 5000,
     })
-    await deleteTask(task.id, user.uid, user.name)
+    
+    await moveTaskToTrash(task, sharePointFolderPath, user.uid, user.name, retentionDays)
   }, [user, setToast])
 
   const duplicate = useCallback(async (task: Task) => {
@@ -93,7 +109,44 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
   const setRecurring = useCallback(async (task: Task, config: RecurringConfig) => {
     if (!user) return
     await updateTaskField(task.id, 'recurring', config, user.uid, user.name, task.recurring, boardType)
-  }, [user])
+  }, [user, boardType])
 
-  return { tasks, selectedTask, setSelectedTask, complete, remove, duplicate, setRecurring }
+  /**
+   * Syncs a task to SharePoint by generating an HTML template for trips/vacations.
+   * Should be called after creating or updating a task.
+   */
+  const syncToSharePoint = useCallback(async (
+    task: Task,
+    personName: string,
+    vacationType?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!boardType || (boardType !== 'trips' && boardType !== 'vacations')) {
+      return { success: true } // Only sync trips and vacations
+    }
+
+    const result = await syncTaskToSharePoint(
+      task,
+      boardType as BoardType,
+      personName,
+      vacationType
+    )
+
+    if (!result.success && result.error) {
+      console.warn(`[useTasks] SharePoint sync failed for ${boardType}:`, result.error)
+      // Don't throw - this is a non-critical operation
+    }
+
+    return result
+  }, [boardType])
+
+  return { 
+    tasks, 
+    selectedTask, 
+    setSelectedTask, 
+    complete, 
+    remove, 
+    duplicate, 
+    setRecurring,
+    syncToSharePoint 
+  }
 }
