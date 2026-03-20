@@ -607,8 +607,8 @@ Update these as you complete each feature. Add [x] when done.
 - [ ] Annual archive: auto-detect tasks > 12 months old on startup
 - [ ] Archive generates summary document
 - [ ] Annual summary page with Recharts charts (bar, line)
-- [ ] Export PDF (jsPDF + html2canvas) with Elite Flower header
-- [ ] Export CSV (all filterable data)
+- [x] Export PDF (jsPDF + html2canvas) with Elite Flower header
+- [x] Export CSV (all filterable data)
 - [x] Client management page in Settings
 - [x] Label management page in Settings
 - [ ] electron-builder config for Windows (.exe) + Mac (.dmg)

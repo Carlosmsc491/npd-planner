@@ -101,15 +101,30 @@ export function isOlderThanMonths(ts: Timestamp, months: number): boolean {
 import type { AnnualSummary } from '../types'
 
 /**
- * Exports annual summary data as CSV string.
- * The caller saves it to disk or triggers download.
+ * Escapes a CSV cell value.
+ * Wraps in quotes if value contains comma, quote, or newline.
+ */
+function csvEscape(value: string | number): string {
+  const str = String(value)
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`
+  }
+  return str
+}
+
+/**
+ * Exports annual summary data as CSV string with UTF-8 BOM.
+ * BOM ensures Excel on Windows reads accented characters correctly.
  */
 export function exportSummaryToCSV(summary: AnnualSummary): string {
+  const BOM = '\uFEFF'
   const lines: string[] = []
 
   lines.push(`NPD Planner — Annual Summary ${summary.year}`)
-  lines.push(`Generated: ${new Date(summary.generatedAt.toDate()).toLocaleDateString()}`)
+  lines.push(`Generated:,${new Date(summary.generatedAt.toDate()).toLocaleDateString()}`)
   lines.push('')
+
+  // Overview metrics
   lines.push('Metric,Value')
   lines.push(`Total Tasks,${summary.totalTasks}`)
   lines.push(`Total Trips,${summary.totalTrips}`)
@@ -117,33 +132,61 @@ export function exportSummaryToCSV(summary: AnnualSummary): string {
   lines.push(`Completion Rate,${(summary.completionRate * 100).toFixed(1)}%`)
   lines.push('')
 
-  lines.push('By Board')
+  // By Board
+  lines.push('Tasks by Board')
   lines.push('Board,Tasks')
   Object.entries(summary.byBoard).forEach(([board, count]) => {
-    lines.push(`${board},${count}`)
+    lines.push(`${csvEscape(board)},${count}`)
   })
   lines.push('')
 
-  lines.push('By Client')
+  // By Client
+  lines.push('Tasks by Client')
   lines.push('Client,Tasks')
-  Object.entries(summary.byClient).forEach(([client, count]) => {
-    lines.push(`${client},${count}`)
-  })
+  Object.entries(summary.byClient)
+    .sort(([, a], [, b]) => (b as number) - (a as number))
+    .forEach(([client, count]) => {
+      lines.push(`${csvEscape(client)},${count}`)
+    })
   lines.push('')
 
-  lines.push('By Team Member')
+  // By Team Member
+  lines.push('Tasks by Team Member')
   lines.push('Member,Tasks')
-  Object.entries(summary.byAssignee).forEach(([member, count]) => {
-    lines.push(`${member},${count}`)
-  })
+  Object.entries(summary.byAssignee)
+    .sort(([, a], [, b]) => (b as number) - (a as number))
+    .forEach(([member, count]) => {
+      lines.push(`${csvEscape(member)},${count}`)
+    })
   lines.push('')
 
-  lines.push('By Month')
+  // By Month
+  lines.push('Tasks by Month')
   lines.push('Month,Tasks')
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   summary.byMonth.forEach((count, i) => {
     lines.push(`${months[i]},${count}`)
   })
+  lines.push('')
 
-  return lines.join('\n')
+  // Top Clients detail
+  if (summary.topClients?.length > 0) {
+    lines.push('Top Clients')
+    lines.push('Rank,Client,Tasks')
+    summary.topClients.forEach((tc, i) => {
+      lines.push(`${i + 1},${csvEscape(tc.clientName)},${tc.count}`)
+    })
+    lines.push('')
+  }
+
+  // Top Assignees detail
+  if (summary.topAssignees?.length > 0) {
+    lines.push('Top Team Members')
+    lines.push('Rank,Member,Tasks')
+    summary.topAssignees.forEach((ta, i) => {
+      lines.push(`${i + 1},${csvEscape(ta.name)},${ta.count}`)
+    })
+  }
+
+  return BOM + lines.join('\n')
 }
