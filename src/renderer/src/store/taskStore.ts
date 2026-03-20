@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { subscribeWithSelector } from 'zustand/middleware'
 import type { Task, ToastData, ConflictData } from '../types'
 
 interface TaskState {
@@ -12,13 +13,15 @@ interface TaskState {
   setConflict: (conflict: ConflictData | null) => void
 }
 
-export const useTaskStore = create<TaskState>((set) => ({
-  tasks: [],
-  selectedTask: null,
-  toast: null,
-  conflict: null,
-  setTasks: (tasks) => set({ tasks }),
-  setSelectedTask: (selectedTask) => set({ selectedTask }),
-  setToast: (toast) => set({ toast }),
-  setConflict: (conflict) => set({ conflict }),
-}))
+export const useTaskStore = create<TaskState>()(
+  subscribeWithSelector((set) => ({
+    tasks: [],
+    selectedTask: null,
+    toast: null,
+    conflict: null,
+    setTasks: (tasks) => set({ tasks }),
+    setSelectedTask: (selectedTask) => set({ selectedTask }),
+    setToast: (toast) => set({ toast }),
+    setConflict: (conflict) => set({ conflict }),
+  }))
+)

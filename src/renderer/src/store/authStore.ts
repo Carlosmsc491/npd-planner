@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { subscribeWithSelector } from 'zustand/middleware'
 import type { AppUser } from '../types'
 
 interface AuthState {
@@ -8,9 +9,11 @@ interface AuthState {
   setLoading: (loading: boolean) => void
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  isLoading: true,
-  setUser: (user) => set({ user }),
-  setLoading: (isLoading) => set({ isLoading }),
-}))
+export const useAuthStore = create<AuthState>()(
+  subscribeWithSelector((set) => ({
+    user: null,
+    isLoading: true,
+    setUser: (user) => set({ user }),
+    setLoading: (isLoading) => set({ isLoading }),
+  }))
+)

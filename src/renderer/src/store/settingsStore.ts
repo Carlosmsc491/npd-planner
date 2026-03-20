@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { subscribeWithSelector } from 'zustand/middleware'
 import type { Client, Label } from '../types'
 
 interface SettingsState {
@@ -10,11 +11,13 @@ interface SettingsState {
   setOnline: (online: boolean) => void
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
-  clients: [],
-  labels: [],
-  isOnline: true,
-  setClients: (clients) => set({ clients }),
-  setLabels: (labels) => set({ labels }),
-  setOnline: (isOnline) => set({ isOnline }),
-}))
+export const useSettingsStore = create<SettingsState>()(
+  subscribeWithSelector((set) => ({
+    clients: [],
+    labels: [],
+    isOnline: true,
+    setClients: (clients) => set({ clients }),
+    setLabels: (labels) => set({ labels }),
+    setOnline: (isOnline) => set({ isOnline }),
+  }))
+)

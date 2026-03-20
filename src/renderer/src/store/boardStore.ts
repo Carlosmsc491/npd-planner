@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { subscribeWithSelector } from 'zustand/middleware'
 import type { Board, BoardView, GroupByField } from '../types'
 
 interface BoardState {
@@ -14,21 +15,27 @@ interface BoardState {
   toggleShowCompleted: (groupKey: string) => void
 }
 
-export const useBoardStore = create<BoardState>((set) => ({
-  boards: [],
-  activeBoard: null,
-  view: 'cards',
-  groupBy: 'bucket',
-  showCompleted: {},
-  setBoards: (boards) => set({ boards }),
-  setActiveBoard: (activeBoard) => set({ activeBoard }),
-  setView: (view) => set({ view }),
-  setGroupBy: (groupBy) => set({ groupBy }),
-  toggleShowCompleted: (groupKey) =>
-    set((state) => ({
-      showCompleted: {
-        ...state.showCompleted,
-        [groupKey]: !state.showCompleted[groupKey],
-      },
-    })),
-}))
+const initialState = {
+  boards: [] as Board[],
+  activeBoard: null as Board | null,
+  view: 'cards' as BoardView,
+  groupBy: 'bucket' as GroupByField,
+  showCompleted: {} as Record<string, boolean>,
+}
+
+export const useBoardStore = create<BoardState>()(
+  subscribeWithSelector((set) => ({
+    ...initialState,
+    setBoards: (boards) => set({ boards }),
+    setActiveBoard: (activeBoard) => set({ activeBoard }),
+    setView: (view) => set({ view }),
+    setGroupBy: (groupBy) => set({ groupBy }),
+    toggleShowCompleted: (groupKey) =>
+      set((state) => ({
+        showCompleted: {
+          ...state.showCompleted,
+          [groupKey]: !state.showCompleted[groupKey],
+        },
+      })),
+  }))
+)
