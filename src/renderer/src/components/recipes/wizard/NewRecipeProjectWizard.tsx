@@ -16,7 +16,7 @@ import type { RecipeDistribution } from '../../../types'
 import WizardStepBasics from './WizardStepBasics'
 import WizardStepRules from './WizardStepRules'
 import WizardStepStructure from './WizardStepStructure'
-import type { WizardFolder } from './WizardStepStructure'
+import type { WizardFolder, WizardDefaults } from './WizardStepStructure'
 
 // ─────────────────────────────────────────
 // Wizard data shape
@@ -127,10 +127,10 @@ export default function NewRecipeProjectWizard() {
             price: recipe.price,
             option: recipe.option,
             name: recipe.name,
-            holidayOverride: data.holidayDefault,
-            customerOverride: data.customerDefault,
-            wetPackOverride: data.wetPackDefault ? 'Y' : 'N',
-            distributionOverride: data.distribution,
+            holidayOverride: recipe.holidayOverride,
+            customerOverride: recipe.customerOverride,
+            wetPackOverride: recipe.wetPackOverride,
+            distributionOverride: recipe.distributionOverride,
             requiresManualUpdate: false,
           }
 
@@ -178,10 +178,10 @@ export default function NewRecipeProjectWizard() {
             price: recipe.price,
             option: recipe.option,
             recipeName: recipe.name,
-            holidayOverride: data.holidayDefault,
-            customerOverride: data.customerDefault,
-            wetPackOverride: data.wetPackDefault ? 'Y' : 'N',
-            distributionOverride: data.distribution,
+            holidayOverride: recipe.holidayOverride,
+            customerOverride: recipe.customerOverride,
+            wetPackOverride: recipe.wetPackOverride,
+            distributionOverride: recipe.distributionOverride,
             status: 'pending',
             lockedBy: null,
             lockClaimedAt: null,
@@ -287,6 +287,12 @@ export default function NewRecipeProjectWizard() {
         {step === 3 && (
           <WizardStepStructure
             folders={data.folders}
+            defaults={{
+              customerDefault: data.customerDefault,
+              holidayDefault: data.holidayDefault,
+              wetPackDefault: data.wetPackDefault,
+              distributionDefault: data.distribution,
+            } satisfies WizardDefaults}
             onChange={(folders) => patchData({ folders })}
           />
         )}
