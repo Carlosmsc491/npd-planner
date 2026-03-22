@@ -23,7 +23,7 @@ import RecipeFolderSection from './RecipeFolderSection'
 import RecipeProgressCard from './RecipeProgressCard'
 import RecipeActivityFeed from './RecipeActivityFeed'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings } from '../../types'
-import { ArrowLeft, FolderOpen, Loader2, Users } from 'lucide-react'
+import { ArrowLeft, FolderOpen, Loader2, Users, RefreshCw } from 'lucide-react'
 
 export default function RecipeProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -35,11 +35,13 @@ export default function RecipeProjectPage() {
   const [selectedFile, setSelectedFile] = useState<RecipeFile | null>(null)
   const [presence, setPresence] = useState<RecipePresence[]>([])
   const [settings, setSettings] = useState<RecipeSettings | null>(null)
+  const [scanKey, setScanKey] = useState(0)
 
   const { currentLock, claimFile, unclaimFile } = useRecipeLock()
   const { files, filesByFolder, isLoading: filesLoading } = useRecipeFiles(
     projectId ?? '',
-    project?.rootPath ?? ''
+    project?.rootPath ?? '',
+    scanKey
   )
 
   // ── Load project from Firestore ──────────────────────────────────────────
@@ -228,6 +230,17 @@ export default function RecipeProjectPage() {
             </span>
           )}
         </div>
+
+        {/* Refresh scan */}
+        <button
+          onClick={() => setScanKey((k) => k + 1)}
+          disabled={filesLoading}
+          title="Re-scan project folder"
+          className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 transition-colors shrink-0 disabled:opacity-40"
+        >
+          <RefreshCw size={13} className={filesLoading ? 'animate-spin' : ''} />
+          Refresh
+        </button>
 
         {/* Open root folder */}
         <button

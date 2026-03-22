@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, FolderOpen, Loader2 } from 'lucide-react'
+import { Plus, FolderOpen } from 'lucide-react'
 import { subscribeToRecipeProjects } from '../../lib/recipeFirestore'
 import { useRecipeStore } from '../../store/recipeStore'
 import type { RecipeProject } from '../../types'
@@ -76,10 +76,7 @@ export default function RecipeHomePage() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex items-center justify-center py-24 text-gray-400">
-          <Loader2 size={22} className="animate-spin mr-2" />
-          <span className="text-sm">Loading projects…</span>
-        </div>
+        <SkeletonTable />
       ) : filtered.length === 0 ? (
         <EmptyState hasSearch={search.length > 0 || filter !== 'all'} onNew={() => navigate('/recipes/new')} />
       ) : (
@@ -164,6 +161,27 @@ function StatusBadge({ status }: { status: RecipeProject['status'] }) {
     <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${styles[status]}`}>
       {status}
     </span>
+  )
+}
+
+function SkeletonTable() {
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2.5 flex gap-4">
+        {['w-32', 'w-48', 'w-20', 'w-24'].map((w, i) => (
+          <div key={i} className={`h-3 ${w} rounded bg-gray-200 dark:bg-gray-700 animate-pulse`} />
+        ))}
+      </div>
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="flex items-center gap-4 px-4 py-3.5 border-b border-gray-100 dark:border-gray-800 last:border-0">
+          <div className="h-4 w-4 rounded bg-gray-200 dark:bg-gray-700 animate-pulse shrink-0" />
+          <div className="h-3.5 w-40 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" />
+          <div className="h-3 w-56 rounded bg-gray-100 dark:bg-gray-800 animate-pulse flex-1" />
+          <div className="h-5 w-16 rounded-full bg-gray-100 dark:bg-gray-800 animate-pulse" />
+          <div className="h-3 w-20 rounded bg-gray-100 dark:bg-gray-800 animate-pulse" />
+        </div>
+      ))}
+    </div>
   )
 }
 

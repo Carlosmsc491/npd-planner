@@ -5,6 +5,7 @@ import MembersPanel from '../components/settings/MembersPanel'
 import BoardTemplateEditor from '../components/settings/BoardTemplateEditor'
 import SharePointSetup from '../components/settings/SharePointSetup'
 import TrazeSettings from '../components/settings/TrazeSettings'
+import RecipeSettingsTab from '../components/recipes/settings/RecipeSettingsTab'
 import ClientManager from '../components/settings/ClientManager'
 import LabelManager from '../components/settings/LabelManager'
 import TrashPanel from '../components/settings/TrashPanel'
@@ -15,7 +16,7 @@ import { getBoardColor } from '../utils/colorUtils'
 import type { AppUser, Board, Theme, ShortcutAction } from '../types'
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTION_LABELS } from '../types'
 
-type SettingsTab = 'profile' | 'members' | 'boards' | 'clients' | 'labels' | 'files' | 'appearance' | 'notifications' | 'shortcuts' | 'archive' | 'trash' | 'traze'
+type SettingsTab = 'profile' | 'members' | 'boards' | 'clients' | 'labels' | 'files' | 'appearance' | 'notifications' | 'shortcuts' | 'archive' | 'trash' | 'traze' | 'recipes'
 
 const TABS: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
   { id: 'profile',       label: 'Profile' },
@@ -24,6 +25,7 @@ const TABS: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
   { id: 'clients',       label: 'Clients',        adminOnly: true },
   { id: 'labels',        label: 'Labels',         adminOnly: true },
   { id: 'files',         label: 'Files' },
+  { id: 'recipes',       label: 'Recipe Manager' },
   { id: 'traze',         label: 'Traze' },
   { id: 'appearance',    label: 'Appearance' },
   { id: 'notifications', label: 'Notifications' },
@@ -180,6 +182,18 @@ export default function SettingsPage() {
         )}
 
         {activeTab === 'traze' && <TrazeSettings />}
+
+        {activeTab === 'recipes' && user && (
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+              Recipe Manager
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              Configure validation rules, holiday mappings, sleeve pricing, and lock settings for the NPD recipe workflow.
+            </p>
+            <RecipeSettingsTab userId={user.uid} />
+          </div>
+        )}
       </div>
     </AppLayout>
   )

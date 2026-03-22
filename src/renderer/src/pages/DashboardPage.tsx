@@ -5,15 +5,18 @@ import FlightStatusPanel from '../components/dashboard/FlightStatusPanel'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import { subscribeToTasks, seedDefaultBoards, deduplicateDefaultBoards, getOldTasksToArchive } from '../lib/firestore'
+import { subscribeToRecipeProjects, subscribeToRecipeFiles } from '../lib/recipeFirestore'
 import { getBoardColor } from '../utils/colorUtils'
 import { isOverdue } from '../utils/dateUtils'
-import type { Task } from '../types'
+import type { Task, RecipeProject, RecipeFile } from '../types'
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
   const { boards } = useBoardStore()
   const navigate = useNavigate()
   const [allTasks, setAllTasks] = useState<Task[]>([])
+  const [recipeProjects, setRecipeProjects] = useState<RecipeProject[]>([])
+  const [recipeFiles, setRecipeFiles] = useState<RecipeFile[]>([])
 
   const seededRef = useRef(false)
   useEffect(() => {
@@ -47,6 +50,27 @@ export default function DashboardPage() {
     )
     return () => unsubs.forEach((u) => u())
   }, [boards])
+
+  // ── Recipe Manager data ─────────────────────────────────────────────────
+  useEffect(() => {
+    const unsub = subscribeToRecipeProjects((projects) => {
+      setRecipeProjects(projects.filter((p) => p.status === 'active'))
+    })
+    return unsub
+  }, [])
+
+  useEffect(() => {
+    if (recipeProjects.length === 0) { setRecipeFiles([]); return }
+    const unsubs = recipeProjects.map((p) =>
+      subscribeToRecipeFiles(p.id, (files) => {
+        setRecipeFiles((prev) => [...prev.filter((f) => f.projectId !== p.id), ...files])
+      })
+    )
+    return () => unsubs.forEach((u) => u())
+  }, [recipeProjects])
+
+  const recipeActiveProjects = recipeProjects.length
+  const recipePending = recipeFiles.filter((f) => f.status === 'pending' || f.status === 'lock_expired').length
 
   const plannerBoardIds = boards.filter((b) => b.type === 'planner').map((b) => b.id)
   const plannerTasks = allTasks.filter((t) => plannerBoardIds.includes(t.boardId))
@@ -144,6 +168,32 @@ export default function DashboardPage() {
                   </button>
                 )
               })}
+            </div>
+          </div>
+        )}
+
+        {/* NPD Recipes widget — only when user has active projects */}
+        {recipeActiveProjects > 0 && (
+          <div className="mb-8">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">NPD Recipes</h2>
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-6">
+                <div>
+                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">{recipeActiveProjects}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Active project{recipeActiveProjects !== 1 ? 's' : ''}</p>
+                </div>
+                <div className="w-px h-8 bg-gray-200 dark:bg-gray-700" />
+                <div>
+                  <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{recipePending}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Recipes pending</p>
+                </div>
+              </div>
+              <button
+                onClick={() => navigate('/recipes')}
+                className="text-xs text-green-600 dark:text-green-400 hover:underline shrink-0 font-medium"
+              >
+                View all recipes →
+              </button>
             </div>
           </div>
         )}

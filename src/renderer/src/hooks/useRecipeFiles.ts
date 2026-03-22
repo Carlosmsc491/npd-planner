@@ -7,7 +7,7 @@ import { DEFAULT_RECIPE_DISTRIBUTION } from '../types'
 import type { RecipeFile } from '../types'
 import { Timestamp } from 'firebase/firestore'
 
-export function useRecipeFiles(projectId: string, rootPath: string) {
+export function useRecipeFiles(projectId: string, rootPath: string, _scanKey = 0) {
   const [files, setFiles] = useState<RecipeFile[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -75,7 +75,7 @@ export function useRecipeFiles(projectId: string, rootPath: string) {
     })
 
     return unsub
-  }, [projectId, rootPath])
+  }, [projectId, rootPath, _scanKey])
 
   // ── Group by top-level folder ────────────────────────────────────────────
   const filesByFolder: Record<string, RecipeFile[]> = {}
