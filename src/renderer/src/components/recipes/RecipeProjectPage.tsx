@@ -12,6 +12,8 @@ import {
   updatePresence,
   removePresence,
   subscribeToRecipePresence,
+  getRecipeSettings,
+  initDefaultRecipeSettings,
 } from '../../lib/recipeFirestore'
 import { useAuthStore } from '../../store/authStore'
 import { useRecipeLock } from '../../hooks/useRecipeLock'
@@ -20,7 +22,7 @@ import RecipeDetailPanel from './RecipeDetailPanel'
 import RecipeFolderSection from './RecipeFolderSection'
 import RecipeProgressCard from './RecipeProgressCard'
 import RecipeActivityFeed from './RecipeActivityFeed'
-import type { RecipeProject, RecipeFile, RecipePresence } from '../../types'
+import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings } from '../../types'
 import { ArrowLeft, FolderOpen, Loader2, Users } from 'lucide-react'
 
 export default function RecipeProjectPage() {
@@ -32,6 +34,7 @@ export default function RecipeProjectPage() {
   const [projectLoading, setProjectLoading] = useState(true)
   const [selectedFile, setSelectedFile] = useState<RecipeFile | null>(null)
   const [presence, setPresence] = useState<RecipePresence[]>([])
+  const [settings, setSettings] = useState<RecipeSettings | null>(null)
 
   const { currentLock, claimFile, unclaimFile } = useRecipeLock()
   const { files, filesByFolder, isLoading: filesLoading } = useRecipeFiles(
@@ -87,6 +90,19 @@ export default function RecipeProjectPage() {
     const unsub = subscribeToRecipePresence(projectId, setPresence)
     return unsub
   }, [projectId])
+
+  // ── Load (or init) recipe settings for current user ─────────────────────
+  useEffect(() => {
+    if (!user) return
+    getRecipeSettings(user.uid).then(async (s) => {
+      if (s) {
+        setSettings(s)
+      } else {
+        const defaults = await initDefaultRecipeSettings(user.uid)
+        setSettings(defaults)
+      }
+    }).catch(console.error)
+  }, [user])
 
   // ── Check and expire stale locks on mount ────────────────────────────────
   useEffect(() => {
@@ -320,6 +336,7 @@ export default function RecipeProjectPage() {
           <RecipeDetailPanel
             file={selectedFile}
             project={project}
+            settings={settings}
             currentUserName={user?.name ?? ''}
             currentLockToken={currentLock?.lockToken ?? null}
             onClaim={handleClaim}
