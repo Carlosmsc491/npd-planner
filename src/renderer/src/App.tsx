@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from './lib/firebase'
@@ -23,6 +23,7 @@ export default function App() {
   const { setUser, setLoading, user } = useAuthStore()
   const { open: searchOpen, openSearch, closeSearch } = useGlobalSearchState()
   const [updateReady, setUpdateReady] = useState(false)
+  const navigate = useNavigate()
 
   useKeyboardShortcuts(openSearch)
 
@@ -31,6 +32,14 @@ export default function App() {
     const offReady = window.electronAPI.onUpdateDownloaded(() => setUpdateReady(true))
     return () => { offReady() }
   }, [])
+
+  // Listen for desktop notification clicks — navigate to the task
+  useEffect(() => {
+    const offNotificationClicked = window.electronAPI.onNotificationClicked((taskId: string) => {
+      navigate(`/task/${taskId}`)
+    })
+    return () => { offNotificationClicked() }
+  }, [navigate])
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {

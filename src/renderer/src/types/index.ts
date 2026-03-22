@@ -100,6 +100,7 @@ export interface AwbEntry {
   etaChanged: boolean          // true if ETA changed in the last CSV check
   lastCheckedAt: Timestamp | null
   etaHistory: EtaHistoryEntry[]
+  missingAtaAlertSent: boolean // true after "no ATA 6h post-ETA" alert fired
 }
 
 // ─────────────────────────────────────────

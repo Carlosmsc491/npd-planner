@@ -111,6 +111,7 @@ function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
     etaChanged: awb.etaChanged || false,
     lastCheckedAt: awb.lastCheckedAt || null,
     etaHistory: awb.etaHistory || [],
+    missingAtaAlertSent: awb.missingAtaAlertSent || false,
   };
 
   const handleField = (field: keyof AwbEntry, value: string | number) => {
@@ -293,6 +294,7 @@ export function OrderStatusSection({
       etaChanged:    false,
       lastCheckedAt: null,
       etaHistory:    [],
+      missingAtaAlertSent: false,
     };
     onAwbsChange([...safeAwbs, newEntry]);
   };

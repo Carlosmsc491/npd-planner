@@ -4,7 +4,7 @@ import AppLayout from '../components/ui/AppLayout'
 import FlightStatusPanel from '../components/dashboard/FlightStatusPanel'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
-import { subscribeToTasks, seedDefaultBoards, deduplicateDefaultBoards } from '../lib/firestore'
+import { subscribeToTasks, seedDefaultBoards, deduplicateDefaultBoards, getOldTasksToArchive } from '../lib/firestore'
 import { getBoardColor } from '../utils/colorUtils'
 import { isOverdue } from '../utils/dateUtils'
 import type { Task } from '../types'
@@ -22,6 +22,21 @@ export default function DashboardPage() {
       deduplicateDefaultBoards().then(() => seedDefaultBoards(user.uid))
     }
   }, [user?.uid])
+
+  // Auto-check for old tasks to archive (admin only, once per session)
+  const archiveCheckedRef = useRef(false)
+  const [archiveNotice, setArchiveNotice] = useState<{ count: number; dismissed: boolean } | null>(null)
+  useEffect(() => {
+    if (!user || archiveCheckedRef.current) return
+    if (user.role !== 'admin' && user.role !== 'owner') return
+    
+    archiveCheckedRef.current = true
+    getOldTasksToArchive().then(count => {
+      if (count > 0) {
+        setArchiveNotice({ count, dismissed: false })
+      }
+    })
+  }, [user])
 
   useEffect(() => {
     if (boards.length === 0) return
@@ -67,6 +82,34 @@ export default function DashboardPage() {
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Here's what's happening today.</p>
         </div>
+
+        {/* Archive notice — non-blocking toast */}
+        {archiveNotice && !archiveNotice.dismissed && (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-700/40 dark:bg-amber-900/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-amber-600 dark:text-amber-400">📦</span>
+                <p className="text-sm text-amber-800 dark:text-amber-300">
+                  {archiveNotice.count} completed task{archiveNotice.count === 1 ? '' : 's'} older than 12 months can be archived.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => navigate('/settings?tab=archive')}
+                  className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 transition-colors"
+                >
+                  Go to Archive
+                </button>
+                <button
+                  onClick={() => setArchiveNotice(prev => prev ? { ...prev, dismissed: true } : null)}
+                  className="rounded-lg p-1.5 text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900/40"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Stats grid */}
         <div className="grid grid-cols-4 gap-4 mb-8 w-full">

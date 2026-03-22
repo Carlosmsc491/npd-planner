@@ -12,11 +12,16 @@ import { useSettingsStore } from '../../store/settingsStore'
 import * as pdfjsLib from 'pdfjs-dist'
 import type { Task, TaskAttachment } from '../../types'
 
-// Initialize PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).toString()
+// Initialize PDF.js worker — different paths for dev vs production
+if (import.meta.env.DEV) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url
+  ).toString()
+} else {
+  // In production, the worker is copied to the output root by the vite plugin
+  pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.min.mjs'
+}
 
 interface Props {
   task: Task
@@ -158,10 +163,11 @@ function PDFPreviewModal({ name, base64, onClose }: PDFPreviewModalProps) {
           canvas.width = viewport.width
           canvas.height = viewport.height
           
-          await (page.render({
+          await page.render({
             canvasContext: context!,
-            viewport: viewport
-          } as any).promise)
+            viewport: viewport,
+            canvas: canvas
+          }).promise
           
           pageImages.push(canvas.toDataURL('image/png'))
         }

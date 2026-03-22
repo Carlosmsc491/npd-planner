@@ -351,6 +351,25 @@ export async function updateTaskField(
         }
       }
 
+      // Notify on significant field changes for planner boards
+      if (boardType === 'planner' && taskData.assignees?.length > 0) {
+        const fieldLabels: Record<string, string> = {
+          status: 'Status',
+          priority: 'Priority',
+          dateStart: 'Start date',
+          dateEnd: 'Due date',
+          bucket: 'Column'
+        }
+
+        if (field in fieldLabels && oldValue !== undefined) {
+          shouldNotifyAssignees = true
+          const fieldLabel = fieldLabels[field]
+          const oldValStr = String(oldValue ?? '—')
+          const newValStr = String(value ?? '—')
+          notificationMessage = `${updatedByName} changed ${fieldLabel}: ${oldValStr} → ${newValStr}`
+        }
+      }
+
       transaction.update(taskRef, {
         [field]: value,
         updatedAt: serverTimestamp(),
@@ -372,27 +391,38 @@ export async function updateTaskField(
 
     // Create notifications outside of transaction to avoid affecting the main operation
     if (shouldNotifyAssignees && taskData && boardType === 'planner') {
-      const newAssignees = (value as string[]) ?? []
-      const oldAssignees = (oldValue as string[]) ?? []
-      const addedAssignees = newAssignees.filter(uid => !oldAssignees.includes(uid))
+      // Type assertion needed because TypeScript narrows taskData incorrectly
+      const t = taskData as Task
+      // Determine who should be notified based on field type
+      let uidsToNotify: string[] = []
       
-      for (const uid of addedAssignees) {
+      if (field === 'assignees') {
+        // For assignee changes, only notify newly added assignees
+        const newAssignees = (value as string[]) ?? []
+        const oldAssignees = (oldValue as string[]) ?? []
+        uidsToNotify = newAssignees.filter(uid => !oldAssignees.includes(uid))
+      } else {
+        // For other significant field changes, notify all current assignees
+        uidsToNotify = t.assignees ?? []
+      }
+      
+      for (const uid of uidsToNotify) {
         if (uid === updatedBy) continue // Don't notify the user who made the change
         try {
           await createNotification({
             userId: uid,
             taskId,
-            taskTitle: (taskData as Task).title,
-            boardId: (taskData as Task).boardId,
+            taskTitle: t.title,
+            boardId: t.boardId,
             boardType,
-            type: 'assigned',
+            type: field === 'assignees' ? 'assigned' : 'updated',
             message: notificationMessage,
             read: false,
             triggeredBy: updatedBy,
             triggeredByName: updatedByName,
-          } as any)
+          } as Omit<AppNotification, 'id'>)
         } catch (notifErr) {
-          console.error('Failed to create assignment notification:', notifErr)
+          console.error('Failed to create notification:', notifErr)
         }
       }
     }
@@ -457,7 +487,7 @@ export async function completeTask(
             read: false,
             triggeredBy: userId,
             triggeredByName: userName,
-          } as any)
+          } as Omit<AppNotification, 'id'>)
         } catch (notifErr) {
           console.error('Failed to create completion notification:', notifErr)
         }

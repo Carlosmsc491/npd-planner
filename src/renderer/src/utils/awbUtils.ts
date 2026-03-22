@@ -165,3 +165,75 @@ export function etaChanged(oldEta: string | null, newEta: string): boolean {
   if (!oldEta) return !!newEta.trim();           // first time seeing ETA
   return oldEta.trim() !== newEta.trim();
 }
+
+// ─── ETA Change Detection ─────────────────────────────────────────────────────
+
+/**
+ * Parses a flight date string from CSV format.
+ * Supports "MM/DD/YYYY" and "MM/DD/YYYY HH:mm" formats.
+ * Returns null if unparseable.
+ */
+export function parseFlightDate(dateStr: string | null): Date | null {
+  if (!dateStr || !dateStr.trim()) return null;
+  
+  const trimmed = dateStr.trim();
+  
+  // Try "MM/DD/YYYY HH:mm" format first
+  const dateTimeMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/);
+  if (dateTimeMatch) {
+    const [, month, day, year, hour, minute] = dateTimeMatch;
+    const date = new Date(
+      parseInt(year, 10),
+      parseInt(month, 10) - 1,
+      parseInt(day, 10),
+      parseInt(hour, 10),
+      parseInt(minute, 10)
+    );
+    if (!isNaN(date.getTime())) return date;
+  }
+  
+  // Try "MM/DD/YYYY" format
+  const dateMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dateMatch) {
+    const [, month, day, year] = dateMatch;
+    const date = new Date(
+      parseInt(year, 10),
+      parseInt(month, 10) - 1,
+      parseInt(day, 10)
+    );
+    if (!isNaN(date.getTime())) return date;
+  }
+  
+  return null;
+}
+
+/**
+ * Returns true if the ETA shifted by more than `thresholdHours`.
+ * Parses both old and new ETA strings ("MM/DD/YYYY HH:mm" or "MM/DD/YYYY").
+ */
+export function isSignificantEtaChange(
+  oldEta: string | null,
+  newEta: string | null,
+  thresholdHours: number = 2
+): boolean {
+  const oldDate = parseFlightDate(oldEta);
+  const newDate = parseFlightDate(newEta);
+  
+  // If either is null/unparseable, can't determine significance
+  if (!oldDate || !newDate) return false;
+  
+  // Calculate absolute difference in hours
+  const diffMs = Math.abs(newDate.getTime() - oldDate.getTime());
+  const diffHours = diffMs / (1000 * 60 * 60);
+  
+  return diffHours > thresholdHours;
+}
+
+/**
+ * Formats a duration in hours to a human-readable string.
+ * e.g., 2.5 → "2.5 hours", 1 → "1 hour"
+ */
+export function formatDurationHours(hours: number): string {
+  const rounded = Math.round(hours * 10) / 10;
+  return `${rounded} hour${rounded === 1 ? '' : 's'}`;
+}

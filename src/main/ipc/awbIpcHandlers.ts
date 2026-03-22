@@ -21,6 +21,7 @@
  *     'traze:save-credentials'     → saves email/password, returns { success }
  *     'traze:load-credentials'     → returns { email } (no password for security)
  *     'traze:has-credentials'      → returns { hasCredentials: boolean }
+ *     'traze:check-auth'           → returns { authenticated: boolean }
  *     'traze:clear-credentials'    → deletes stored credentials
  *     'traze:get-logs'             → returns array of log entries
  *     'traze:clear-logs'           → clears all logs
@@ -122,6 +123,11 @@ export function registerAwbIpcHandlers(): void {
 
   ipcMain.handle('traze:has-credentials', async () => {
     return { hasCredentials: hasCredentials() };
+  });
+
+  ipcMain.handle('traze:check-auth', async () => {
+    const hasCreds = hasCredentials();
+    return { authenticated: hasCreds };
   });
 
   ipcMain.handle('traze:clear-credentials', async () => {

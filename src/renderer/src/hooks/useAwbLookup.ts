@@ -146,6 +146,8 @@ export function useAwbLookup(): UseAwbLookupReturn {
           // Nothing changed, just update lastCheckedAt
           return { ...awb, lastCheckedAt: now, etaChanged: false };
         }
+        
+        // NOTE: Smart alerts (ETA change > 2h, missing ATA > 6h) are handled in useTrazeRefresh.ts
 
         hasChange = true;
 
@@ -176,6 +178,7 @@ export function useAwbLookup(): UseAwbLookupReturn {
           etaChanged:   etaHasChanged,
           lastCheckedAt: now,
           etaHistory:   cappedHistory,
+          missingAtaAlertSent: awb.missingAtaAlertSent ?? false,
         };
       });
 

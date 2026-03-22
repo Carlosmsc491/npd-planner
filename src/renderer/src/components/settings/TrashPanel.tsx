@@ -56,7 +56,7 @@ export default function TrashPanel() {
     
     try {
       // Delete folder in SharePoint
-      const result = await (window.electronAPI as any).deleteTrashFolder(item.sharePointFolderPath)
+      const result = await window.electronAPI.deleteTrashFolder(item.sharePointFolderPath)
       
       if (result.success) {
         // Update status in Firestore

@@ -544,7 +544,7 @@ Update these as you complete each feature. Add [x] when done.
 - [ ] Firebase Auth Rules deployed
 - [x] Members panel (Settings) — list, approve, reject, change role, suspend
 - [x] Emergency access (/emergency route + SHA-256 key check)
-- [ ] Auto-update configured (electron-updater)
+- [x] Auto-update configured (electron-updater)
 
 ### Phase 3 — Boards & Tasks Core
 - [x] Sidebar with Planner, Trips, Vacations boards
@@ -586,17 +586,17 @@ Update these as you complete each feature. Add [x] when done.
 - [x] Folder auto-creation on attach
 - [x] Attachment status icons: uploading / synced / error
 - [x] Retry queue (every 30 seconds) for failed copies
-- [ ] PDF preview (pdf.js)
+- [x] PDF preview (pdf.js)
 - [x] Image preview (base64 lightbox)
 - [x] Office files: show icon + "Open in app" button
 
 ### Phase 7 — Notifications & UX
-- [ ] Desktop notifications (Electron Notification API) — Planner only
+- [x] Desktop notifications (Electron Notification API) — Planner only
 - [ ] Sound on notification
 - [x] DND schedule respected (no sound/popup during DND hours)
-- [ ] Notification bell with unread badge
-- [ ] Notification center (dropdown from bell)
-- [ ] Notification on: task update, task complete, assigned, @mention
+- [x] Notification bell with unread badge
+- [x] Notification center (dropdown from bell)
+- [x] Notification on: task update, task complete, assigned, @mention
 - [x] Global search Ctrl+K / Cmd+K (Fuse.js)
 - [x] Search across tasks, clients, comments
 - [x] Keyboard shortcuts configurable per user in Settings
@@ -604,16 +604,16 @@ Update these as you complete each feature. Add [x] when done.
 
 ### Phase 8 — Analytics & Build
 - [ ] Analytics dashboard (admin only): tasks/week, load by person, top clients
-- [ ] Annual archive: auto-detect tasks > 12 months old on startup
-- [ ] Archive generates summary document
+- [x] Annual archive: auto-detect tasks > 12 months old on startup
+- [x] Archive generates summary document
 - [ ] Annual summary page with Recharts charts (bar, line)
 - [x] Export PDF (jsPDF + html2canvas) with Elite Flower header
 - [x] Export CSV (all filterable data)
 - [x] Client management page in Settings
 - [x] Label management page in Settings
-- [ ] electron-builder config for Windows (.exe) + Mac (.dmg)
-- [ ] Test build on both platforms
-- [ ] Final QA pass
+- [x] electron-builder config for Windows (.exe) + Mac (.dmg)
+- [x] Test build on both platforms
+- [x] Final QA pass
 
 ---
 
