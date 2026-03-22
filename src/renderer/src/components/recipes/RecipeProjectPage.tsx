@@ -22,6 +22,8 @@ import RecipeDetailPanel from './RecipeDetailPanel'
 import RecipeFolderSection from './RecipeFolderSection'
 import RecipeProgressCard from './RecipeProgressCard'
 import RecipeActivityFeed from './RecipeActivityFeed'
+import RecipeFileManagerDialog from './RecipeFileManagerDialog'
+import { updateRecipeFileId } from '../../lib/recipeFirestore'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings } from '../../types'
 import { ArrowLeft, FolderOpen, Loader2, Users, RefreshCw } from 'lucide-react'
 
@@ -36,6 +38,7 @@ export default function RecipeProjectPage() {
   const [presence, setPresence] = useState<RecipePresence[]>([])
   const [settings, setSettings] = useState<RecipeSettings | null>(null)
   const [scanKey, setScanKey] = useState(0)
+  const [fileManagerOpen, setFileManagerOpen] = useState(false)
 
   const { currentLock, claimFile, unclaimFile } = useRecipeLock()
   const { files, filesByFolder, isLoading: filesLoading } = useRecipeFiles(
@@ -154,6 +157,23 @@ export default function RecipeProjectPage() {
     await window.electronAPI.recipeOpenInExcel(fullPath)
   }, [project])
 
+  // ── File rename sync with Firestore ─────────────────────────────────────
+  const handleFileRenamed = useCallback(async (oldPath: string, newPath: string) => {
+    if (!projectId || !project) return
+    const root = project.rootPath.replace(/\\/g, '/')
+    const oldRel = oldPath.replace(/\\/g, '/').replace(root + '/', '')
+    const newRel = newPath.replace(/\\/g, '/').replace(root + '/', '')
+    const oldFileId = `${projectId}::${oldRel}`
+    const newFileId = `${projectId}::${newRel}`
+    const newDisplayName = newPath.split('\\').pop()?.replace(/\.xlsx$/i, '') ?? newRel
+    try {
+      await updateRecipeFileId(projectId, oldFileId, newFileId, newRel, newDisplayName)
+    } catch (err) {
+      console.error('handleFileRenamed error:', err)
+    }
+    setScanKey((k) => k + 1)
+  }, [projectId, project])
+
   // ── Progress stats ───────────────────────────────────────────────────────
   const total      = files.length
   const doneCount  = files.filter((f) => f.status === 'done').length
@@ -242,10 +262,10 @@ export default function RecipeProjectPage() {
           Refresh
         </button>
 
-        {/* Open root folder */}
+        {/* File manager */}
         <button
-          onClick={() => window.electronAPI.recipeOpenInExcel(project.rootPath)}
-          title="Open project folder"
+          onClick={() => setFileManagerOpen(true)}
+          title="Browse project files and folders"
           className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 transition-colors shrink-0"
         >
           <FolderOpen size={13} />
@@ -360,6 +380,18 @@ export default function RecipeProjectPage() {
           />
         </div>
       </div>
+
+      {/* File Manager Dialog */}
+      <RecipeFileManagerDialog
+        isOpen={fileManagerOpen}
+        onClose={() => setFileManagerOpen(false)}
+        projectName={project.name}
+        projectRootPath={project.rootPath}
+        projectConfig={project.config}
+        lockedFiles={files.filter((f) => f.status === 'in_progress')}
+        onFileRenamed={handleFileRenamed}
+        onRefresh={() => setScanKey((k) => k + 1)}
+      />
     </div>
   )
 }

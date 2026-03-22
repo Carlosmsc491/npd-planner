@@ -25,6 +25,10 @@ export interface IElectronAPI {
   recipeCreateFolder: (folderPath: string) => Promise<{ success: boolean }>
   recipeScanProject: (rootPath: string) => Promise<Array<{ relativePath: string; displayName: string; price: string; option: string; name: string }>>
   recipeOpenInExcel: (filePath: string) => Promise<{ success: boolean; error?: string }>
+  recipeListFolder: (folderPath: string) => Promise<Array<{ name: string; isDirectory: boolean; size: number; modifiedAt: string; fullPath: string }>>
+  recipeDeleteItem: (itemPath: string) => Promise<{ success: boolean; error?: string }>
+  recipeRenameItem: (oldPath: string, newPath: string) => Promise<{ success: boolean; error?: string }>
+  recipeCreateFileFromTemplate: (templatePath: string, destFolder: string, fileName: string) => Promise<{ success: boolean; destPath?: string; error?: string }>
   // Generic Traze / AWB IPC channels
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, listener: (...args: unknown[]) => void) => void

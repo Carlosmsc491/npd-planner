@@ -297,6 +297,115 @@ export function registerRecipeHandlers(): void {
     }
   )
 
+  // ── List one level of a folder (non-recursive) ───────────────────────────
+  ipcMain.handle(
+    'recipe:listFolder',
+    async (_event, folderPath: string): Promise<Array<{
+      name: string
+      isDirectory: boolean
+      size: number
+      modifiedAt: string   // ISO string — Date is not serializable over IPC
+      fullPath: string
+    }>> => {
+      try {
+        if (!fs.existsSync(folderPath)) return []
+        const entries = fs.readdirSync(folderPath, { withFileTypes: true })
+        const result: Array<{
+          name: string; isDirectory: boolean; size: number; modifiedAt: string; fullPath: string
+        }> = []
+        for (const entry of entries) {
+          // Exclude metadata folder and Excel lock files
+          if (entry.isDirectory() && entry.name === '_project') continue
+          if (entry.isFile() && entry.name.startsWith('~$')) continue
+          const fullPath = path.join(folderPath, entry.name)
+          const stat = fs.statSync(fullPath)
+          result.push({
+            name:        entry.name,
+            isDirectory: entry.isDirectory(),
+            size:        entry.isDirectory() ? 0 : stat.size,
+            modifiedAt:  stat.mtime.toISOString(),
+            fullPath,
+          })
+        }
+        // Folders first, then files — alphabetical within each group
+        result.sort((a, b) => {
+          if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+        return result
+      } catch (err) {
+        console.error('recipe:listFolder error:', err)
+        return []
+      }
+    }
+  )
+
+  // ── Delete a file or folder ───────────────────────────────────────────────
+  ipcMain.handle(
+    'recipe:deleteItem',
+    async (_event, itemPath: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const stat = fs.statSync(itemPath)
+        if (stat.isDirectory()) {
+          fs.rmSync(itemPath, { recursive: true, force: true })
+        } else {
+          fs.unlinkSync(itemPath)
+        }
+        return { success: true }
+      } catch (err) {
+        console.error('recipe:deleteItem error:', err)
+        return { success: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
+
+  // ── Rename any file or folder ─────────────────────────────────────────────
+  ipcMain.handle(
+    'recipe:renameItem',
+    async (_event, oldPath: string, newPath: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        // Excel lock check for .xlsx files
+        if (oldPath.endsWith('.xlsx') && isFileLockedByExcel(oldPath)) {
+          return { success: false, error: 'Close the file in Excel before renaming' }
+        }
+        fs.renameSync(oldPath, newPath)
+        return { success: true }
+      } catch (err) {
+        console.error('recipe:renameItem error:', err)
+        return { success: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
+
+  // ── Create a new recipe file from template ────────────────────────────────
+  ipcMain.handle(
+    'recipe:createFileFromTemplate',
+    async (
+      _event,
+      templatePath: string,
+      destFolder: string,
+      fileName: string
+    ): Promise<{ success: boolean; destPath?: string; error?: string }> => {
+      try {
+        if (!fs.existsSync(templatePath)) {
+          return { success: false, error: 'Template file not found' }
+        }
+        // Ensure .xlsx extension
+        const safeName = fileName.endsWith('.xlsx') ? fileName : `${fileName}.xlsx`
+        const destPath = path.join(destFolder, safeName)
+        if (fs.existsSync(destPath)) {
+          return { success: false, error: 'File already exists' }
+        }
+        fs.mkdirSync(destFolder, { recursive: true })
+        fs.copyFileSync(templatePath, destPath)
+        return { success: true, destPath }
+      } catch (err) {
+        console.error('recipe:createFileFromTemplate error:', err)
+        return { success: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
+
   // ── Open a file with its default application (Excel) ─────────────────────
   ipcMain.handle(
     'recipe:openInExcel',

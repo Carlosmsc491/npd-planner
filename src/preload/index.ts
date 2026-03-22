@@ -117,6 +117,18 @@ const electronAPI = {
   recipeOpenInExcel: (filePath: string) =>
     ipcRenderer.invoke('recipe:openInExcel', filePath),
 
+  recipeListFolder: (folderPath: string) =>
+    ipcRenderer.invoke('recipe:listFolder', folderPath),
+
+  recipeDeleteItem: (itemPath: string) =>
+    ipcRenderer.invoke('recipe:deleteItem', itemPath),
+
+  recipeRenameItem: (oldPath: string, newPath: string) =>
+    ipcRenderer.invoke('recipe:renameItem', oldPath, newPath),
+
+  recipeCreateFileFromTemplate: (templatePath: string, destFolder: string, fileName: string) =>
+    ipcRenderer.invoke('recipe:createFileFromTemplate', templatePath, destFolder, fileName),
+
   // ── Generic invoke for Traze / AWB channels ───────────────────────────────
   invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {
     if ((INVOKE_CHANNELS as readonly string[]).includes(channel)) {

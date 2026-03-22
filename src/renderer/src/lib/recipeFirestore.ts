@@ -12,6 +12,7 @@ import {
   setDoc,
   deleteDoc,
   query,
+  where,
   onSnapshot,
   runTransaction,
   serverTimestamp,
@@ -112,6 +113,37 @@ export async function upsertRecipeFile(
     )
   } catch (err) {
     throw new Error(`Failed to upsert recipe file: ${err}`)
+  }
+}
+
+/**
+ * Update fileId, relativePath and displayName when a file is renamed on disk.
+ * Finds the doc by querying for fileId === oldFileId, then updates its identity fields.
+ */
+export async function updateRecipeFileId(
+  projectId: string,
+  oldFileId: string,
+  newFileId: string,
+  newRelativePath: string,
+  newDisplayName: string
+): Promise<void> {
+  try {
+    const q = query(
+      collection(db, RECIPE_PROJECTS, projectId, RECIPE_FILES),
+      where('fileId', '==', oldFileId)
+    )
+    const snap = await getDocs(q)
+    if (snap.empty) return   // file was never tracked — nothing to update
+
+    const docRef = snap.docs[0].ref
+    await updateDoc(docRef, {
+      fileId:       newFileId,
+      relativePath: newRelativePath,
+      displayName:  newDisplayName,
+      updatedAt:    serverTimestamp(),
+    })
+  } catch (err) {
+    throw new Error(`Failed to update recipe file id: ${err}`)
   }
 }
 

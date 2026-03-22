@@ -619,6 +619,14 @@ export interface ValidationResult {
   requiresManualUpdate: boolean
 }
 
+export interface RecipeFSEntry {
+  name: string
+  isDirectory: boolean
+  size: number           // bytes, 0 for directories
+  modifiedAt: Date
+  fullPath: string
+}
+
 export interface RecipeScannedFile {
   relativePath: string
   displayName: string
