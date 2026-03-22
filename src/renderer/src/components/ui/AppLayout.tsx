@@ -6,7 +6,7 @@ import {
   MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Search,
   LayoutDashboard, CheckSquare, Package, Truck, Camera, Users, Calendar,
   Star, Folder, ShoppingCart, FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
-  User, Lock, List, CalendarDays,
+  User, Lock, List, CalendarDays, FlowerIcon, Settings2,
   type LucideIcon,
 } from 'lucide-react'
 import { auth } from '../../lib/firebase'
@@ -226,6 +226,35 @@ export default function AppLayout({ children }: AppLayoutProps) {
               })}
             </>
           )}
+
+          {/* ── RECETAS NPD section ──────────────────────────────────── */}
+          <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+            Recetas NPD
+          </div>
+          {[
+            { path: '/recipes',  label: 'NPD Projects', icon: FlowerIcon },
+            { path: '/settings', label: 'Configuration', icon: Settings2 },
+          ].map((item) => {
+            const Icon = item.icon
+            const isActive =
+              item.path === '/recipes'
+                ? location.pathname.startsWith('/recipes')
+                : location.pathname === '/settings'
+            return (
+              <Link
+                key={`recipe-nav-${item.path}`}
+                to={item.path}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mb-0.5 transition-colors ${
+                  isActive
+                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                }`}
+              >
+                <Icon size={14} className="shrink-0" />
+                <span>{item.label}</span>
+              </Link>
+            )
+          })}
 
           {/* New Board button */}
           {isAdmin && (

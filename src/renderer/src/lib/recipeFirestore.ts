@@ -102,7 +102,7 @@ export function subscribeToRecipeFiles(
 export async function upsertRecipeFile(
   projectId: string,
   fileId: string,
-  data: Omit<RecipeFile, 'id'>
+  data: Omit<RecipeFile, 'id'> & { id?: string }
 ): Promise<void> {
   try {
     await setDoc(

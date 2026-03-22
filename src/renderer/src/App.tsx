@@ -17,6 +17,9 @@ import SettingsPage from './pages/SettingsPage'
 import MyTasksPage from './pages/MyTasksPage'
 import MySpacePage from './pages/MySpacePage'
 import GlobalSearch from './components/search/GlobalSearch'
+import RecipeHomePage from './components/recipes/RecipeHomePage'
+import RecipeProjectPage from './components/recipes/RecipeProjectPage'
+import NewRecipeProjectWizard from './components/recipes/wizard/NewRecipeProjectWizard'
 import { useKeyboardShortcuts, useGlobalSearchState } from './hooks/useKeyboardShortcuts'
 
 export default function App() {
@@ -102,6 +105,9 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/my-tasks" element={<MyTasksPage />} />
         <Route path="/my-space" element={<MySpacePage />} />
+        <Route path="/recipes" element={<RecipeHomePage />} />
+        <Route path="/recipes/new" element={<NewRecipeProjectWizard />} />
+        <Route path="/recipes/:projectId" element={<RecipeProjectPage />} />
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/login" replace />} />

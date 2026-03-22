@@ -42,6 +42,15 @@ interface IElectronAPI {
   onNotificationClicked: (callback: (taskId: string) => void) => () => void
   deleteTrashFolder: (folderPath: string) => Promise<{ success: boolean; error?: string }>
   saveTextFile: (destPath: string, content: string) => Promise<{ success: boolean; error?: string }>
+  // Recipe Manager
+  recipeReadCells: (filePath: string, cells: string[]) => Promise<Record<string, string>>
+  recipeWriteCells: (filePath: string, changes: { cell: string; value: string | number | boolean | null }[]) => Promise<{ success: boolean }>
+  recipeGenerateFromTemplate: (templatePath: string, outputPath: string, recipeData: unknown) => Promise<{ success: boolean }>
+  recipeRenameFile: (oldPath: string, newPath: string) => Promise<{ success: boolean }>
+  recipeIsFileOpen: (filePath: string) => Promise<boolean>
+  recipeCreateFolder: (folderPath: string) => Promise<{ success: boolean }>
+  recipeScanProject: (rootPath: string) => Promise<Array<{ relativePath: string; displayName: string; price: string; option: string; name: string }>>
+  recipeOpenInExcel: (filePath: string) => Promise<{ success: boolean; error?: string }>
   // Generic Traze / AWB IPC channels
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, listener: (...args: unknown[]) => void) => void
