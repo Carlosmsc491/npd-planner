@@ -209,6 +209,28 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────
+    // RECIPE MANAGER
+    // ─────────────────────────────────────────
+
+    match /recipeProjects/{projectId} {
+      allow read, write: if isActiveUser();
+
+      match /recipeFiles/{fileId} {
+        allow read: if isActiveUser();
+        allow write: if isActiveUser();
+      }
+
+      match /recipePresence/{userId} {
+        allow read: if isActiveUser();
+        allow write: if request.auth.uid == userId || isAdmin();
+      }
+    }
+
+    match /recipeSettings/{userId} {
+      allow read, write: if request.auth.uid == userId || isAdmin();
+    }
+
+    // ─────────────────────────────────────────
     // DENY ALL OTHER PATHS
     // ─────────────────────────────────────────
 

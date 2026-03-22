@@ -496,3 +496,180 @@ export const SHORTCUT_ACTION_LABELS: Record<ShortcutAction, string> = {
   goToCalendar:   'Go to Calendar',
   goToSettings:   'Go to Settings',
 }
+
+// ─────────────────────────────────────────
+// RECIPE MANAGER
+// ─────────────────────────────────────────
+
+export type RecipeFileStatus = 'pending' | 'in_progress' | 'lock_expired' | 'done'
+
+export interface RecipeDistribution {
+  miami: number
+  newJersey: number
+  california: number
+  chicago: number
+  seattle: number
+  texas: number
+}
+
+export interface RecipeProjectConfig {
+  customerDefault: string
+  holidayDefault: string
+  wetPackDefault: boolean
+  wetPackFalseValue: string
+  distributionDefault: RecipeDistribution
+  templatePath: string
+  sourceMode: 'from_scratch' | 'import'
+  notes: string
+}
+
+export interface RecipeProject {
+  id: string
+  name: string
+  rootPath: string
+  createdAt: Timestamp
+  createdBy: string
+  status: 'active' | 'completed' | 'archived'
+  config: RecipeProjectConfig
+}
+
+export interface RecipeFile {
+  id: string
+  projectId: string
+  fileId: string                  // "{projectId}::{relativePath}"
+  relativePath: string            // "Valentine/$12.99 A VALENTINE.xlsx"
+  displayName: string             // "$12.99 A VALENTINE"
+  price: string                   // "$12.99"
+  option: string                  // "A" | "B" | "C" | ""
+  recipeName: string              // "VALENTINE"
+  holidayOverride: string
+  customerOverride: string
+  wetPackOverride: string         // "Y" | "N"
+  distributionOverride: RecipeDistribution
+  status: RecipeFileStatus
+  lockedBy: string | null         // display name of user holding the lock
+  lockClaimedAt: Timestamp | null
+  lockHeartbeatAt: Timestamp | null
+  lockToken: string | null
+  doneBy: string | null
+  doneAt: Timestamp | null
+  requiresManualUpdate: boolean
+  version: number                 // increments on each update
+  updatedAt: Timestamp
+}
+
+export interface RecipePresence {
+  projectId: string
+  userId: string
+  userName: string
+  lastSeenAt: Timestamp
+}
+
+export interface RecipeRuleCells {
+  recipeName: string        // "D3"
+  holiday: string           // "D6"
+  customer: string          // "D7"
+  dryPackSuggested: string  // "Z9"
+  dryPackActual: string     // "AA9"
+  wetPackFlag: string       // "AA40"
+  wetPackSuggested: string  // "AA45"
+  wetPackActual: string     // "AB45"
+  sleevePrice: string       // "AB25"
+  sleeveFlag: string        // "AC25"
+  stemCount: string         // "K3"
+  distributionStart: string // "AI15" (AI15:AI20 for the 6 DCs)
+}
+
+export interface RecipeSettings {
+  userId: string
+  ruleCells: RecipeRuleCells
+  holidayMap: Record<string, string>    // keyword → holiday value
+  sleeveByPrice: Record<string, number> // "$12.99" → sleeve price
+  sleeveByStems: Record<string, number> // "12" → sleeve price
+  distributionDefaults: RecipeDistribution
+  lockTimeoutSeconds: number            // default 300
+}
+
+export interface RecipeSpec {
+  recipeId: string
+  relativePath: string
+  displayName: string
+  price: string
+  option: string
+  name: string
+  holidayOverride: string
+  customerOverride: string
+  wetPackOverride: string
+  distributionOverride: RecipeDistribution
+  requiresManualUpdate: boolean
+}
+
+export interface ValidationChange {
+  field: string
+  cell: string
+  currentValue: string
+  suggestedValue: string
+  autoApply: boolean
+  type: 'error' | 'warning' | 'info'
+}
+
+export interface ValidationResult {
+  valid: boolean
+  changes: ValidationChange[]
+  requiresManualUpdate: boolean
+}
+
+export interface RecipeScannedFile {
+  relativePath: string
+  displayName: string
+  price: string
+  option: string
+  name: string
+}
+
+// ── Recipe Manager defaults & constants ───────────────────────────────────
+
+export const DEFAULT_RECIPE_RULE_CELLS: RecipeRuleCells = {
+  recipeName:        'D3',
+  holiday:           'D6',
+  customer:          'D7',
+  dryPackSuggested:  'Z9',
+  dryPackActual:     'AA9',
+  wetPackFlag:       'AA40',
+  wetPackSuggested:  'AA45',
+  wetPackActual:     'AB45',
+  sleevePrice:       'AB25',
+  sleeveFlag:        'AC25',
+  stemCount:         'K3',
+  distributionStart: 'AI15',
+}
+
+export const DEFAULT_RECIPE_DISTRIBUTION: RecipeDistribution = {
+  miami:     0,
+  newJersey: 0,
+  california:0,
+  chicago:   0,
+  seattle:   0,
+  texas:     0,
+}
+
+export const RECIPE_CUSTOMER_OPTIONS: string[] = [
+  'OPEN DESIGN',
+  'WALMART',
+  "ALBERTSON'S IRVINE",
+  'KROGER',
+  'COSTCO',
+  'HEB',
+  'PUBLIX',
+]
+
+export const RECIPE_HOLIDAY_OPTIONS: string[] = [
+  'EVERYDAY',
+  "VALENTINE'S DAY",
+  'CHRISTMAS',
+  'THANKSGIVING',
+  "MOTHER'S DAY",
+  "FATHER'S DAY",
+  'EASTER',
+  'HALLOWEEN',
+]

@@ -92,6 +92,31 @@ const electronAPI = {
   saveTextFile: (destPath: string, content: string) =>
     ipcRenderer.invoke('file:save-text', destPath, content),
 
+  // ── Recipe Manager ────────────────────────────────────────────────────────
+  recipeReadCells: (filePath: string, cells: string[]) =>
+    ipcRenderer.invoke('recipe:readCells', filePath, cells),
+
+  recipeWriteCells: (filePath: string, changes: { cell: string; value: string | number | boolean | null }[]) =>
+    ipcRenderer.invoke('recipe:writeCells', filePath, changes),
+
+  recipeGenerateFromTemplate: (templatePath: string, outputPath: string, recipeData: unknown) =>
+    ipcRenderer.invoke('recipe:generateFromTemplate', templatePath, outputPath, recipeData),
+
+  recipeRenameFile: (oldPath: string, newPath: string) =>
+    ipcRenderer.invoke('recipe:renameFile', oldPath, newPath),
+
+  recipeIsFileOpen: (filePath: string) =>
+    ipcRenderer.invoke('recipe:isFileOpen', filePath),
+
+  recipeCreateFolder: (folderPath: string) =>
+    ipcRenderer.invoke('recipe:createFolder', folderPath),
+
+  recipeScanProject: (rootPath: string) =>
+    ipcRenderer.invoke('recipe:scanProject', rootPath),
+
+  recipeOpenInExcel: (filePath: string) =>
+    ipcRenderer.invoke('recipe:openInExcel', filePath),
+
   // ── Generic invoke for Traze / AWB channels ───────────────────────────────
   invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {
     if ((INVOKE_CHANNELS as readonly string[]).includes(channel)) {

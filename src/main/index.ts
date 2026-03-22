@@ -7,6 +7,7 @@ import { startTrazeIntegration, stopTrazeIntegration } from './services/trazeInt
 import { registerAwbIpcHandlers } from './ipc/awbIpcHandlers'
 import { errorReporter } from './services/errorReporter'
 import { startTrashCleanupService, registerTrashCleanupHandlers } from './services/trashCleanupService'
+import { registerRecipeHandlers } from './ipc/recipeIpcHandlers'
 
 const isDev = process.env.NODE_ENV === 'development' || !!process.env.ELECTRON_RENDERER_URL
 
@@ -84,6 +85,7 @@ app.whenReady().then(() => {
   registerNotificationHandlers(ipcMain)
   registerAwbIpcHandlers()
   registerTrashCleanupHandlers()
+  registerRecipeHandlers()
   startTrashCleanupService()
   errorReporter.log('App started')
 
