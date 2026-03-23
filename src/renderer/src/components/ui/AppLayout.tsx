@@ -6,7 +6,7 @@ import {
   MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Search,
   LayoutDashboard, CheckSquare, Package, Truck, Camera, Users, Calendar,
   Star, Folder, ShoppingCart, FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
-  User, Lock, List, CalendarDays, FlowerIcon, Settings2,
+  User, Lock, List, CalendarDays, FlowerIcon, Settings2, PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react'
 import { auth } from '../../lib/firebase'
@@ -56,6 +56,9 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
   const { boards, setBoards } = useBoardStore()
   const navigate = useNavigate()
   const location = useLocation()
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try { return localStorage.getItem('npd-sidebar') !== 'false' } catch { return true }
+  })
   const [menuBoardId, setMenuBoardId] = useState<string | null>(null)
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [editingBoard, setEditingBoard] = useState<Board | null>(null)
@@ -88,6 +91,13 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
     const unsub = subscribeToBoards(setBoards)
     return unsub
   }, [setBoards])
+
+  function toggleSidebar() {
+    setSidebarOpen((prev) => {
+      try { localStorage.setItem('npd-sidebar', String(!prev)) } catch {}
+      return !prev
+    })
+  }
 
   async function handleSignOut() {
     await signOut(auth)
@@ -130,26 +140,35 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
   return (
     <div className="flex h-screen w-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-[220px] flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 shrink-0">
+      <aside className={`${sidebarOpen ? 'w-[220px]' : 'w-12'} flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 shrink-0 transition-[width] duration-200 overflow-hidden`}>
         {/* Logo */}
-        <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-lg bg-green-500 flex items-center justify-center shrink-0">
-              <span className="text-xs font-bold text-white">N</span>
-            </div>
-            <span className="text-sm font-bold text-gray-900 dark:text-white flex-1">NPD Planner</span>
-            <button
-              onClick={() => setShowSearch(true)}
-              title="Search (Ctrl+K)"
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-            >
-              <Search size={14} />
-            </button>
-          </div>
+        <div className={`flex items-center border-b border-gray-200 dark:border-gray-700 shrink-0 ${sidebarOpen ? 'px-4 py-4 gap-2' : 'px-2 py-4 justify-center'}`}>
+          {sidebarOpen && (
+            <>
+              <div className="h-7 w-7 rounded-lg bg-green-500 flex items-center justify-center shrink-0">
+                <span className="text-xs font-bold text-white">N</span>
+              </div>
+              <span className="text-sm font-bold text-gray-900 dark:text-white flex-1 whitespace-nowrap">NPD Planner</span>
+              <button
+                onClick={() => setShowSearch(true)}
+                title="Search (Ctrl+K)"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+              >
+                <Search size={14} />
+              </button>
+            </>
+          )}
+          <button
+            onClick={toggleSidebar}
+            title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors shrink-0"
+          >
+            {sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
+          </button>
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto px-2 py-2">
+        <nav className={`flex-1 overflow-y-auto px-2 py-2 ${sidebarOpen ? '' : 'hidden'}`}>
           {[
             { path: '/dashboard',      label: 'Dashboard', icon: LayoutGrid },
             { path: '/my-tasks',       label: 'My Tasks', icon: List },
@@ -296,12 +315,14 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
         </nav>
 
         {/* Notifications bell */}
-        <div className="px-2 pb-1">
-          <NotificationBell />
-        </div>
+        {sidebarOpen && (
+          <div className="px-2 pb-1">
+            <NotificationBell />
+          </div>
+        )}
 
         {/* User at bottom */}
-        {user && (
+        {sidebarOpen && user && (
           <div className="border-t border-gray-200 dark:border-gray-700 px-3 py-3">
             <div className="flex items-center gap-2">
               <div
