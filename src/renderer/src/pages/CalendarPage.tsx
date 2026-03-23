@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
@@ -94,9 +95,11 @@ export default function CalendarPage() {
     if (event.end)   await updateTaskField(task.id, 'dateEnd',   toFirestoreDate(event.end),   user.uid, user.name, task.dateEnd, board?.type)
   }
 
+  const navigate = useNavigate()
+
   function handleEventClick({ event }: EventClickArg) {
-    // no-op — master calendar doesn't have a task panel; could open task page later
-    void event
+    const task = event.extendedProps.task as Task
+    navigate(`/task/${task.id}`)
   }
 
   function getBoardLabel(board: Board) {

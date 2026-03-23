@@ -129,6 +129,9 @@ const electronAPI = {
   recipeCreateFileFromTemplate: (templatePath: string, destFolder: string, fileName: string) =>
     ipcRenderer.invoke('recipe:createFileFromTemplate', templatePath, destFolder, fileName),
 
+  recipePathExists: (folderPath: string) =>
+    ipcRenderer.invoke('recipe:pathExists', folderPath),
+
   // ── Generic invoke for Traze / AWB channels ───────────────────────────────
   invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {
     if ((INVOKE_CHANNELS as readonly string[]).includes(channel)) {

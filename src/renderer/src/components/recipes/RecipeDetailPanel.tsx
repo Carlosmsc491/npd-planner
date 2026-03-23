@@ -5,6 +5,7 @@ import { useState, useCallback } from 'react'
 import { Loader2, Lock, Check, RotateCcw, ExternalLink, MousePointerClick } from 'lucide-react'
 import { Timestamp } from 'firebase/firestore'
 import { useTaskStore } from '../../store/taskStore'
+import { useAuthStore } from '../../store/authStore'
 import { validateRecipeFile } from '../../utils/recipeValidation'
 import { writeExcelCells, isExcelFileOpen } from '../../lib/recipeExcel'
 import RecipeValidationDialog from './RecipeValidationDialog'
@@ -22,6 +23,7 @@ interface Props {
   onMarkDone: () => Promise<void>   // handles Firestore markRecipeDone + lock release
   onReopen: () => Promise<void>
   onOpenInExcel: () => Promise<void>
+  onForceUnlock?: () => Promise<void>
 }
 
 type ActionState =
@@ -53,8 +55,10 @@ export default function RecipeDetailPanel({
   onMarkDone,
   onReopen,
   onOpenInExcel,
+  onForceUnlock,
 }: Props) {
   const setToast = useTaskStore((s) => s.setToast)
+  const currentUser = useAuthStore((s) => s.user)
 
   const [actionState, setActionState] = useState<ActionState>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -113,7 +117,8 @@ export default function RecipeDetailPanel({
         fullPath,
         project.config,
         settings,
-        currentUserName
+        currentUserName,
+        file
       )
       changes = result.changes
       needsManual = result.requiresManualUpdate
@@ -317,11 +322,35 @@ export default function RecipeDetailPanel({
 
           {/* IN PROGRESS — other user's lock */}
           {file.status === 'in_progress' && !isOwnLock && (
-            <div className="flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2.5">
-              <Lock size={14} className="text-red-500 shrink-0" />
-              <span className="text-sm text-red-600 dark:text-red-400 font-medium">
-                Locked by {file.lockedBy}
-              </span>
+            <div className="flex flex-col gap-1 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <Lock size={14} className="text-red-500 shrink-0" />
+                <span className="text-sm text-red-600 dark:text-red-400 font-medium">
+                  Locked by {file.lockedBy}
+                </span>
+              </div>
+              {currentUser?.role === 'admin' && (
+                <button
+                  onClick={async () => {
+                    if (!onForceUnlock) return
+                    const confirmed = window.confirm(
+                      `Force unlock "${file.displayName}"?\n` +
+                      `This will release the lock held by ${file.lockedBy}.`
+                    )
+                    if (!confirmed) return
+                    try {
+                      await onForceUnlock()
+                    } catch (err) {
+                      console.error('Force unlock failed:', err)
+                    }
+                  }}
+                  disabled={busy}
+                  className="text-xs text-red-600 dark:text-red-400 underline mt-1
+                            hover:text-red-800 dark:hover:text-red-300 disabled:opacity-50 text-left"
+                >
+                  Force unlock
+                </button>
+              )}
             </div>
           )}
 

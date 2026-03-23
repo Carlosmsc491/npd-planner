@@ -1,7 +1,7 @@
 // src/renderer/src/components/recipes/RecipeProjectPage.tsx
 // Full project window: file list, locks, presence, progress, detail panel
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
@@ -9,6 +9,7 @@ import {
   checkAndExpireLocks,
   markRecipeDone,
   reopenRecipeFile,
+  forceUnlockRecipeFile,
   updatePresence,
   removePresence,
   subscribeToRecipePresence,
@@ -25,7 +26,7 @@ import RecipeActivityFeed from './RecipeActivityFeed'
 import RecipeFileManagerDialog from './RecipeFileManagerDialog'
 import { updateRecipeFileId, updateRecipeProject } from '../../lib/recipeFirestore'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings } from '../../types'
-import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle } from 'lucide-react'
+import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
 
 export default function RecipeProjectPage() {
@@ -40,6 +41,12 @@ export default function RecipeProjectPage() {
   const [settings, setSettings] = useState<RecipeSettings | null>(null)
   const [scanKey, setScanKey] = useState(0)
   const [fileManagerOpen, setFileManagerOpen] = useState(false)
+
+  // Search and filter states
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<
+    'all' | 'pending' | 'in_progress' | 'done' | 'mine'
+  >('all')
 
   const { currentLock, claimFile, unclaimFile } = useRecipeLock()
   const { files, filesByFolder, isLoading: filesLoading, scanError } = useRecipeFiles(
@@ -146,6 +153,11 @@ export default function RecipeProjectPage() {
     await reopenRecipeFile(projectId, selectedFile.id)
   }, [projectId, selectedFile])
 
+  const handleForceUnlock = useCallback(async () => {
+    if (!projectId || !selectedFile) return
+    await forceUnlockRecipeFile(projectId, selectedFile.id)
+  }, [projectId, selectedFile])
+
   const handleOpenInExcel = useCallback(async () => {
     if (!project || !selectedFile) return
     const fullPath = `${project.rootPath}/${selectedFile.relativePath}`.replace(/\//g, '\\')
@@ -202,6 +214,40 @@ export default function RecipeProjectPage() {
       alert('Failed to update project folder path.')
     }
   }, [projectId, project])
+
+  // ── Filtered files logic ────────────────────────────────────────────────
+  const filteredFiles = useMemo(() => {
+    return files.filter(file => {
+      // Filtro de búsqueda (fuzzy simple por displayName)
+      const matchesSearch = searchQuery.trim() === '' ||
+        file.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        file.price.toLowerCase().includes(searchQuery.toLowerCase())
+
+      // Filtro de estado
+      const matchesStatus = (() => {
+        if (statusFilter === 'all') return true
+        if (statusFilter === 'mine') {
+          return file.lockedBy === user?.name ||
+                 file.doneBy === user?.name
+        }
+        return file.status === statusFilter
+      })()
+
+      return matchesSearch && matchesStatus
+    })
+  }, [files, searchQuery, statusFilter, user?.name])
+
+  // Group filtered files by folder
+  const filteredFilesByFolder = useMemo(() => {
+    const grouped: Record<string, RecipeFile[]> = {}
+    for (const file of filteredFiles) {
+      const parts = file.relativePath.split('/')
+      const folder = parts.length > 1 ? parts[0] : '(root)'
+      if (!grouped[folder]) grouped[folder] = []
+      grouped[folder].push(file)
+    }
+    return grouped
+  }, [filteredFiles])
 
   // ── Progress stats ───────────────────────────────────────────────────────
   const total      = files.length
@@ -430,6 +476,7 @@ export default function RecipeProjectPage() {
             onMarkDone={handleMarkDone}
             onReopen={handleReopen}
             onOpenInExcel={handleOpenInExcel}
+            onForceUnlock={handleForceUnlock}
           />
         </div>
       </div>

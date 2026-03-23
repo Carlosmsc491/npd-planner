@@ -423,4 +423,16 @@ export function registerRecipeHandlers(): void {
       }
     }
   )
+
+  // ── Check if a path exists and is a directory ─────────────────────────────
+  ipcMain.handle(
+    'recipe:pathExists',
+    async (_event, folderPath: string): Promise<boolean> => {
+      try {
+        return fs.existsSync(folderPath) && fs.statSync(folderPath).isDirectory()
+      } catch {
+        return false
+      }
+    }
+  )
 }

@@ -28,3 +28,21 @@ Si algo en PHASE0_COMPLETE_KIMI.md contradice CLAUDE.md, **CLAUDE.md gana siempr
 - No borres código "por si acaso" — solo modifica lo necesario
 - No asumas que algo no funciona sin leer el código primero
 - No ignores errores de typecheck ni los silencies con `// @ts-ignore`
+
+## APROBACIONES REMOTAS VÍA TELEGRAM
+
+Antes de ejecutar acciones irreversibles, pide aprobación con:
+```
+node scripts/ask-approval.js "Describe exactamente qué vas a hacer"
+```
+
+Acciones que SIEMPRE requieren aprobación:
+- Eliminar archivos o carpetas del proyecto
+- Modificar `firestore.rules`
+- Cambiar tipos existentes en `types/index.ts` que rompan código ya funcionando
+- Cualquier migración de datos en Firestore
+- Borrar colecciones o documentos de Firestore
+
+Si el script retorna código 0 → aprobado, continúa.
+Si el script retorna código 1 → rechazado, detente y reporta al desarrollador.
+Si falla por timeout (5 min sin respuesta) → también detente.

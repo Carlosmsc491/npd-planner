@@ -287,6 +287,29 @@ export async function reopenRecipeFile(
   }
 }
 
+export async function forceUnlockRecipeFile(
+  projectId: string,
+  fileId: string
+): Promise<void> {
+  try {
+    const fileRef = doc(
+      db,
+      RECIPE_PROJECTS, projectId,
+      RECIPE_FILES, fileId
+    )
+    await updateDoc(fileRef, {
+      status: 'pending',
+      lockedBy: null,
+      lockClaimedAt: null,
+      lockHeartbeatAt: null,
+      lockToken: null,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (err) {
+    throw new Error(`Failed to force unlock: ${err}`)
+  }
+}
+
 export async function updateRecipeHeartbeat(
   projectId: string,
   fileId: string,

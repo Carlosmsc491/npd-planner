@@ -9,6 +9,7 @@ import type {
   ValidationChange,
   ValidationResult,
   RecipeRuleCells,
+  RecipeFile,
 } from '../types'
 
 // ── DC order matching distributionStart row offset ─────────────────────────
@@ -37,7 +38,8 @@ export async function validateRecipeFile(
   filePath: string,
   projectConfig: RecipeProjectConfig,
   settings: RecipeSettings,
-  currentUser: string
+  currentUser: string,
+  recipeFile: RecipeFile
 ): Promise<ValidationResult> {
   const rc: RecipeRuleCells = settings.ruleCells
   const changes: ValidationChange[] = []
@@ -171,7 +173,12 @@ export async function validateRecipeFile(
   }
 
   // ── R7 — Wet Pack Enforcement ─────────────────────────────────────────────
-  if (projectConfig.wetPackDefault) {
+  // Usar override de la receta si existe, si no el default del proyecto
+  const effectiveWetPack = recipeFile.wetPackOverride !== ''
+    ? recipeFile.wetPackOverride === 'Y'
+    : projectConfig.wetPackDefault
+
+  if (effectiveWetPack) {
     const wetPackFlag = get(rc.wetPackFlag)
     if (wetPackFlag !== 'Y') {
       changes.push({
@@ -217,13 +224,18 @@ export async function validateRecipeFile(
   }
 
   // ── R10 — Customer Enforcement ───────────────────────────────────────────
+  // Usar override de la receta si no está vacío, si no el default del proyecto
+  const effectiveCustomer = recipeFile.customerOverride !== ''
+    ? recipeFile.customerOverride
+    : projectConfig.customerDefault
+
   const currentCustomer = get(rc.customer)
-  if (projectConfig.customerDefault && currentCustomer !== projectConfig.customerDefault) {
+  if (effectiveCustomer && currentCustomer !== effectiveCustomer) {
     changes.push({
       field:          'Customer',
       cell:           rc.customer,
       currentValue:   currentCustomer,
-      suggestedValue: projectConfig.customerDefault,
+      suggestedValue: effectiveCustomer,
       autoApply:      true,
       type:           'warning',
     })
