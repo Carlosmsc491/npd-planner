@@ -132,6 +132,9 @@ const electronAPI = {
   recipePathExists: (folderPath: string) =>
     ipcRenderer.invoke('recipe:pathExists', folderPath),
 
+  recipeParseImportExcel: (filePath: string) =>
+    ipcRenderer.invoke('recipe:parseImportExcel', filePath),
+
   // ── Generic invoke for Traze / AWB channels ───────────────────────────────
   invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {
     if ((INVOKE_CHANNELS as readonly string[]).includes(channel)) {

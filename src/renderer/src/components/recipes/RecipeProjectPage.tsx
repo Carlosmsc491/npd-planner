@@ -23,6 +23,7 @@ import RecipeDetailPanel from './RecipeDetailPanel'
 import RecipeFolderSection from './RecipeFolderSection'
 import RecipeProgressCard from './RecipeProgressCard'
 import RecipeActivityFeed from './RecipeActivityFeed'
+import DeadlineWidget from './DeadlineWidget'
 import RecipeFileManagerDialog from './RecipeFileManagerDialog'
 import { updateRecipeFileId, updateRecipeProject } from '../../lib/recipeFirestore'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings } from '../../types'
@@ -360,31 +361,39 @@ export default function RecipeProjectPage() {
           </span>
         </div>
 
-        {/* Summary cards */}
-        <div className="grid grid-cols-4 gap-2">
-          <RecipeProgressCard
-            label="Total"
-            count={total}
-            color="text-gray-700 dark:text-gray-200"
-            bgColor="bg-gray-400"
-          />
-          <RecipeProgressCard
-            label="Done"
-            count={doneCount}
-            color="text-green-600 dark:text-green-400"
-            bgColor="bg-green-500"
-          />
-          <RecipeProgressCard
-            label="In Progress"
-            count={inProgress}
-            color="text-amber-600 dark:text-amber-400"
-            bgColor="bg-amber-500"
-          />
-          <RecipeProgressCard
-            label="Pending"
-            count={pending}
-            color="text-gray-500 dark:text-gray-400"
-            bgColor="bg-gray-300 dark:bg-gray-600"
+        {/* Summary cards + Deadline */}
+        <div className="flex items-start gap-3">
+          <div className="grid grid-cols-4 gap-2 flex-1">
+            <RecipeProgressCard
+              label="Total"
+              count={total}
+              color="text-gray-700 dark:text-gray-200"
+              bgColor="bg-gray-400"
+            />
+            <RecipeProgressCard
+              label="Done"
+              count={doneCount}
+              color="text-green-600 dark:text-green-400"
+              bgColor="bg-green-500"
+            />
+            <RecipeProgressCard
+              label="In Progress"
+              count={inProgress}
+              color="text-amber-600 dark:text-amber-400"
+              bgColor="bg-amber-500"
+            />
+            <RecipeProgressCard
+              label="Pending"
+              count={pending}
+              color="text-gray-500 dark:text-gray-400"
+              bgColor="bg-gray-300 dark:bg-gray-600"
+            />
+          </div>
+          <DeadlineWidget
+            dueDate={project.config.dueDate}
+            doneCount={doneCount}
+            totalCount={total}
+            projectCreatedAt={project.createdAt.toDate()}
           />
         </div>
       </div>
@@ -504,6 +513,7 @@ export default function RecipeProjectPage() {
                     files={folderFiles}
                     selectedFileId={selectedFile?.id ?? null}
                     currentUserName={user?.name ?? ''}
+                    currentUserUid={user?.uid}
                     onSelectFile={setSelectedFile}
                     onOpenInExcel={handleOpenInExcelForFile}
                   />

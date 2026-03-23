@@ -521,6 +521,20 @@ export interface RecipeProjectConfig {
   templatePath: string
   sourceMode: 'from_scratch' | 'import'
   notes: string
+  dueDate: string | null   // ISO string "2026-04-14"
+}
+
+// Settings del proyecto (compartidas por todo el equipo)
+export interface RecipeProjectSettings {
+  ruleCells: RecipeRuleCells
+  holidayMap: Record<string, string>
+  sleeveByPrice: Record<string, number>
+  sleeveByStems: Record<string, number>
+}
+
+// Settings del usuario (preferencias personales)
+export interface RecipeUserPreferences {
+  lockTimeoutSeconds: number
 }
 
 export interface RecipeProject {
@@ -556,6 +570,8 @@ export interface RecipeFile {
   requiresManualUpdate: boolean
   version: number                 // increments on each update
   updatedAt: Timestamp
+  assignedTo: string | null       // uid del usuario asignado
+  assignedToName: string | null   // nombre display (para mostrar sin query)
 }
 
 export interface RecipePresence {
@@ -563,6 +579,27 @@ export interface RecipePresence {
   userId: string
   userName: string
   lastSeenAt: Timestamp
+}
+
+export type RecipeActivityType =
+  | 'claimed'
+  | 'unclaimed'
+  | 'done'
+  | 'reopened'
+  | 'lock_expired'
+  | 'force_unlocked'
+  | 'assigned'
+
+export interface RecipeActivityEvent {
+  id: string
+  projectId: string
+  fileId: string
+  displayName: string        // nombre de la receta
+  type: RecipeActivityType
+  userName: string           // quién hizo la acción
+  userId: string
+  targetUserName?: string    // para 'assigned': a quién se asignó
+  createdAt: Timestamp
 }
 
 export interface RecipeRuleCells {

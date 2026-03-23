@@ -29,6 +29,7 @@ interface WizardData {
   rootPath: string
   templatePath: string
   sourceMode: 'from_scratch' | 'import'
+  dueDate: string | null
   // Step 2
   customerDefault: string
   holidayDefault: string
@@ -57,6 +58,7 @@ export default function NewRecipeProjectWizard() {
     rootPath: '',
     templatePath: '',
     sourceMode: 'from_scratch',
+    dueDate: null,
     customerDefault: RECIPE_CUSTOMER_OPTIONS[0],
     holidayDefault: RECIPE_HOLIDAY_OPTIONS[0],
     wetPackDefault: false,
@@ -158,6 +160,7 @@ export default function NewRecipeProjectWizard() {
           templatePath: data.templatePath,
           sourceMode: data.sourceMode,
           notes: '',
+          dueDate: data.dueDate,
         },
       })
 
@@ -193,6 +196,8 @@ export default function NewRecipeProjectWizard() {
             requiresManualUpdate: false,
             version: 0,
             updatedAt: null as unknown as import('firebase/firestore').Timestamp,
+            assignedTo: null,
+            assignedToName: null,
           })
         }
       }
@@ -271,6 +276,7 @@ export default function NewRecipeProjectWizard() {
               rootPath: data.rootPath,
               templatePath: data.templatePath,
               sourceMode: data.sourceMode,
+              dueDate: data.dueDate,
             }}
             onChange={patchData}
           />

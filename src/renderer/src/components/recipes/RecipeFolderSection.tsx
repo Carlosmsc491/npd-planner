@@ -11,6 +11,7 @@ interface Props {
   files: RecipeFile[]
   selectedFileId: string | null
   currentUserName: string
+  currentUserUid?: string
   onSelectFile: (file: RecipeFile) => void
   onOpenInExcel: (file: RecipeFile) => void
 }
@@ -20,6 +21,7 @@ export default function RecipeFolderSection({
   files,
   selectedFileId,
   currentUserName,
+  currentUserUid,
   onSelectFile,
   onOpenInExcel,
 }: Props) {
@@ -67,6 +69,7 @@ export default function RecipeFolderSection({
                 file={file}
                 isSelected={selectedFileId === file.id}
                 currentUserName={currentUserName}
+                currentUserUid={currentUserUid}
                 onClick={() => onSelectFile(file)}
                 onDoubleClick={() => {
                   onSelectFile(file)

@@ -8,6 +8,7 @@ interface BasicsData {
   rootPath: string
   templatePath: string
   sourceMode: 'from_scratch' | 'import'
+  dueDate: string | null
 }
 
 interface Props {
@@ -111,6 +112,27 @@ export default function WizardStepBasics({ data, onChange }: Props) {
             Browse
           </button>
         </div>
+      </div>
+
+      {/* Project deadline */}
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          Project deadline (optional)
+        </label>
+        <input
+          type="date"
+          value={data.dueDate ?? ''}
+          onChange={e => onChange({ dueDate: e.target.value || null })}
+          min={new Date().toISOString().split('T')[0]}
+          className="w-full px-3 py-2 text-sm rounded-lg border
+                    border-gray-200 dark:border-gray-700
+                    bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    focus:outline-none focus:border-green-500"
+        />
+        <p className="text-xs text-gray-400">
+          Date of the show or client delivery
+        </p>
       </div>
     </div>
   )

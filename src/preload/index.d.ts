@@ -30,6 +30,14 @@ export interface IElectronAPI {
   recipeRenameItem: (oldPath: string, newPath: string) => Promise<{ success: boolean; error?: string }>
   recipeCreateFileFromTemplate: (templatePath: string, destFolder: string, fileName: string) => Promise<{ success: boolean; destPath?: string; error?: string }>
   recipePathExists: (folderPath: string) => Promise<boolean>
+  recipeParseImportExcel: (filePath: string) => Promise<{
+    success: boolean
+    rows?: Array<{
+      rawName: string; price: string; option: string;
+      name: string; folder: string
+    }>
+    error?: string
+  }>
   // Generic Traze / AWB IPC channels
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, listener: (...args: unknown[]) => void) => void

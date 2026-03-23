@@ -435,4 +435,59 @@ export function registerRecipeHandlers(): void {
       }
     }
   )
+
+  // ── Parse Excel file for recipe import ────────────────────────────────────
+  ipcMain.handle(
+    'recipe:parseImportExcel',
+    async (_, filePath: string): Promise<{
+      success: boolean
+      rows?: Array<{
+        rawName: string
+        price: string
+        option: string
+        name: string
+        folder: string
+      }>
+      error?: string
+    }> => {
+      try {
+        const workbook = new ExcelJS.Workbook()
+        await workbook.xlsx.readFile(filePath)
+
+        const sheet = workbook.worksheets[0]
+        if (!sheet) return { success: false, error: 'No worksheet found' }
+
+        const rows: Array<{
+          rawName: string; price: string; option: string;
+          name: string; folder: string
+        }> = []
+
+        sheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return // saltar header
+
+          const rawName = String(row.getCell(1).value ?? '').trim()
+          const folder  = String(row.getCell(2).value ?? 'General').trim()
+
+          if (!rawName) return
+
+          // Parsear precio/opción/nombre
+          const priceMatch = rawName.match(/^\$?(\d+(?:\.\d{1,2})?)/)
+          const price = priceMatch ? `$${priceMatch[1]}` : ''
+          const afterPrice = rawName.replace(/^\$?\d+(?:\.\d{1,2})?\s*/, '')
+          const optionMatch = afterPrice.match(/^([ABC])\s+/i)
+          const option = optionMatch ? optionMatch[1].toUpperCase() : ''
+          const name = afterPrice
+            .replace(/^[ABC]\s+/i, '')
+            .toUpperCase()
+            .trim()
+
+          rows.push({ rawName, price, option, name, folder })
+        })
+
+        return { success: true, rows }
+      } catch (err) {
+        return { success: false, error: String(err) }
+      }
+    }
+  )
 }

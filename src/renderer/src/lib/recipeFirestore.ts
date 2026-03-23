@@ -18,6 +18,8 @@ import {
   serverTimestamp,
   Timestamp,
   Unsubscribe,
+  orderBy,
+  limit,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type {
@@ -467,4 +469,118 @@ export async function initDefaultRecipeSettings(userId: string): Promise<RecipeS
   }
   await saveRecipeSettings(userId, defaults)
   return defaults
+}
+
+// ─────────────────────────────────────────
+// PROJECT SETTINGS (shared by team)
+// ─────────────────────────────────────────
+
+export async function getRecipeProjectSettings(
+  projectId: string
+): Promise<import('../types').RecipeProjectSettings | null> {
+  try {
+    const snap = await getDoc(
+      doc(db, RECIPE_PROJECTS, projectId, 'settings', 'main')
+    )
+    return snap.exists() ? (snap.data() as import('../types').RecipeProjectSettings) : null
+  } catch (err) {
+    throw new Error(`Failed to get project settings: ${err}`)
+  }
+}
+
+export async function saveRecipeProjectSettings(
+  projectId: string,
+  settings: import('../types').RecipeProjectSettings
+): Promise<void> {
+  try {
+    await setDoc(
+      doc(db, RECIPE_PROJECTS, projectId, 'settings', 'main'),
+      settings
+    )
+  } catch (err) {
+    throw new Error(`Failed to save project settings: ${err}`)
+  }
+}
+
+export async function initDefaultRecipeProjectSettings(
+  projectId: string
+): Promise<import('../types').RecipeProjectSettings> {
+  const settings: import('../types').RecipeProjectSettings = {
+    ruleCells: { ...RULE_CELLS_DEFAULTS },
+    holidayMap: {
+      VALENTINE:    "VALENTINE'S DAY",
+      VALENTINES:   "VALENTINE'S DAY",
+      XMAS:         'CHRISTMAS',
+      CHRISTMAS:    'CHRISTMAS',
+      THANKSGIVING: 'THANKSGIVING',
+      MOTHERS:      "MOTHER'S DAY",
+      FATHERS:      "FATHER'S DAY",
+      EASTER:       'EASTER',
+      HALLOWEEN:    'HALLOWEEN',
+    },
+    sleeveByPrice: {},
+    sleeveByStems: {},
+  }
+  await saveRecipeProjectSettings(projectId, settings)
+  return settings
+}
+
+export async function assignRecipeFile(
+  projectId: string,
+  fileId: string,
+  assignedTo: string | null,
+  assignedToName: string | null
+): Promise<void> {
+  try {
+    const fileRef = doc(
+      db,
+      RECIPE_PROJECTS, projectId,
+      RECIPE_FILES, fileId
+    )
+    await updateDoc(fileRef, {
+      assignedTo,
+      assignedToName,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (err) {
+    throw new Error(`Failed to assign recipe: ${err}`)
+  }
+}
+
+// ─────────────────────────────────────────
+// ACTIVITY FEED (persistent)
+// ─────────────────────────────────────────
+
+const RECIPE_ACTIVITY = 'activity'
+
+export async function addRecipeActivity(
+  projectId: string,
+  event: Omit<import('../types').RecipeActivityEvent, 'id' | 'createdAt'>
+): Promise<void> {
+  try {
+    await addDoc(
+      collection(db, RECIPE_PROJECTS, projectId, RECIPE_ACTIVITY),
+      { ...event, createdAt: serverTimestamp() }
+    )
+  } catch (err) {
+    // No lanzar error — la actividad es secundaria, no debe romper el flujo
+    console.error('Failed to log activity:', err)
+  }
+}
+
+export function subscribeToRecipeActivity(
+  projectId: string,
+  callback: (events: import('../types').RecipeActivityEvent[]) => void
+): Unsubscribe {
+  return onSnapshot(
+    query(
+      collection(db, RECIPE_PROJECTS, projectId, RECIPE_ACTIVITY),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    ),
+    snap => callback(
+      snap.docs.map(d => ({ id: d.id, ...d.data() }) as import('../types').RecipeActivityEvent)
+    ),
+    err => console.error('subscribeToRecipeActivity error:', err)
+  )
 }

@@ -8,6 +8,7 @@ interface Props {
   file: RecipeFile
   isSelected: boolean
   currentUserName: string
+  currentUserUid?: string
   onClick: () => void
   onDoubleClick: () => void
 }
@@ -68,10 +69,18 @@ export default function RecipeRowItem({
   file,
   isSelected,
   currentUserName,
+  currentUserUid,
   onClick,
   onDoubleClick,
 }: Props) {
   const style = getRowStyle(file, currentUserName)
+  
+  // Deterministic color from name
+  const colors = [
+    'bg-blue-500', 'bg-purple-500', 'bg-rose-500',
+    'bg-teal-500', 'bg-orange-500', 'bg-indigo-500',
+  ]
+  const getColor = (name: string) => colors[name.charCodeAt(0) % colors.length]
 
   return (
     <div
@@ -109,6 +118,24 @@ export default function RecipeRowItem({
       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${style.badge}`}>
         {style.badgeLabel}
       </span>
+      
+      {/* Assigned to avatar */}
+      {file.assignedTo && file.assignedToName && (
+        <div 
+          title={`Assigned to ${file.assignedToName}`}
+          className={`shrink-0 h-6 w-6 rounded-full ${getColor(file.assignedToName)} 
+                     flex items-center justify-center text-[10px] font-bold text-white`}
+        >
+          {file.assignedToName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
+        </div>
+      )}
+      
+      {/* Warning if assigned to someone else */}
+      {file.assignedTo && file.assignedTo !== currentUserUid && file.status === 'pending' && (
+        <span className="text-[10px] text-amber-600 dark:text-amber-400 shrink-0">
+          Assigned to {file.assignedToName}
+        </span>
+      )}
     </div>
   )
 }
