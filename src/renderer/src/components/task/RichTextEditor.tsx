@@ -216,12 +216,12 @@ function RichTextEditorInner({ content, onBlur, placeholder = 'Add a description
 
   return (
     <>
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-visible focus-within:border-green-500 transition-colors">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden focus-within:border-green-500 transition-colors">
         <EditorToolbar editor={editor} onExpand={() => setExpanded(true)} />
-        {!editor.getText() && !editor.isFocused && (
-          <div className="absolute pointer-events-none px-3 py-3 text-sm text-gray-400">{placeholder}</div>
-        )}
-        <div className="max-h-[300px] overflow-y-auto">
+        <div className="relative max-h-[300px] overflow-y-auto">
+          {!editor.getText() && !editor.isFocused && (
+            <div className="absolute top-0 left-0 pointer-events-none px-3 py-3 text-sm text-gray-400">{placeholder}</div>
+          )}
           <EditorContent editor={editor} />
         </div>
       </div>

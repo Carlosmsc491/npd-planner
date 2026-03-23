@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { ArrowLeft, Trash2, GripVertical, Plus, Settings, X, Star } from 'lucide-react'
-import { updateBoard, updateBoardProperties } from '../../lib/firestore'
+import { updateBoard, updateBoardProperties, subscribeToClients } from '../../lib/firestore'
 import { DynamicIcon, PROPERTY_TYPE_LABELS, OPTION_COLORS } from '../../utils/propertyUtils'
 import { BOARD_BUCKETS } from '../../utils/colorUtils'
-import { useSettingsStore } from '../../store/settingsStore'
 import IconPickerPopover from './IconPickerPopover'
 import AddPropertyModal from './AddPropertyModal'
-import type { Board, BoardProperty, PropertyType, SelectOption } from '../../types'
+import type { Board, BoardProperty, PropertyType, SelectOption, Client } from '../../types'
 
 const PRESET_COLORS = [
   '#1D9E75', '#378ADD', '#D4537E', '#F59E0B',
@@ -71,7 +70,12 @@ interface Props {
 }
 
 export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Props) {
-  const { clients } = useSettingsStore()
+  const [clients, setClients] = useState<Client[]>([])
+
+  useEffect(() => {
+    const unsub = subscribeToClients(setClients)
+    return unsub
+  }, [])
   const [properties, setProperties] = useState<BoardProperty[]>(() => {
     const existing = board.customProperties ?? []
     if (existing.length === 0) return getDefaultProperties(board.type)

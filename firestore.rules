@@ -231,6 +231,17 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────
+    // TRASH QUEUE (soft delete with recovery)
+    // ─────────────────────────────────────────
+
+    match /trashQueue/{trashId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser();
+      allow update: if isActiveUser();
+      allow delete: if false;
+    }
+
+    // ─────────────────────────────────────────
     // DENY ALL OTHER PATHS
     // ─────────────────────────────────────────
 

@@ -72,33 +72,36 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
 
   const remove = useCallback(async (task: Task) => {
     if (!user) return
-    
-    // Get user's retention period (default 30 days)
+
     const retentionDays = user.preferences?.trashRetentionDays ?? 30
-    
-    // Build SharePoint folder path: year/client/taskTitle
     const year = task.createdAt?.toDate?.()?.getFullYear?.() ?? new Date().getFullYear()
-    const clientName = 'unknown' // Will be resolved by caller if needed
-    const sharePointFolderPath = `${year}/${clientName}/${task.title}`
-    
-    setToast({
-      id: `undo-delete-${task.id}`,
-      message: `Moved to trash: ${task.title}`,
-      type: 'warning',
-      undoAction: async () => {
-        // Restore from trash is handled via Settings > Trash
-        // This is a simplified undo that just shows a message
-        setToast({
-          id: `undo-info-${task.id}`,
-          message: 'Go to Settings > Trash to restore this task',
-          type: 'info',
-          duration: 5000,
-        })
-      },
-      duration: 5000,
-    })
-    
-    await moveTaskToTrash(task, sharePointFolderPath, user.uid, user.name, retentionDays)
+    const sharePointFolderPath = `${year}/unknown/${task.title}`
+
+    try {
+      await moveTaskToTrash(task, sharePointFolderPath, user.uid, user.name, retentionDays)
+      setToast({
+        id: `undo-delete-${task.id}`,
+        message: `Moved to trash: ${task.title}`,
+        type: 'warning',
+        undoAction: async () => {
+          setToast({
+            id: `undo-info-${task.id}`,
+            message: 'Go to Settings > Trash to restore this task',
+            type: 'info',
+            duration: 5000,
+          })
+        },
+        duration: 5000,
+      })
+    } catch (err) {
+      console.error('moveTaskToTrash failed:', err)
+      setToast({
+        id: `delete-error-${task.id}`,
+        message: `Failed to delete task: ${task.title}`,
+        type: 'error',
+        duration: 5000,
+      })
+    }
   }, [user, setToast])
 
   const duplicate = useCallback(async (task: Task) => {

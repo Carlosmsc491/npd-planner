@@ -43,9 +43,10 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'tasks', initialTask.id), (snap) => {
       if (snap.exists()) setTask({ id: snap.id, ...snap.data() } as Task)
+      else setSelectedTask(null)
     })
     return unsub
-  }, [initialTask.id])
+  }, [initialTask.id, setSelectedTask])
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
   const [newClientName, setNewClientName] = useState('')
@@ -293,7 +294,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
 
 
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-5">
 
         {/* ── DETAILS ── */}
         <>
