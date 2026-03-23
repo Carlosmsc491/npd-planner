@@ -13,8 +13,11 @@ import {
   RECIPE_HOLIDAY_OPTIONS,
 } from '../../../types'
 
+type RecipeSection = 'cells' | 'holidays' | 'sleeve' | 'general'
+
 interface Props {
   userId: string
+  section?: RecipeSection
 }
 
 const RULE_CELL_LABELS: Array<{ key: keyof RecipeRuleCells; label: string }> = [
@@ -32,7 +35,8 @@ const RULE_CELL_LABELS: Array<{ key: keyof RecipeRuleCells; label: string }> = [
   { key: 'distributionStart', label: 'Distribution Start' },
 ]
 
-export default function RecipeSettingsTab({ userId }: Props) {
+export default function RecipeSettingsTab({ userId, section }: Props) {
+  const show = (s: RecipeSection) => !section || section === s
   const setToast = useTaskStore((s) => s.setToast)
   const [settings, setSettings] = useState<RecipeSettings | null>(null)
   const [loading, setLoading] = useState(true)
@@ -85,7 +89,7 @@ export default function RecipeSettingsTab({ userId }: Props) {
     <div className="space-y-10 max-w-2xl">
 
       {/* ── Rule Cells ────────────────────────────────────────────────────── */}
-      <Section
+      {show('cells') && <Section
         title="Rule Cells"
         description="Excel cell addresses used during validation. Change these if your template layout differs."
         action={
@@ -114,10 +118,10 @@ export default function RecipeSettingsTab({ userId }: Props) {
             </div>
           ))}
         </div>
-      </Section>
+      </Section>}
 
       {/* ── Holiday Dictionary ────────────────────────────────────────────── */}
-      <Section
+      {show('holidays') && <Section
         title="Holiday Dictionary"
         description="Maps keywords in recipe names to holiday values written to the Holiday cell."
         action={
@@ -177,10 +181,10 @@ export default function RecipeSettingsTab({ userId }: Props) {
             <p className="text-xs text-gray-400 dark:text-gray-500 italic">No keywords defined.</p>
           )}
         </div>
-      </Section>
+      </Section>}
 
       {/* ── Sleeve by Price ───────────────────────────────────────────────── */}
-      <Section
+      {show('sleeve') && <Section
         title="Sleeve by Price"
         description='Maps recipe price strings (e.g. "$12.99") to sleeve price values.'
         action={
@@ -198,10 +202,10 @@ export default function RecipeSettingsTab({ userId }: Props) {
           keyPlaceholder='Price (e.g. "$12.99")'
           onChange={(data) => update({ sleeveByPrice: data })}
         />
-      </Section>
+      </Section>}
 
       {/* ── Sleeve by Stem Count ──────────────────────────────────────────── */}
-      <Section
+      {show('sleeve') && <Section
         title="Sleeve by Stem Count"
         description="Maps stem count values (from cell K3) to sleeve price values."
         action={
@@ -219,10 +223,10 @@ export default function RecipeSettingsTab({ userId }: Props) {
           keyPlaceholder="Stem count (e.g. 12)"
           onChange={(data) => update({ sleeveByStems: data })}
         />
-      </Section>
+      </Section>}
 
       {/* ── General ──────────────────────────────────────────────────────── */}
-      <Section
+      {show('general') && <Section
         title="General"
         description="Lock timeout and default distribution percentages."
       >
@@ -258,7 +262,7 @@ export default function RecipeSettingsTab({ userId }: Props) {
             />
           </div>
         </div>
-      </Section>
+      </Section>}
 
       {/* ── Save button ──────────────────────────────────────────────────── */}
       <div className="pt-2">

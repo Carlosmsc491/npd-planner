@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import {
+  User, Users, Palette, Bell, Keyboard,
+  LayoutDashboard, Building2, Tag, FolderOpen, Truck, Trash2, Archive,
+  Grid2X2, CalendarDays, DollarSign, Settings2,
+  type LucideIcon,
+} from 'lucide-react'
 import AppLayout from '../components/ui/AppLayout'
 import MembersPanel from '../components/settings/MembersPanel'
 import BoardTemplateEditor from '../components/settings/BoardTemplateEditor'
@@ -16,184 +22,248 @@ import { getBoardColor } from '../utils/colorUtils'
 import type { AppUser, Board, Theme, ShortcutAction } from '../types'
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTION_LABELS } from '../types'
 
-type SettingsTab = 'profile' | 'members' | 'boards' | 'clients' | 'labels' | 'files' | 'appearance' | 'notifications' | 'shortcuts' | 'archive' | 'trash' | 'traze' | 'recipes'
+type SettingsTab =
+  | 'profile' | 'members' | 'appearance' | 'notifications' | 'shortcuts'
+  | 'boards' | 'clients' | 'labels' | 'files' | 'traze' | 'archive' | 'trash'
+  | 'recipe-cells' | 'recipe-holidays' | 'recipe-sleeve' | 'recipe-general'
 
-const TABS: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
-  { id: 'profile',       label: 'Profile' },
-  { id: 'members',       label: 'Members',       adminOnly: true },
-  { id: 'boards',        label: 'Boards',         adminOnly: true },
-  { id: 'clients',       label: 'Clients',        adminOnly: true },
-  { id: 'labels',        label: 'Labels',         adminOnly: true },
-  { id: 'files',         label: 'Files' },
-  { id: 'recipes',       label: 'Recipe Manager' },
-  { id: 'traze',         label: 'Traze' },
-  { id: 'appearance',    label: 'Appearance' },
-  { id: 'notifications', label: 'Notifications' },
-  { id: 'shortcuts',     label: 'Keyboard' },
-  { id: 'archive',       label: 'Archive',        adminOnly: true },
-  { id: 'trash',         label: 'Trash' },
+interface TabDef {
+  id: SettingsTab
+  label: string
+  icon: LucideIcon
+  adminOnly?: boolean
+}
+
+interface SectionDef {
+  label: string
+  tabs: TabDef[]
+}
+
+const SETTINGS_SECTIONS: SectionDef[] = [
+  {
+    label: 'General',
+    tabs: [
+      { id: 'profile',       label: 'Profile',       icon: User },
+      { id: 'members',       label: 'Members',       icon: Users,          adminOnly: true },
+      { id: 'appearance',    label: 'Appearance',    icon: Palette },
+      { id: 'notifications', label: 'Notifications', icon: Bell },
+      { id: 'shortcuts',     label: 'Keyboard',      icon: Keyboard },
+    ],
+  },
+  {
+    label: 'Planner',
+    tabs: [
+      { id: 'boards',   label: 'Boards',   icon: LayoutDashboard, adminOnly: true },
+      { id: 'clients',  label: 'Clients',  icon: Building2,       adminOnly: true },
+      { id: 'labels',   label: 'Labels',   icon: Tag,             adminOnly: true },
+      { id: 'files',    label: 'Files',    icon: FolderOpen },
+      { id: 'traze',    label: 'Traze',    icon: Truck },
+      { id: 'archive',  label: 'Archive',  icon: Archive,         adminOnly: true },
+      { id: 'trash',    label: 'Trash',    icon: Trash2 },
+    ],
+  },
+  {
+    label: 'Recipe Manager',
+    tabs: [
+      { id: 'recipe-cells',    label: 'Rule Cells',     icon: Grid2X2 },
+      { id: 'recipe-holidays', label: 'Holidays',       icon: CalendarDays },
+      { id: 'recipe-sleeve',   label: 'Sleeve Pricing', icon: DollarSign },
+      { id: 'recipe-general',  label: 'General',        icon: Settings2 },
+    ],
+  },
 ]
+
+const ALL_TABS: TabDef[] = SETTINGS_SECTIONS.flatMap((s) => s.tabs)
 
 export default function SettingsPage() {
   const { user, setUser } = useAuthStore()
   const { boards, setBoards } = useBoardStore()
   const [searchParams, setSearchParams] = useSearchParams()
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
-  
-  // Read tab from query params or default based on role
+
+  const visibleSections: SectionDef[] = SETTINGS_SECTIONS.map((s) => ({
+    ...s,
+    tabs: s.tabs.filter((t) => !t.adminOnly || isAdmin),
+  }))
+  const allVisibleTabs = visibleSections.flatMap((s) => s.tabs)
+
   const tabFromUrl = searchParams.get('tab') as SettingsTab | null
-  const initialTab = tabFromUrl && TABS.some(t => t.id === tabFromUrl && (!t.adminOnly || isAdmin))
-    ? tabFromUrl
-    : isAdmin ? 'members' : 'profile'
-  
+  const initialTab: SettingsTab =
+    tabFromUrl && allVisibleTabs.some((t) => t.id === tabFromUrl)
+      ? tabFromUrl
+      : isAdmin ? 'members' : 'profile'
+
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
   const [editingBoard, setEditingBoard] = useState<Board | null>(null)
 
-  // Update URL when tab changes
   function handleTabChange(tab: SettingsTab) {
     setActiveTab(tab)
     setEditingBoard(null)
     setSearchParams({ tab })
   }
 
-  const visibleTabs = TABS.filter((t) => !t.adminOnly || isAdmin)
-
   function handleBoardUpdate(updated: Board) {
     setEditingBoard(updated)
-    setBoards(boards.map((b) => b.id === updated.id ? updated : b))
+    setBoards(boards.map((b) => (b.id === updated.id ? updated : b)))
   }
 
-  return (
-    <AppLayout>
-      <div className="p-6 max-w-4xl">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Settings</h1>
+  const activeSection = SETTINGS_SECTIONS.find((s) => s.tabs.some((t) => t.id === activeTab))
+  const activeTabDef = ALL_TABS.find((t) => t.id === activeTab)
 
-        {/* Tab bar */}
-        <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700 mb-6">
-          {visibleTabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => handleTabChange(tab.id)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                activeTab === tab.id
-                  ? 'border-green-500 text-green-600 dark:text-green-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+  return (
+    <AppLayout mainClassName="flex-1 overflow-hidden">
+      <div className="flex h-full">
+
+        {/* ── Left sidebar ────────────────────────────────────────────── */}
+        <div className="w-52 flex-shrink-0 border-r border-gray-200 dark:border-gray-700 overflow-y-auto py-4 px-2">
+          {visibleSections.map((section) =>
+            section.tabs.length === 0 ? null : (
+              <div key={section.label} className="mb-5">
+                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
+                  {section.label}
+                </div>
+                {section.tabs.map((tab) => {
+                  const Icon = tab.icon
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => handleTabChange(tab.id)}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors mb-0.5 ${
+                        activeTab === tab.id
+                          ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      }`}
+                    >
+                      <Icon size={14} className="flex-shrink-0" />
+                      {tab.label}
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          )}
         </div>
 
-        {/* Tab content */}
-        {activeTab === 'profile' && user && (
-          <ProfilePanel
-            user={user}
-            onNameChange={(name) => { if (user) setUser({ ...user, name }) }}
-          />
-        )}
+        {/* ── Right content ────────────────────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-6 max-w-3xl">
 
-        {activeTab === 'members' && isAdmin && <MembersPanel />}
+            {/* Breadcrumb */}
+            <div className="flex items-center gap-1.5 text-sm mb-6">
+              <span className="text-gray-400 dark:text-gray-500">Settings</span>
+              {activeSection && (
+                <>
+                  <span className="text-gray-300 dark:text-gray-600">›</span>
+                  <span className="text-gray-400 dark:text-gray-500">{activeSection.label}</span>
+                  <span className="text-gray-300 dark:text-gray-600">›</span>
+                  <span className="font-medium text-gray-700 dark:text-gray-200">{activeTabDef?.label}</span>
+                </>
+              )}
+            </div>
 
-        {activeTab === 'boards' && isAdmin && (
-          editingBoard
-            ? (
-              <BoardTemplateEditor
-                board={editingBoard}
-                onBack={() => setEditingBoard(null)}
-                onBoardUpdate={handleBoardUpdate}
+            {/* ── Tab content ────────────────────────────────────────── */}
+
+            {activeTab === 'profile' && user && (
+              <ProfilePanel
+                user={user}
+                onNameChange={(name) => { if (user) setUser({ ...user, name }) }}
               />
-            )
-            : <BoardsPanel boards={boards} onEdit={setEditingBoard} />
-        )}
+            )}
 
-        {activeTab === 'clients' && isAdmin && (
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
-              Client Management
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
-              Manage clients for your organization. Inactive clients won't appear in dropdowns but their task history is preserved.
-            </p>
-            <ClientManager />
+            {activeTab === 'members' && isAdmin && <MembersPanel />}
+
+            {activeTab === 'boards' && isAdmin && (
+              editingBoard ? (
+                <BoardTemplateEditor
+                  board={editingBoard}
+                  onBack={() => setEditingBoard(null)}
+                  onBoardUpdate={handleBoardUpdate}
+                />
+              ) : (
+                <BoardsPanel boards={boards} onEdit={setEditingBoard} />
+              )
+            )}
+
+            {activeTab === 'clients' && isAdmin && (
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">Client Management</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+                  Manage clients for your organization. Inactive clients won't appear in dropdowns but their task history is preserved.
+                </p>
+                <ClientManager />
+              </div>
+            )}
+
+            {activeTab === 'labels' && isAdmin && (
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">Label Management</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+                  Create and manage labels to categorize tasks across all boards.
+                </p>
+                <LabelManager />
+              </div>
+            )}
+
+            {activeTab === 'files' && (
+              <div className="max-w-lg">
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">SharePoint File Storage</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+                  Files attached to tasks are copied to your local SharePoint sync folder and automatically uploaded to the cloud by OneDrive.
+                </p>
+                <SharePointSetup />
+              </div>
+            )}
+
+            {activeTab === 'appearance' && user && (
+              <AppearancePanel user={user} onUpdate={(u) => setUser(u)} />
+            )}
+
+            {activeTab === 'notifications' && user && (
+              <NotificationsPanel user={user} onUpdate={(u) => setUser(u)} />
+            )}
+
+            {activeTab === 'shortcuts' && user && (
+              <KeyboardShortcutsPanel user={user} onUpdate={(u) => setUser(u)} />
+            )}
+
+            {activeTab === 'archive' && isAdmin && (
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">Archive Old Tasks</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+                  Archive completed tasks older than 12 months to keep your workspace fast and organized.
+                  Archived tasks are moved to a separate collection and included in annual reports.
+                </p>
+                <ArchivePanel />
+              </div>
+            )}
+
+            {activeTab === 'trash' && (
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">Trash</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+                  Restore deleted tasks or permanently delete them before the automatic cleanup.
+                </p>
+                <TrashPanel />
+              </div>
+            )}
+
+            {activeTab === 'traze' && <TrazeSettings />}
+
+            {activeTab === 'recipe-cells' && user && (
+              <RecipeSettingsTab section="cells" userId={user.uid} />
+            )}
+            {activeTab === 'recipe-holidays' && user && (
+              <RecipeSettingsTab section="holidays" userId={user.uid} />
+            )}
+            {activeTab === 'recipe-sleeve' && user && (
+              <RecipeSettingsTab section="sleeve" userId={user.uid} />
+            )}
+            {activeTab === 'recipe-general' && user && (
+              <RecipeSettingsTab section="general" userId={user.uid} />
+            )}
+
           </div>
-        )}
-
-        {activeTab === 'labels' && isAdmin && (
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
-              Label Management
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
-              Create and manage labels to categorize tasks across all boards.
-            </p>
-            <LabelManager />
-          </div>
-        )}
-
-        {activeTab === 'files' && (
-          <div className="max-w-lg">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
-              SharePoint File Storage
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
-              Files attached to tasks are copied to your local SharePoint sync folder and
-              automatically uploaded to the cloud by OneDrive.
-            </p>
-            <SharePointSetup />
-          </div>
-        )}
-
-        {activeTab === 'appearance' && user && (
-          <AppearancePanel user={user} onUpdate={(u) => setUser(u)} />
-        )}
-
-        {activeTab === 'notifications' && user && (
-          <NotificationsPanel user={user} onUpdate={(u) => setUser(u)} />
-        )}
-
-        {activeTab === 'shortcuts' && user && (
-          <KeyboardShortcutsPanel user={user} onUpdate={(u) => setUser(u)} />
-        )}
-
-        {activeTab === 'archive' && isAdmin && (
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
-              Archive Old Tasks
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
-              Archive completed tasks older than 12 months to keep your workspace fast and organized.
-              Archived tasks are moved to a separate collection and included in annual reports.
-            </p>
-            <ArchivePanel />
-          </div>
-        )}
-
-        {activeTab === 'trash' && (
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
-              Trash
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
-              Restore deleted tasks or permanently delete them before the automatic cleanup.
-            </p>
-            <TrashPanel />
-          </div>
-        )}
-
-        {activeTab === 'traze' && <TrazeSettings />}
-
-        {activeTab === 'recipes' && user && (
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
-              Recipe Manager
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
-              Configure validation rules, holiday mappings, sleeve pricing, and lock settings for the NPD recipe workflow.
-            </p>
-            <RecipeSettingsTab userId={user.uid} />
-          </div>
-        )}
+        </div>
       </div>
     </AppLayout>
   )
@@ -685,7 +755,7 @@ function NotificationsPanel({ user, onUpdate }: { user: AppUser; onUpdate: (u: A
 
 // ─── Archive Panel ─────────────────────────────────────────────────────────
 
-import { Archive, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getOldTasksToArchive, archiveOldTasks } from '../lib/firestore'
 
 function ArchivePanel() {
