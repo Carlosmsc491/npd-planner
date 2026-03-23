@@ -17,6 +17,7 @@ import WizardStepBasics from './WizardStepBasics'
 import WizardStepRules from './WizardStepRules'
 import WizardStepStructure from './WizardStepStructure'
 import type { WizardFolder, WizardDefaults } from './WizardStepStructure'
+import AppLayout from '../../ui/AppLayout'
 
 // ─────────────────────────────────────────
 // Wizard data shape
@@ -208,6 +209,7 @@ export default function NewRecipeProjectWizard() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
+    <AppLayout>
     <div className="p-6 max-w-xl mx-auto">
       {/* Back */}
       <button
@@ -335,5 +337,6 @@ export default function NewRecipeProjectWizard() {
         )}
       </div>
     </div>
+    </AppLayout>
   )
 }

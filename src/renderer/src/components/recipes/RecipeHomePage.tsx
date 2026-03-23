@@ -8,6 +8,7 @@ import { subscribeToRecipeProjects } from '../../lib/recipeFirestore'
 import { useRecipeStore } from '../../store/recipeStore'
 import type { RecipeProject } from '../../types'
 import { Timestamp } from 'firebase/firestore'
+import AppLayout from '../ui/AppLayout'
 
 type FilterStatus = 'all' | 'active' | 'completed' | 'archived'
 
@@ -35,6 +36,7 @@ export default function RecipeHomePage() {
   })
 
   return (
+    <AppLayout>
     <div className="p-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -111,6 +113,7 @@ export default function RecipeHomePage() {
         </div>
       )}
     </div>
+    </AppLayout>
   )
 }
 

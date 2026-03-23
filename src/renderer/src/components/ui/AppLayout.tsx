@@ -48,9 +48,10 @@ const PROTECTED_TYPES = new Set(['planner', 'trips', 'vacations'])
 
 interface AppLayoutProps {
   children: ReactNode
+  mainClassName?: string
 }
 
-export default function AppLayout({ children }: AppLayoutProps) {
+export default function AppLayout({ children, mainClassName = 'flex-1 overflow-auto' }: AppLayoutProps) {
   const { user, setUser } = useAuthStore()
   const { boards, setBoards } = useBoardStore()
   const navigate = useNavigate()
@@ -326,7 +327,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
+      <main className={mainClassName}>
         {children}
       </main>
 

@@ -23,9 +23,10 @@ import RecipeFolderSection from './RecipeFolderSection'
 import RecipeProgressCard from './RecipeProgressCard'
 import RecipeActivityFeed from './RecipeActivityFeed'
 import RecipeFileManagerDialog from './RecipeFileManagerDialog'
-import { updateRecipeFileId } from '../../lib/recipeFirestore'
+import { updateRecipeFileId, updateRecipeProject } from '../../lib/recipeFirestore'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings } from '../../types'
-import { ArrowLeft, FolderOpen, Loader2, Users, RefreshCw } from 'lucide-react'
+import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle } from 'lucide-react'
+import AppLayout from '../ui/AppLayout'
 
 export default function RecipeProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -41,7 +42,7 @@ export default function RecipeProjectPage() {
   const [fileManagerOpen, setFileManagerOpen] = useState(false)
 
   const { currentLock, claimFile, unclaimFile } = useRecipeLock()
-  const { files, filesByFolder, isLoading: filesLoading } = useRecipeFiles(
+  const { files, filesByFolder, isLoading: filesLoading, scanError } = useRecipeFiles(
     projectId ?? '',
     project?.rootPath ?? '',
     scanKey
@@ -174,6 +175,34 @@ export default function RecipeProjectPage() {
     setScanKey((k) => k + 1)
   }, [projectId, project])
 
+  // ── Update folder path when project folder not found ─────────────────────
+  const handleUpdateFolderPath = useCallback(async () => {
+    if (!projectId || !project) return
+
+    const newPath = await window.electronAPI.selectFolder()
+    if (!newPath) return
+
+    // Verificar que la nueva ruta existe
+    const exists = await window.electronAPI.recipePathExists(newPath)
+    if (!exists) {
+      // Mostrar toast de error (usar alert por ahora, o implementar toast si existe)
+      alert('Selected folder does not exist or is not accessible.')
+      return
+    }
+
+    // Actualizar en Firestore
+    try {
+      await updateRecipeProject(projectId, {
+        rootPath: newPath,
+      })
+      // Disparar re-scan con la nueva ruta
+      setScanKey(k => k + 1)
+    } catch (err) {
+      console.error('Failed to update project path:', err)
+      alert('Failed to update project folder path.')
+    }
+  }, [projectId, project])
+
   // ── Progress stats ───────────────────────────────────────────────────────
   const total      = files.length
   const doneCount  = files.filter((f) => f.status === 'done').length
@@ -184,49 +213,46 @@ export default function RecipeProjectPage() {
   // ── Early returns ────────────────────────────────────────────────────────
   if (!projectId) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-        Project not found
-      </div>
+      <AppLayout mainClassName="flex-1 overflow-hidden">
+        <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+          Project not found
+        </div>
+      </AppLayout>
     )
   }
 
   if (projectLoading) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 gap-2">
-        <Loader2 size={18} className="animate-spin" />
-        <span className="text-sm">Loading project…</span>
-      </div>
+      <AppLayout mainClassName="flex-1 overflow-hidden">
+        <div className="flex items-center justify-center h-full text-gray-400 gap-2">
+          <Loader2 size={18} className="animate-spin" />
+          <span className="text-sm">Loading project…</span>
+        </div>
+      </AppLayout>
     )
   }
 
   if (!project) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
-        <p className="text-sm">Project not found.</p>
-        <button
-          onClick={() => navigate('/recipes')}
-          className="text-xs underline hover:text-gray-600 dark:hover:text-gray-300"
-        >
-          Back to projects
-        </button>
-      </div>
+      <AppLayout mainClassName="flex-1 overflow-hidden">
+        <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
+          <p className="text-sm">Project not found.</p>
+          <button
+            onClick={() => navigate('/recipes')}
+            className="text-xs underline hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            Back to projects
+          </button>
+        </div>
+      </AppLayout>
     )
   }
 
   return (
+    <AppLayout mainClassName="flex-1 overflow-hidden">
     <div className="flex flex-col h-full overflow-hidden">
       {/* ── Header ── */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0">
-        <button
-          onClick={() => navigate('/recipes')}
-          className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
-        >
-          <ArrowLeft size={14} />
-          Projects
-        </button>
-
-        <span className="text-gray-300 dark:text-gray-600">/</span>
-
         <h1 className="text-sm font-semibold text-gray-900 dark:text-white truncate flex-1">
           {project.name}
         </h1>
@@ -323,6 +349,33 @@ export default function RecipeProjectPage() {
         <div className="flex flex-col w-2/3 overflow-hidden border-r border-gray-200 dark:border-gray-700">
           {/* File list */}
           <div className="flex-1 overflow-y-auto p-3">
+            {/* Error banner when project folder not found */}
+            {scanError && (
+              <div className="mb-4">
+                <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20
+                                border border-red-200 dark:border-red-800 rounded-lg">
+                  <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                      Project folder not found
+                    </p>
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-0.5 truncate">
+                      {scanError}
+                    </p>
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                      Make sure your SharePoint folder is mounted and the path is correct.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleUpdateFolderPath}
+                    className="text-xs text-red-700 dark:text-red-300 underline shrink-0"
+                  >
+                    Update folder path
+                  </button>
+                </div>
+              </div>
+            )}
+
             {filesLoading ? (
               <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
                 <Loader2 size={16} className="animate-spin" />
@@ -393,6 +446,7 @@ export default function RecipeProjectPage() {
         onRefresh={() => setScanKey((k) => k + 1)}
       />
     </div>
+    </AppLayout>
   )
 }
 

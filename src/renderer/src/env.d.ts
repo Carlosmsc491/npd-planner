@@ -53,6 +53,7 @@ interface IElectronAPI {
   recipeOpenInExcel: (filePath: string) => Promise<{ success: boolean; error?: string }>
   recipeListFolder: (folderPath: string) => Promise<Array<{ name: string; isDirectory: boolean; size: number; modifiedAt: string; fullPath: string }>>
   recipeDeleteItem: (itemPath: string) => Promise<{ success: boolean; error?: string }>
+  recipePathExists: (folderPath: string) => Promise<boolean>
   recipeRenameItem: (oldPath: string, newPath: string) => Promise<{ success: boolean; error?: string }>
   recipeCreateFileFromTemplate: (templatePath: string, destFolder: string, fileName: string) => Promise<{ success: boolean; destPath?: string; error?: string }>
   // Generic Traze / AWB IPC channels
