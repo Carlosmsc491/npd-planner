@@ -395,6 +395,65 @@ export default function RecipeProjectPage() {
         <div className="flex flex-col w-2/3 overflow-hidden border-r border-gray-200 dark:border-gray-700">
           {/* File list */}
           <div className="flex-1 overflow-y-auto p-3">
+            {/* Search + filters bar */}
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              {/* Search input */}
+              <div className="relative flex-1 min-w-[200px]">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search recipes..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border
+                            border-gray-200 dark:border-gray-700
+                            bg-white dark:bg-gray-800
+                            text-gray-900 dark:text-white
+                            focus:outline-none focus:border-green-500"
+                />
+              </div>
+
+              {/* Status filter pills */}
+              {(['all', 'pending', 'in_progress', 'done', 'mine'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setStatusFilter(f)}
+                  className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                    statusFilter === f
+                      ? 'bg-green-500 text-white border-green-500'
+                      : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-400'
+                  }`}
+                >
+                  {f === 'all' ? 'All' :
+                   f === 'in_progress' ? 'In Progress' :
+                   f.charAt(0).toUpperCase() + f.slice(1)}
+                  {' '}
+                  ({f === 'all' ? files.length :
+                    f === 'mine' ? files.filter(file => 
+                      file.lockedBy === user?.name || file.doneBy === user?.name
+                    ).length :
+                    files.filter(file => file.status === f).length})
+                </button>
+              ))}
+
+              {/* Limpiar filtros — solo si hay algo activo */}
+              {(searchQuery || statusFilter !== 'all') && (
+                <button
+                  onClick={() => { setSearchQuery(''); setStatusFilter('all') }}
+                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* Mensaje si no hay resultados */}
+            {filteredFiles.length === 0 && (searchQuery || statusFilter !== 'all') && (
+              <div className="text-center py-8 text-sm text-gray-400 dark:text-gray-500">
+                No recipes match your search
+              </div>
+            )}
+
             {/* Error banner when project folder not found */}
             {scanError && (
               <div className="mb-4">
@@ -436,7 +495,7 @@ export default function RecipeProjectPage() {
                 </p>
               </div>
             ) : (
-              Object.entries(filesByFolder)
+              Object.entries(filteredFilesByFolder)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([folder, folderFiles]) => (
                   <RecipeFolderSection
