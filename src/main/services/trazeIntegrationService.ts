@@ -135,7 +135,28 @@ export function startTrazeIntegration(mainWindow: BrowserWindow): void {
  */
 export async function forceTrazeDownload(): Promise<void> {
   console.log('[TrazeIntegration] Descarga manual activada');
-  await downloadCsv();
+
+  if (isDownloading) {
+    throw new Error('A download is already in progress. Please wait a moment and try again.');
+  }
+
+  isDownloading = true;
+  try {
+    const filePath = await downloadTrazeCSV();
+    const content  = fs.readFileSync(filePath, 'utf-8');
+    const rowCount = content.split('\n').filter(Boolean).length - 1;
+    const sizeKb   = parseFloat((content.length / 1024).toFixed(1));
+    saveLastRun();
+    cleanupOldCsvFiles();
+    npdWindow?.webContents.send('traze:csv-downloaded', {
+      filePath,
+      rowCount,
+      sizeKb,
+      downloadedAt: new Date().toISOString(),
+    });
+  } finally {
+    isDownloading = false;
+  }
 }
 
 /**
