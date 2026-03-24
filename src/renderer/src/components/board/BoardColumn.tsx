@@ -1,5 +1,8 @@
+import { useState, useMemo } from 'react'
+import { doc, updateDoc, Timestamp } from 'firebase/firestore'
 import { GripVertical } from 'lucide-react'
 import TaskCard from './TaskCard'
+import { db } from '../../lib/firebase'
 import type { Task, Client, Label, AppUser, Board } from '../../types'
 import { useBoardStore } from '../../store/boardStore'
 
@@ -27,10 +30,82 @@ export default function BoardColumn({
 }: Props) {
   const { showCompleted, toggleShowCompleted } = useBoardStore()
   const isShowingCompleted = showCompleted[groupKey] ?? false
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null)
+  const [dragOverPosition, setDragOverPosition] = useState<'above' | 'below' | null>(null)
 
   const active = tasks.filter((t) => !t.completed)
   const completed = tasks.filter((t) => t.completed)
-  const visible = isShowingCompleted ? [...active, ...completed] : active
+
+  // Sort tasks by sortOrder (fallback to createdAt)
+  const sortedActive = useMemo(() => {
+    return [...active].sort((a, b) => {
+      const orderA = a.sortOrder ?? a.createdAt?.toMillis() ?? 0
+      const orderB = b.sortOrder ?? b.createdAt?.toMillis() ?? 0
+      return orderA - orderB
+    })
+  }, [active])
+
+  const sortedCompleted = useMemo(() => {
+    return [...completed].sort((a, b) => {
+      const orderA = a.sortOrder ?? a.createdAt?.toMillis() ?? 0
+      const orderB = b.sortOrder ?? b.createdAt?.toMillis() ?? 0
+      return orderA - orderB
+    })
+  }, [completed])
+
+  const visible = isShowingCompleted ? [...sortedActive, ...sortedCompleted] : sortedActive
+
+  async function handleTaskDrop(targetTaskId: string) {
+    if (!draggedTaskId || draggedTaskId === targetTaskId) return
+
+    const targetIdx = visible.findIndex(t => t.id === targetTaskId)
+    if (targetIdx === -1) return
+
+    // Calculate new sortOrder
+    let newOrder: number
+
+    if (dragOverPosition === 'above') {
+      if (targetIdx === 0) {
+        // Dropping before first item
+        newOrder = (visible[0].sortOrder ?? visible[0].createdAt?.toMillis() ?? 0) - 1000
+      } else {
+        // Between previous and target
+        const prev = visible[targetIdx - 1]
+        const target = visible[targetIdx]
+        const prevOrder = prev.sortOrder ?? prev.createdAt?.toMillis() ?? 0
+        const targetOrder = target.sortOrder ?? target.createdAt?.toMillis() ?? 0
+        newOrder = (prevOrder + targetOrder) / 2
+      }
+    } else {
+      if (targetIdx === visible.length - 1) {
+        // Dropping after last item
+        const last = visible[visible.length - 1]
+        newOrder = (last.sortOrder ?? last.createdAt?.toMillis() ?? 0) + 1000
+      } else {
+        // Between target and next
+        const target = visible[targetIdx]
+        const next = visible[targetIdx + 1]
+        const targetOrder = target.sortOrder ?? target.createdAt?.toMillis() ?? 0
+        const nextOrder = next.sortOrder ?? next.createdAt?.toMillis() ?? 0
+        newOrder = (targetOrder + nextOrder) / 2
+      }
+    }
+
+    // Persist to Firestore
+    try {
+      await updateDoc(doc(db, 'tasks', draggedTaskId), {
+        sortOrder: newOrder,
+        updatedAt: Timestamp.now(),
+      })
+    } catch (err) {
+      console.error('Failed to reorder task:', err)
+    }
+
+    setDraggedTaskId(null)
+    setDragOverTaskId(null)
+    setDragOverPosition(null)
+  }
 
   return (
     <div className="flex w-[280px] shrink-0 flex-col">
@@ -75,19 +150,61 @@ export default function BoardColumn({
           </button>
         )}
         {visible.map((task) => (
-          <TaskCard
+          <div
             key={task.id}
-            task={task}
-            clients={clients}
-            labels={labels}
-            users={users}
-            board={board}
-            onComplete={onComplete}
-            onOpen={onOpen}
-            onDuplicate={onDuplicate}
-            onRecurring={onRecurring}
-            onDelete={onDelete}
-          />
+            draggable
+            onDragStart={(e) => {
+              e.stopPropagation()  // prevent column drag from activating
+              e.dataTransfer.effectAllowed = 'move'
+              setDraggedTaskId(task.id)
+            }}
+            onDragOver={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              e.dataTransfer.dropEffect = 'move'
+              // Determine if cursor is in top half or bottom half of card
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+              const midY = rect.top + rect.height / 2
+              setDragOverTaskId(task.id)
+              setDragOverPosition(e.clientY < midY ? 'above' : 'below')
+            }}
+            onDragLeave={() => {
+              setDragOverTaskId(null)
+              setDragOverPosition(null)
+            }}
+            onDrop={() => handleTaskDrop(task.id)}
+            onDragEnd={() => {
+              setDraggedTaskId(null)
+              setDragOverTaskId(null)
+              setDragOverPosition(null)
+            }}
+            className={`transition-all ${
+              draggedTaskId === task.id ? 'opacity-40 scale-95' : ''
+            }`}
+          >
+            {/* Drop indicator line above */}
+            {dragOverTaskId === task.id && dragOverPosition === 'above' && (
+              <div className="h-0.5 bg-green-500 rounded-full -mt-1 mb-1" />
+            )}
+
+            <TaskCard
+              task={task}
+              clients={clients}
+              labels={labels}
+              users={users}
+              board={board}
+              onComplete={onComplete}
+              onOpen={onOpen}
+              onDuplicate={onDuplicate}
+              onRecurring={onRecurring}
+              onDelete={onDelete}
+            />
+
+            {/* Drop indicator line below */}
+            {dragOverTaskId === task.id && dragOverPosition === 'below' && (
+              <div className="h-0.5 bg-green-500 rounded-full mt-1 -mb-1" />
+            )}
+          </div>
         ))}
 
         {/* Show completed toggle */}

@@ -163,6 +163,7 @@ export interface Task {
   completedAt: Timestamp | null
   completedBy: string | null
   customFields?: Record<string, unknown> | null
+  sortOrder?: number        // manual sort position within bucket (lower = higher)
   createdBy: string
   createdAt: Timestamp
   updatedAt: Timestamp
