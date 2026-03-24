@@ -1,5 +1,6 @@
 import BoardColumn from './BoardColumn'
 import { BOARD_BUCKETS, getBucketColor } from '../../utils/colorUtils'
+import { useDragScroll } from '../../hooks/useDragScroll'
 import type { Task, Client, Label, AppUser, GroupByField, BoardType, Board } from '../../types'
 
 interface Props {
@@ -74,6 +75,7 @@ export default function BoardView({
   tasks, clients, labels, users, groupBy, boardType, board,
   onComplete, onOpen, onDuplicate, onRecurring, onDelete, onAddTask,
 }: Props) {
+  const scrollRef = useDragScroll()
   const groups = groupTasks(tasks, groupBy, clients, users)
 
   // When grouping by bucket, ensure default buckets are shown even when empty
@@ -99,7 +101,10 @@ export default function BoardView({
   }
 
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4 px-6 pt-4 h-full">
+    <div
+      ref={scrollRef}
+      className="flex gap-4 overflow-x-auto pb-4 px-6 pt-4 h-full cursor-grab"
+    >
       {visibleGroups.map(({ key, tasks: groupTasks }) => (
         <BoardColumn
           key={key}

@@ -41,6 +41,7 @@ export default function TaskCard({
 
   return (
     <div
+      data-no-drag-scroll
       className={`group relative rounded-xl border bg-white px-3 py-2.5 shadow-sm hover:shadow-md transition-all cursor-pointer dark:bg-gray-800 dark:border-gray-700 ${
         task.completed ? 'opacity-40' : 'border-gray-200'
       }`}
