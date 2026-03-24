@@ -2,11 +2,12 @@
 // Settings panel for the Recipe Manager module
 
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, RotateCcw, Save, Loader2 } from 'lucide-react'
+import { Plus, Trash2, RotateCcw, Save, Loader2, Lock } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { getRecipeSettings, saveRecipeSettings, initDefaultRecipeSettings } from '../../../lib/recipeFirestore'
 import { DistributionEditor } from '../wizard/WizardStepRules'
 import { useTaskStore } from '../../../store/taskStore'
+import { useAuthStore } from '../../../store/authStore'
 import type { RecipeSettings, RecipeRuleCells } from '../../../types'
 import {
   DEFAULT_RECIPE_RULE_CELLS,
@@ -39,6 +40,8 @@ const RULE_CELL_LABELS: Array<{ key: keyof RecipeRuleCells; label: string }> = [
 export default function RecipeSettingsTab({ userId, section }: Props) {
   const show = (s: RecipeSection) => !section || section === s
   const setToast = useTaskStore((s) => s.setToast)
+  const user = useAuthStore((s) => s.user)
+  const canEdit = user?.role === 'admin' || user?.role === 'owner'
   const [settings, setSettings] = useState<RecipeSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -61,7 +64,7 @@ export default function RecipeSettingsTab({ userId, section }: Props) {
 
   // ── Save ──────────────────────────────────────────────────────────────────
   async function handleSave() {
-    if (!settings) return
+    if (!settings || !canEdit) return
     setSaving(true)
     try {
       await saveRecipeSettings(userId, settings)
@@ -88,6 +91,14 @@ export default function RecipeSettingsTab({ userId, section }: Props) {
 
   return (
     <div className="space-y-10 max-w-2xl">
+      {!canEdit && (
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-sm text-amber-700 dark:text-amber-300">
+          <Lock size={14} className="shrink-0" />
+          Only admins and owners can modify Recipe Manager settings.
+        </div>
+      )}
+
+      <fieldset disabled={!canEdit} className="contents">
 
       {/* ── Rule Cells ────────────────────────────────────────────────────── */}
       {show('cells') && <Section
@@ -266,16 +277,20 @@ export default function RecipeSettingsTab({ userId, section }: Props) {
       </Section>}
 
       {/* ── Save button ──────────────────────────────────────────────────── */}
-      <div className="pt-2">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center gap-2 rounded-lg bg-green-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
-        >
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-          {saving ? 'Saving…' : 'Save Settings'}
-        </button>
-      </div>
+      {canEdit && (
+        <div className="pt-2">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 rounded-lg bg-green-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            {saving ? 'Saving…' : 'Save Settings'}
+          </button>
+        </div>
+      )}
+
+      </fieldset>
     </div>
   )
 }
