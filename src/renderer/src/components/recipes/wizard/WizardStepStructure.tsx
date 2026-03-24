@@ -2,7 +2,7 @@
 // Step 3: Build the folder/recipe tree — each recipe inherits Step 2 defaults, overridable
 
 import { useState } from 'react'
-import { Plus, Trash2, FolderPlus, ChevronRight } from 'lucide-react'
+import { Plus, Trash2, FolderPlus, ChevronRight, FileSpreadsheet, Upload, FolderDown } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { normalizeRecipeName } from '../../../utils/recipeNaming'
 import { DistributionEditor } from './WizardStepRules'
@@ -23,6 +23,8 @@ export interface WizardRecipe {
   customerOverride: string
   holidayOverride: string
   wetPackOverride: string          // 'Y' | 'N'
+  boxTypeOverride: string          // Z6: 'QUARTER' | 'HALF ELITE' | etc.
+  pickNeededOverride: string       // AC23: 'Y' | 'N'
   distributionOverride: RecipeDistribution
 }
 
@@ -44,10 +46,97 @@ export interface WizardDefaults {
 interface Props {
   folders: WizardFolder[]
   defaults: WizardDefaults
+  sourceMode: 'from_scratch' | 'import'
   onChange: (folders: WizardFolder[]) => void
 }
 
-export default function WizardStepStructure({ folders, defaults, onChange }: Props) {
+// ── Import helpers ─────────────────────────────────────────────────────────
+
+// Import format: A=name (folder grouper), B=SRP, C=Box Type, D=Pick Needed, E=holiday
+type ImportRow = { name: string; srp: string; boxType: string; pickNeeded: string; holiday: string }
+
+/**
+ * Resolve Z6 box type value and wet pack flag from the raw Box Type string.
+ * K WET / WET PACK / K BOX → HALF ELITE + wet pack Y
+ * Any HALF variant          → HALF ELITE
+ * Otherwise                 → uppercase as-is
+ */
+function resolveBoxType(raw: string): { boxTypeOverride: string; wetPackOverride: string } {
+  const upper = raw.trim().toUpperCase()
+  if (upper.includes('WET') || upper.includes('K BOX') || upper.includes('K WET')) {
+    return { boxTypeOverride: 'HALF ELITE', wetPackOverride: 'Y' }
+  }
+  if (upper.includes('HALF')) {
+    return { boxTypeOverride: 'HALF ELITE', wetPackOverride: '' }
+  }
+  return { boxTypeOverride: upper || 'QUARTER', wetPackOverride: '' }
+}
+
+function rowsToFolders(rows: ImportRow[], defaults: WizardDefaults): WizardFolder[] {
+  const folderMap = new Map<string, WizardRecipe[]>()
+  for (const row of rows) {
+    const folderName = row.name.trim() || 'General'
+    if (!folderMap.has(folderName)) folderMap.set(folderName, [])
+    const { boxTypeOverride, wetPackOverride } = resolveBoxType(row.boxType)
+    const effectiveWetPack = wetPackOverride || (defaults.wetPackDefault ? 'Y' : 'N')
+    const pickNorm = row.pickNeeded.trim().toUpperCase()
+    const pickNeededOverride = (pickNorm === 'YES' || pickNorm === 'Y') ? 'Y' : 'N'
+    const holidayOverride = row.holiday.trim().toUpperCase() || defaults.holidayDefault
+    folderMap.get(folderName)!.push({
+      id:                   nanoid(),
+      price:                row.srp.trim(),
+      option:               '',
+      name:                 row.name.trim().toUpperCase(),
+      customerOverride:     defaults.customerDefault,
+      holidayOverride,
+      wetPackOverride:      effectiveWetPack,
+      boxTypeOverride,
+      pickNeededOverride,
+      distributionOverride: { ...defaults.distributionDefault },
+    })
+  }
+  return Array.from(folderMap.entries()).map(([name, recipes]) => ({
+    id: nanoid(), name, recipes,
+  }))
+}
+
+export default function WizardStepStructure({ folders, defaults, sourceMode, onChange }: Props) {
+  const [importTemplatePath, setImportTemplatePath] = useState<string | null>(null)
+  const [importStatus, setImportStatus] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+
+  async function handleCreateTemplate() {
+    const folder = await window.electronAPI.selectFolder()
+    if (!folder) return
+    const dest = `${folder}/import_template.xlsx`
+    const result = await window.electronAPI.recipeCreateImportTemplate(dest)
+    if (result.success) {
+      setImportTemplatePath(dest)
+      setImportStatus(`Template created: ${dest}`)
+      setImportError(null)
+    } else {
+      setImportError(result.error ?? 'Failed to create template')
+    }
+  }
+
+  async function handleOpenTemplate() {
+    if (!importTemplatePath) return
+    await window.electronAPI.recipeOpenInExcel(importTemplatePath)
+  }
+
+  async function handleLoadImport() {
+    const file = await window.electronAPI.selectFile()
+    if (!file) return
+    setImportError(null)
+    const result = await window.electronAPI.recipeParseImportExcel(file)
+    if (!result.success || !result.rows || result.rows.length === 0) {
+      setImportError(result.error ?? 'No valid rows found in the file')
+      return
+    }
+    const built = rowsToFolders(result.rows, defaults)
+    onChange(built)
+    setImportStatus(`Imported ${result.rows.length} recipes into ${built.length} folder(s).`)
+  }
 
   function makeNewRecipe(): WizardRecipe {
     return {
@@ -58,6 +147,8 @@ export default function WizardStepStructure({ folders, defaults, onChange }: Pro
       customerOverride:     defaults.customerDefault,
       holidayOverride:      defaults.holidayDefault,
       wetPackOverride:      defaults.wetPackDefault ? 'Y' : 'N',
+      boxTypeOverride:      'QUARTER',
+      pickNeededOverride:   'N',
       distributionOverride: { ...defaults.distributionDefault },
     }
   }
@@ -111,6 +202,46 @@ export default function WizardStepStructure({ folders, defaults, onChange }: Pro
 
   return (
     <div className="space-y-4">
+
+      {/* ── Import controls (only in import mode) ───────────────────────── */}
+      {sourceMode === 'import' && (
+        <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-3 space-y-2">
+          <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">
+            Import flow: create the template → fill A (Recipe Name) and B (Folder) → load the file.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleCreateTemplate}
+              className="flex items-center gap-1.5 rounded-lg border border-blue-300 dark:border-blue-600 bg-white dark:bg-blue-900/30 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/40 transition-colors"
+            >
+              <FileSpreadsheet size={12} />
+              Create Import Template
+            </button>
+            <button
+              onClick={handleOpenTemplate}
+              disabled={!importTemplatePath}
+              className="flex items-center gap-1.5 rounded-lg border border-blue-300 dark:border-blue-600 bg-white dark:bg-blue-900/30 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FolderDown size={12} />
+              Open in Excel
+            </button>
+            <button
+              onClick={handleLoadImport}
+              className="flex items-center gap-1.5 rounded-lg border border-green-300 dark:border-green-600 bg-white dark:bg-green-900/20 px-3 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-800/30 transition-colors"
+            >
+              <Upload size={12} />
+              Load Completed Import
+            </button>
+          </div>
+          {importStatus && (
+            <p className="text-xs text-green-600 dark:text-green-400">{importStatus}</p>
+          )}
+          {importError && (
+            <p className="text-xs text-red-500 dark:text-red-400">{importError}</p>
+          )}
+        </div>
+      )}
+
       {folders.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 p-8 text-center">
           <FolderPlus size={28} className="mx-auto text-gray-300 dark:text-gray-600 mb-2" />

@@ -101,7 +101,7 @@ function mergeFilesWithFirestore(
   const now = Timestamp.now()
 
   for (const fsFile of fsFiles) {
-    const fileId = `${projectId}::${fsFile.relativePath}`
+    const fileId = `${projectId}::${fsFile.relativePath.replace(/\\/g, '/').replace(/\//g, '|')}`
 
     // Buscar en Firestore por fileId primero, luego por relativePath (para compatibilidad)
     const existing = firestoreByFileId.get(fileId) || firestoreByPath.get(fsFile.relativePath)
@@ -141,6 +141,8 @@ function mergeFilesWithFirestore(
         holidayOverride: '',
         customerOverride: '',
         wetPackOverride: 'N',
+        boxTypeOverride: '',
+        pickNeededOverride: '',
         distributionOverride: { ...DEFAULT_RECIPE_DISTRIBUTION },
         status: 'pending',
         lockedBy: null,

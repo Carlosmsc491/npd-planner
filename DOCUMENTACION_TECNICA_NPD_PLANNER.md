@@ -298,6 +298,25 @@ npd-planner/
 - `traze:get-preferences`, `traze:set-view-browser`
 - Eventos: `traze:csv-downloaded`, `traze:csv-error`, `traze:needs-login`, `traze:login-success`
 
+**Recipe Manager:**
+- `recipe:readCells` — Lee celdas específicas de un .xlsx vía ExcelJS
+- `recipe:writeCells` — Escribe celdas en un .xlsx vía PowerShell COM
+- `recipe:batchWriteCells` — Escribe celdas en múltiples .xlsx en UNA sesión Excel (evita RPC_E_CALL_REJECTED)
+- `recipe:generateFromTemplate` — Copia template .xlsx a ruta de destino (fs.copyFileSync, sin abrir Excel)
+- `recipe:createFolder` — Crea carpeta con recursive:true
+- `recipe:scanProject` — Escanea carpeta raíz y retorna todos los .xlsx encontrados
+- `recipe:openInExcel` — Abre archivo en Excel nativo (shell.openPath)
+- `recipe:isFileOpen` — Verifica si un archivo está bloqueado por Excel
+- `recipe:listFolder` — Lista contenido de carpeta (archivos + subdirectorios)
+- `recipe:deleteItem` — Elimina archivo o carpeta
+- `recipe:renameItem` — Renombra archivo o carpeta
+- `recipe:renameFile` — Mueve/renombra archivo .xlsx
+- `recipe:createFileFromTemplate` — Copia template a subcarpeta específica
+- `recipe:pathExists` — Verifica si existe ruta en el filesystem
+- `recipe:createImportTemplate` — Genera template Excel de importación vacío
+- `recipe:parseImportExcel` — Parsea Excel de importación (cols: A=name, B=SRP, C=BoxType, D=PickNeeded, E=holiday)
+- `recipe:validateProjectFolder` — Valida que una carpeta tiene `_project/project_config.json` (para Import Existing)
+
 ---
 
 ## 3. BASE DE DATOS Y MODELO DE DATOS
@@ -501,6 +520,93 @@ npd-planner/
 // Document: "emergency"
 {
   masterKeyHash: string    // SHA-256 hash
+}
+```
+
+#### **COLLECTION: `recipeProjects`**
+```typescript
+{
+  id: string
+  name: string                // nombre del proyecto (ej: "Albertsons 2nd Half 2027")
+  rootPath: string            // ruta absoluta en el filesystem local
+  status: 'active' | 'completed' | 'archived'
+  createdBy: string           // uid
+  createdAt: Timestamp
+  config: {
+    customerDefault: string   // valor de dropdown D7 (ej: "PUBLIX")
+    holidayDefault: string    // valor de dropdown D6 (ej: "EVERYDAY")
+    wetPackDefault: boolean   // AA40: true="Y", false=""
+    wetPackFalseValue: string // valor cuando wet_pack=false (normalmente "")
+    distributionDefault: {    // porcentajes de distribución (0-100, se escriben como ratio 0-1 en Excel)
+      miami: number
+      newJersey: number
+      california: number
+      chicago: number
+      seattle: number
+      texas: number
+    }
+    templatePath: string      // ruta absoluta al .xlsx template
+    sourceMode: 'wizard' | 'import' | 'scratch'
+    notes: string
+    dueDate: Timestamp | null
+  }
+}
+```
+
+#### **SUBCOLLECTION: `recipeProjects/{projectId}/recipeFiles`**
+```typescript
+{
+  id: string                  // formato: "{projectId}::{folderName}|{fileName}.xlsx"
+  projectId: string
+  fileId: string              // igual que id
+  relativePath: string        // formato: "{folderName}/{fileName}.xlsx"
+  displayName: string         // nombre del archivo sin extensión
+  price: string               // ej: "$9.99"
+  option: string              // ej: "A", "B", "C"
+  recipeName: string          // ej: "VALENTINE"
+  holidayOverride: string     // sobreescribe holidayDefault para este archivo
+  customerOverride: string    // sobreescribe customerDefault
+  wetPackOverride: string     // "Y" | "N" | ""
+  boxTypeOverride: string     // valor para celda Z6 (ej: "QUARTER ", "HALF ELITE")
+  pickNeededOverride: string  // valor para celda AC23 ("Y" | "N")
+  distributionOverride: Record<string, number>  // sobreescribe distribución
+  status: 'pending' | 'in_progress' | 'done' | 'error'
+  lockedBy: string | null     // uid de quien tiene el archivo abierto
+  lockClaimedAt: Timestamp | null
+  lockHeartbeatAt: Timestamp | null
+  lockToken: string | null
+  doneBy: string | null
+  doneAt: Timestamp | null
+  requiresManualUpdate: boolean  // true si sleeve price no se encontró en SLEEVE_PRICE_MAP
+  version: number             // contador para optimistic concurrency
+  updatedAt: Timestamp
+  assignedTo: string | null   // uid
+  assignedToName: string | null
+}
+```
+
+#### **SUBCOLLECTION: `recipeProjects/{projectId}/recipeActivity`**
+```typescript
+{
+  id: string
+  projectId: string
+  userId: string
+  userName: string
+  action: string              // ej: "opened", "completed", "assigned"
+  fileId: string | null
+  fileName: string | null
+  timestamp: Timestamp
+}
+```
+
+#### **COLLECTION: `recipePresence`** (documentos: `{projectId}_{userId}`)
+```typescript
+{
+  projectId: string
+  userId: string
+  userName: string
+  currentFileId: string | null
+  lastSeen: Timestamp
 }
 ```
 
@@ -712,6 +818,65 @@ npd-planner/
 ### 6.5 Módulo: Settings
 **Tabs:** Profile, Members, Boards, Clients, Labels, Files, Traze, Appearance, Notifications, Keyboard, Archive
 
+### 6.6 Módulo: Recipe Manager (NPD)
+
+Módulo completo para gestión de archivos Excel de recetas NPD. Reemplaza el flujo manual de copiar/editar templates de EliteQuote.
+
+**Ruta:** `/recipes` (home), `/recipes/new` (wizard), `/recipes/:id` (proyecto)
+
+**Componentes principales:**
+```
+components/recipes/
+├── RecipeHomePage.tsx          # Lista de proyectos + split button New/Import
+├── RecipeProjectPage.tsx       # Vista de proyecto: lista de recetas, asignación, estado
+├── wizard/
+│   ├── NewRecipeProjectWizard.tsx   # Wizard multi-paso
+│   ├── WizardStepBasics.tsx         # Paso 1: nombre, template, defaults
+│   ├── WizardStepStructure.tsx      # Paso 2: estructura de carpetas/recetas
+│   └── WizardStepRules.tsx          # Paso 3: distribución, reglas
+└── settings/
+    └── RecipeSettingsTab.tsx        # Config del proyecto
+```
+
+**Flujo: Crear Proyecto Nuevo (Wizard)**
+1. Paso 1 (Basics): Nombre del proyecto, ruta base, template .xlsx, cliente default, holiday default, wet pack default
+2. Paso 2 (Structure): Importar desde Excel (5 columnas: A=folder, B=SRP, C=BoxType, D=PickNeeded, E=Holiday) o crear manualmente. Resolución de BoxType: `K WET/K BOX/WET → HALF ELITE + wetPack=Y`, `HALF → HALF ELITE`, demás = uppercase
+3. Paso 3 (Rules): Distribución por mercado (Miami, NJ, CA, Chicago, Seattle, Texas)
+4. Creación: (a) `recipeCreateFolder` por cada carpeta, (b) `recipeGenerateFromTemplate` (fs.copyFileSync) para cada .xlsx, (c) `recipeBatchWriteCells` — UNA sesión PowerShell COM para escribir todas las celdas en todos los archivos
+
+**Celdas que se escriben al crear cada .xlsx:**
+| Celda | Valor |
+|-------|-------|
+| `Quote!D3` | Nombre normalizado del archivo (ej: `$9.99 A VALENTINE`) |
+| `Quote!D6` | Holiday override (ej: `VALENTINE'S DAY`) |
+| `Quote!D7` | Customer override (ej: `PUBLIX`) |
+| `Quote!AA40` | Wet pack flag (`Y` o `""`) |
+| `Quote!Z6` | Box type (ej: `QUARTER ` con trailing space) |
+| `Quote!AC23` | Pick needed (`Y` o `N`) |
+| `Spec Sheet!E4` | Nombre del proyecto |
+
+**PowerShell COM (writeExcelViaCOM):**
+- Abre Excel UNA VEZ para todos los archivos → evita `RPC_E_CALL_REJECTED`
+- Script envuelto en `try/finally` → Excel siempre cierra aunque haya error
+- Los valores del dropdown Excel tienen espacios exactos que hay que respetar (ej: `"QUARTER "` con trailing space, `" NEW CUSTOMER"` con leading space)
+
+**Flujo: Import Existing Project**
+1. Click en `▼` del split button → "Import Existing Project"
+2. Selector de carpeta nativo
+3. `recipe:validateProjectFolder` — verifica que existe `_project/project_config.json`
+4. Lee config (compatible con formato EliteQuote snake_case y NPD camelCase)
+5. Registra en Firestore y navega al proyecto
+
+**Sleeve Price (SLEEVE_PRICE_MAP en types/index.ts):**
+```typescript
+// Mapa precio → sleeve price (se escribe en celda AB25)
+"$7.99" → "0.25", "$11.99" → "0.3", "$14.99" → "0.35", ...
+// Si el precio no está en el mapa: requiresManualUpdate = true
+```
+
+**Hooks:**
+- `useRecipeFiles.ts` — Suscripción a recipeFiles de Firestore + escaneo del filesystem + merge de ambos
+
 ---
 
 ## 7. INTERFAZ DE USUARIO (UI/UX)
@@ -831,6 +996,9 @@ GH_TOKEN=
 | `/calendar` | CalendarPage | Active users |
 | `/analytics` | AnalyticsPage | Admin+ |
 | `/settings` | SettingsPage | Active users |
+| `/recipes` | RecipeHomePage | Active users |
+| `/recipes/new` | NewRecipeProjectWizard | Active users |
+| `/recipes/:id` | RecipeProjectPage | Active users |
 
 ---
 

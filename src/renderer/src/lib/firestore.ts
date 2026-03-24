@@ -1304,7 +1304,7 @@ export async function moveTaskToTrash(
       status: 'pending',
       taskData: {
         title: task.title,
-        description: task.description,
+        description: task.description ?? null,
         clientId: task.clientId,
         boardId: task.boardId,
         assignees: task.assignees,
@@ -1312,14 +1312,14 @@ export async function moveTaskToTrash(
         status: task.status,
         priority: task.priority,
         bucket: task.bucket,
-        dateStart: task.dateStart,
-        dateEnd: task.dateEnd,
-        poNumber: task.poNumber,
-        poNumbers: task.poNumbers,
-        awbs: task.awbs,
-        subtasks: task.subtasks,
-        recurring: task.recurring,
-        customFields: task.customFields,
+        dateStart: task.dateStart ?? null,
+        dateEnd: task.dateEnd ?? null,
+        poNumber: task.poNumber ?? null,
+        poNumbers: task.poNumbers ?? null,
+        awbs: task.awbs ?? null,
+        subtasks: task.subtasks ?? [],
+        recurring: task.recurring ?? null,
+        customFields: task.customFields ?? null,
       },
       attachments: task.attachments.map(a => ({
         id: a.id,
@@ -1440,10 +1440,14 @@ export function subscribeToTrashQueue(
   return onSnapshot(
     query(
       collection(db, COLLECTIONS.TRASH),
-      where('status', 'in', ['pending', 'failed']),
-      orderBy('deletedAt', 'desc')
+      where('status', 'in', ['pending', 'failed'])
     ),
-    (snap) => callback(snap.docs.map(d => ({ ...d.data(), id: d.id }) as TrashQueueItem)),
+    (snap) => {
+      const items = snap.docs
+        .map(d => ({ ...d.data(), id: d.id }) as TrashQueueItem)
+        .sort((a, b) => b.deletedAt.toMillis() - a.deletedAt.toMillis())
+      callback(items)
+    },
     (err) => console.error('subscribeToTrashQueue error:', err)
   )
 }

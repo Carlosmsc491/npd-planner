@@ -39,17 +39,16 @@ export default function WizardStepBasics({ data, onChange }: Props) {
             <button
               key={mode}
               onClick={() => onChange({ sourceMode: mode })}
-              disabled={mode === 'import'}
               className={`rounded-lg border-2 px-3 py-2.5 text-sm font-medium text-left transition-colors ${
                 data.sourceMode === mode
                   ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
                   : 'border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
+              }`}
             >
               {mode === 'from_scratch' ? 'Create From Scratch' : 'Import From Excel'}
               {mode === 'import' && (
-                <span className="block text-[10px] text-gray-400 font-normal mt-0.5">
-                  Coming soon
+                <span className="block text-[10px] text-gray-400 dark:text-gray-500 font-normal mt-0.5">
+                  Load recipes from a spreadsheet
                 </span>
               )}
             </button>

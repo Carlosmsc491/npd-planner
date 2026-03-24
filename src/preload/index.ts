@@ -132,8 +132,17 @@ const electronAPI = {
   recipePathExists: (folderPath: string) =>
     ipcRenderer.invoke('recipe:pathExists', folderPath),
 
+  recipeCreateImportTemplate: (destPath: string) =>
+    ipcRenderer.invoke('recipe:createImportTemplate', destPath),
+
   recipeParseImportExcel: (filePath: string) =>
     ipcRenderer.invoke('recipe:parseImportExcel', filePath),
+
+  recipeBatchWriteCells: (batch: Array<{ filePath: string; updates: Array<{ sheet: string; cell: string; value: string }> }>) =>
+    ipcRenderer.invoke('recipe:batchWriteCells', batch),
+
+  recipeValidateProjectFolder: (folderPath: string) =>
+    ipcRenderer.invoke('recipe:validateProjectFolder', folderPath),
 
   // ── Generic invoke for Traze / AWB channels ───────────────────────────────
   invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {

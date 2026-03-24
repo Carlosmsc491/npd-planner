@@ -5,7 +5,17 @@
 import { ipcMain, shell } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as os from 'os'
+import { exec } from 'child_process'
+import { promisify } from 'util'
 import ExcelJS from 'exceljs'
+
+const execAsync = promisify(exec)
+
+/** Normalize a path so mixed / and \ separators always resolve correctly on Windows. */
+function np(p: string): string {
+  return path.normalize(p)
+}
 
 // ─────────────────────────────────────────
 // TYPES (mirrored for main process use)
@@ -31,9 +41,12 @@ interface RecipeSpec {
   price: string
   option: string
   name: string
+  projectName: string
   holidayOverride: string
   customerOverride: string
   wetPackOverride: string
+  boxTypeOverride: string
+  pickNeededOverride: string
   requiresManualUpdate: boolean
 }
 
@@ -54,15 +67,6 @@ function getCellStringValue(ws: ExcelJS.Worksheet, cellAddr: string): string {
   return String(cell.value)
 }
 
-/** Set a cell value, preserving existing formula structure is not needed — we overwrite values */
-function setCellValue(
-  ws: ExcelJS.Worksheet,
-  cellAddr: string,
-  value: string | number | boolean | null
-): void {
-  const cell = ws.getCell(cellAddr)
-  cell.value = value
-}
 
 /**
  * Detect if a file is open in Excel on Windows by checking for the lock file
@@ -150,6 +154,99 @@ function parseRecipeFilename(filename: string): {
 // IPC HANDLER REGISTRATION
 // ─────────────────────────────────────────
 
+/**
+ * Write cells to an Excel file using PowerShell + Excel COM automation.
+ * This preserves ALL workbook features (conditional formatting, data validation, etc.)
+ * because Excel itself handles the save — same approach as EliteQuote's HybridExcelBackend.
+ * Falls back silently if Excel/PowerShell is unavailable (file was already copied).
+ */
+interface ExcelFileWrite {
+  filePath: string
+  updates: Array<{ sheet: string; cell: string; value: string }>
+}
+
+/**
+ * Some Excel dropdown cells store values with leading/trailing spaces that must match exactly.
+ * Maps our clean UI values to their exact Excel dropdown equivalents.
+ * - Z6 (Box Type): "QUARTER" → "QUARTER " (trailing space in LIST!A151)
+ * - D7 (Customer): "OPEN DESIGN" → " OPEN DESIGN", "NEW CUSTOMER" → " NEW CUSTOMER" (leading space in CUST LIST)
+ */
+function normalizeExcelValue(cell: string, value: string): string {
+  const c = cell.toUpperCase()
+  if (c === 'Z6' && value === 'QUARTER') return 'QUARTER '
+  if (c === 'D7') {
+    if (value === 'OPEN DESIGN') return ' OPEN DESIGN'
+    if (value === 'NEW CUSTOMER') return ' NEW CUSTOMER'
+  }
+  return value
+}
+
+/**
+ * Write cells to one or more Excel files in a SINGLE Excel COM session.
+ * Opening Excel once for all files avoids RPC_E_CALL_REJECTED when processing batches.
+ * Same approach as EliteQuote's HybridExcelBackend (WinExcelComWriteAdapter).
+ */
+async function writeExcelViaCOM(files: ExcelFileWrite[]): Promise<void> {
+  const filesToProcess = files
+    .map((f) => ({
+      ...f,
+      updates: f.updates
+        .filter((u) => u.value !== '' && u.value !== undefined)
+        .map((u) => ({ ...u, value: normalizeExcelValue(u.cell, u.value) })),
+    }))
+    .filter((f) => f.updates.length > 0)
+
+  if (filesToProcess.length === 0) return
+
+  const inner: string[] = []
+  for (const { filePath, updates } of filesToProcess) {
+    const absPath = path.resolve(filePath).replace(/'/g, "''")
+    inner.push(`  $wb = $excel.Workbooks.Open('${absPath}', 0, $false)`)
+    for (const { sheet, cell, value } of updates) {
+      const safeSheet = sheet.replace(/'/g, "''")
+      const safeValue = value.replace(/'/g, "''")
+      inner.push(`  $wb.Worksheets('${safeSheet}').Range('${cell}').Value = '${safeValue}'`)
+    }
+    inner.push('  try { $excel.CalculateFull() } catch { }')
+    inner.push('  $wb.Save()')
+    inner.push('  $wb.Close($false)')
+  }
+
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    '$excel = New-Object -ComObject Excel.Application',
+    '$excel.Visible = $false',
+    '$excel.DisplayAlerts = $false',
+    'try {',
+    ...inner,
+    '} finally {',
+    '  try { $excel.Quit() } catch { }',
+    '  [System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null',
+    '}',
+  ].join('\r\n')
+
+  const tmpFile = path.join(os.tmpdir(), `recipe_write_${Date.now()}.ps1`)
+  fs.writeFileSync(tmpFile, script, 'utf8')
+
+  try {
+    const { stdout, stderr } = await execAsync(
+      `powershell -NonInteractive -NoProfile -ExecutionPolicy Bypass -File "${tmpFile}"`,
+      { timeout: 300000 }
+    )
+    if (stderr?.trim()) console.warn('PS stderr:', stderr.trim())
+    if (stdout?.trim()) console.log('PS stdout:', stdout.trim())
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string }
+    const detail = [e.stderr, e.stdout].filter(Boolean).join('\n').trim() || e.message || String(err)
+    // Keep the script on failure so it can be inspected
+    console.error('Failed PS script:', tmpFile)
+    console.error('Script contents:\n', script)
+    throw new Error(`PowerShell COM error: ${detail}`)
+  } finally {
+    try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
+  }
+}
+
 export function registerRecipeHandlers(): void {
 
   // ── Read multiple cells from an Excel file ────────────────────────────────
@@ -159,7 +256,7 @@ export function registerRecipeHandlers(): void {
       try {
         const workbook = new ExcelJS.Workbook()
         await workbook.xlsx.readFile(filePath)
-        const ws = workbook.worksheets[0]
+        const ws = workbook.getWorksheet('Quote') ?? workbook.getWorksheet(1)
         if (!ws) throw new Error('No worksheet found in file')
 
         const result: Record<string, string> = {}
@@ -179,16 +276,10 @@ export function registerRecipeHandlers(): void {
     'recipe:writeCells',
     async (_event, filePath: string, changes: RecipeCellChange[]): Promise<{ success: boolean }> => {
       try {
-        const workbook = new ExcelJS.Workbook()
-        await workbook.xlsx.readFile(filePath)
-        const ws = workbook.worksheets[0]
-        if (!ws) throw new Error('No worksheet found in file')
-
-        for (const change of changes) {
-          setCellValue(ws, change.cell, change.value)
-        }
-
-        await workbook.xlsx.writeFile(filePath)
+        await writeExcelViaCOM([{
+          filePath,
+          updates: changes.map((c) => ({ sheet: 'Quote', cell: c.cell, value: String(c.value ?? '') }))
+        }])
         return { success: true }
       } catch (err) {
         console.error('recipe:writeCells error:', err)
@@ -197,39 +288,39 @@ export function registerRecipeHandlers(): void {
     }
   )
 
-  // ── Generate a new Excel file from a template ─────────────────────────────
+  // ── Generate a new Excel file from a template (copy only — use batchGenerate for cell writes) ──
   ipcMain.handle(
     'recipe:generateFromTemplate',
     async (
       _event,
       templatePath: string,
       outputPath: string,
-      recipeData: RecipeSpec
+      _recipeData: RecipeSpec
     ): Promise<{ success: boolean }> => {
       try {
-        // Ensure output directory exists
-        fs.mkdirSync(path.dirname(outputPath), { recursive: true })
-
-        // Copy template to output path
-        fs.copyFileSync(templatePath, outputPath)
-
-        // Write initial recipe data if any values are provided
-        if (recipeData.displayName || recipeData.holidayOverride || recipeData.customerOverride) {
-          const workbook = new ExcelJS.Workbook()
-          await workbook.xlsx.readFile(outputPath)
-          const ws = workbook.worksheets[0]
-          if (ws) {
-            if (recipeData.displayName) setCellValue(ws, 'D3', recipeData.displayName)
-            if (recipeData.holidayOverride) setCellValue(ws, 'D6', recipeData.holidayOverride)
-            if (recipeData.customerOverride) setCellValue(ws, 'D7', recipeData.customerOverride)
-            if (recipeData.wetPackOverride) setCellValue(ws, 'AA40', recipeData.wetPackOverride)
-            await workbook.xlsx.writeFile(outputPath)
-          }
-        }
-
+        const safeOut = np(outputPath)
+        fs.mkdirSync(path.dirname(safeOut), { recursive: true })
+        fs.copyFileSync(np(templatePath), safeOut)
         return { success: true }
       } catch (err) {
         console.error('recipe:generateFromTemplate error:', err)
+        throw err
+      }
+    }
+  )
+
+  // ── Batch generate: copy all files then write all cells in ONE Excel session ──
+  ipcMain.handle(
+    'recipe:batchWriteCells',
+    async (
+      _event,
+      batch: Array<{ filePath: string; updates: Array<{ sheet: string; cell: string; value: string }> }>
+    ): Promise<{ success: boolean }> => {
+      try {
+        await writeExcelViaCOM(batch)
+        return { success: true }
+      } catch (err) {
+        console.error('recipe:batchWriteCells error:', err)
         throw err
       }
     }
@@ -270,7 +361,7 @@ export function registerRecipeHandlers(): void {
     'recipe:createFolder',
     async (_event, folderPath: string): Promise<{ success: boolean }> => {
       try {
-        fs.mkdirSync(folderPath, { recursive: true })
+        fs.mkdirSync(np(folderPath), { recursive: true })
         return { success: true }
       } catch (err) {
         console.error('recipe:createFolder error:', err)
@@ -436,17 +527,84 @@ export function registerRecipeHandlers(): void {
     }
   )
 
-  // ── Parse Excel file for recipe import ────────────────────────────────────
+  // ── Create a blank import template Excel ─────────────────────────────────
+  ipcMain.handle(
+    'recipe:createImportTemplate',
+    async (_event, destPath: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        fs.mkdirSync(path.dirname(destPath), { recursive: true })
+        const workbook = new ExcelJS.Workbook()
+        const ws = workbook.addWorksheet('Import')
+
+        // Headers
+        ws.getCell('A1').value = 'Folder'
+        ws.getCell('B1').value = 'Name'
+        ws.getRow(1).font = { bold: true }
+
+        // Example rows so user understands the format
+        ws.getCell('A2').value = 'Valentine'
+        ws.getCell('B2').value = '$12.99 A VALENTINE'
+        ws.getCell('A3').value = 'Everyday'
+        ws.getCell('B3').value = '$9.99 ROSE'
+        ws.getCell('A4').value = 'Christmas'
+        ws.getCell('B4').value = '$14.99 B XMAS'
+
+        ws.getColumn('A').width = 36
+        ws.getColumn('B').width = 22
+
+        await workbook.xlsx.writeFile(destPath)
+        return { success: true }
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
+
+  // ── Parse ABS/Book1 format Excel (A=name, B=SRP, C=Box Type, D=Pick Needed, E=holiday) ──
+  ipcMain.handle(
+    'recipe:parseBook1Excel',
+    async (_, filePath: string): Promise<{
+      success: boolean
+      rows?: Array<{
+        name: string; srp: string; boxType: string; pickNeeded: string; holiday: string
+      }>
+      error?: string
+    }> => {
+      try {
+        const workbook = new ExcelJS.Workbook()
+        await workbook.xlsx.readFile(filePath)
+        const sheet = workbook.getWorksheet(1)
+        if (!sheet) return { success: false, error: 'No worksheet found' }
+
+        const rows: Array<{ name: string; srp: string; boxType: string; pickNeeded: string; holiday: string }> = []
+        sheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return // skip header
+          const name      = String(row.getCell(1).value ?? '').trim()
+          const srp       = String(row.getCell(2).value ?? '').trim()
+          const boxType   = String(row.getCell(3).value ?? '').trim()
+          const pickNeeded = String(row.getCell(4).value ?? '').trim()
+          const holiday   = String(row.getCell(5).value ?? '').trim()
+          if (!name || !srp) return
+          rows.push({ name, srp, boxType, pickNeeded, holiday })
+        })
+        return { success: true, rows }
+      } catch (err) {
+        return { success: false, error: String(err) }
+      }
+    }
+  )
+
+  // ── Parse Excel file for recipe import (A=name/folder, B=SRP, C=BoxType, D=PickNeeded, E=holiday) ──
   ipcMain.handle(
     'recipe:parseImportExcel',
     async (_, filePath: string): Promise<{
       success: boolean
       rows?: Array<{
-        rawName: string
-        price: string
-        option: string
         name: string
-        folder: string
+        srp: string
+        boxType: string
+        pickNeeded: string
+        holiday: string
       }>
       error?: string
     }> => {
@@ -454,39 +612,85 @@ export function registerRecipeHandlers(): void {
         const workbook = new ExcelJS.Workbook()
         await workbook.xlsx.readFile(filePath)
 
-        const sheet = workbook.worksheets[0]
+        const sheet = workbook.getWorksheet(1)
         if (!sheet) return { success: false, error: 'No worksheet found' }
 
-        const rows: Array<{
-          rawName: string; price: string; option: string;
-          name: string; folder: string
-        }> = []
+        const rows: Array<{ name: string; srp: string; boxType: string; pickNeeded: string; holiday: string }> = []
+
+        // Auto-detect starting column: find which column has the header "name" in row 1
+        let startCol = 1
+        const headerRow = sheet.getRow(1)
+        for (let c = 1; c <= 10; c++) {
+          const v = String(headerRow.getCell(c).value ?? '').trim().toLowerCase()
+          if (v === 'name') { startCol = c; break }
+        }
 
         sheet.eachRow((row, rowNumber) => {
           if (rowNumber === 1) return // saltar header
-
-          const rawName = String(row.getCell(1).value ?? '').trim()
-          const folder  = String(row.getCell(2).value ?? 'General').trim()
-
-          if (!rawName) return
-
-          // Parsear precio/opción/nombre
-          const priceMatch = rawName.match(/^\$?(\d+(?:\.\d{1,2})?)/)
-          const price = priceMatch ? `$${priceMatch[1]}` : ''
-          const afterPrice = rawName.replace(/^\$?\d+(?:\.\d{1,2})?\s*/, '')
-          const optionMatch = afterPrice.match(/^([ABC])\s+/i)
-          const option = optionMatch ? optionMatch[1].toUpperCase() : ''
-          const name = afterPrice
-            .replace(/^[ABC]\s+/i, '')
-            .toUpperCase()
-            .trim()
-
-          rows.push({ rawName, price, option, name, folder })
+          const name = String(row.getCell(startCol).value ?? '').trim()
+          if (!name) return
+          rows.push({
+            name,
+            srp:        String(row.getCell(startCol + 1).value ?? '').trim(),
+            boxType:    String(row.getCell(startCol + 2).value ?? '').trim(),
+            pickNeeded: String(row.getCell(startCol + 3).value ?? '').trim(),
+            holiday:    String(row.getCell(startCol + 4).value ?? '').trim(),
+          })
         })
 
         return { success: true, rows }
       } catch (err) {
         return { success: false, error: String(err) }
+      }
+    }
+  )
+
+  // ── Validate an existing project folder (for Import Existing) ─────────────
+  ipcMain.handle(
+    'recipe:validateProjectFolder',
+    async (_event, folderPath: string): Promise<{
+      valid: boolean
+      config?: {
+        projectName: string
+        createdAt: string
+        customerDefault: string
+        holidayDefault: string
+        wetPackDefault: boolean
+        distributionDefault: Record<string, number>
+        templatePath: string
+        notes: string
+      }
+      error?: string
+    }> => {
+      try {
+        if (!fs.existsSync(np(folderPath))) {
+          return { valid: false, error: 'Folder not found' }
+        }
+        const projectDir = np(path.join(folderPath, '_project'))
+        if (!fs.existsSync(projectDir)) {
+          return { valid: false, error: 'No _project/ folder found. This does not appear to be an NPD project.' }
+        }
+        const configPath = path.join(projectDir, 'project_config.json')
+        if (!fs.existsSync(configPath)) {
+          return { valid: false, error: '_project/ folder found but missing project_config.json' }
+        }
+        const raw = fs.readFileSync(configPath, 'utf-8')
+        const cfg = JSON.parse(raw)
+        return {
+          valid: true,
+          config: {
+            projectName:         cfg.project_name ?? cfg.projectName ?? path.basename(folderPath),
+            createdAt:           cfg.created_at   ?? cfg.createdAt   ?? new Date().toISOString(),
+            customerDefault:     cfg.customer_default     ?? cfg.customerDefault     ?? 'OPEN DESIGN',
+            holidayDefault:      cfg.holiday_default      ?? cfg.holidayDefault      ?? 'EVERYDAY',
+            wetPackDefault:      cfg.wet_pack_default     ?? cfg.wetPackDefault      ?? false,
+            distributionDefault: cfg.distribution_default ?? cfg.distributionDefault ?? {},
+            templatePath:        cfg.template_path        ?? cfg.templatePath        ?? '',
+            notes:               cfg.notes ?? '',
+          },
+        }
+      } catch (err) {
+        return { valid: false, error: `Failed to read project: ${String(err)}` }
       }
     }
   )

@@ -97,15 +97,7 @@ service cloud.firestore {
     // ─────────────────────────────────────────
 
     match /tasks/{taskId} {
-      allow read: if isActiveUser();
-      allow create: if isActiveUser();
-
-      // Any active user can update tasks (collaborative editing)
-      allow update: if isActiveUser();
-
-      // Only admins or task creator can delete
-      allow delete: if isAdmin() ||
-                       (isActiveUser() && resource.data.createdBy == request.auth.uid);
+      allow read, create, update, delete: if isActiveUser();
     }
 
     // ─────────────────────────────────────────
@@ -216,13 +208,22 @@ service cloud.firestore {
       allow read, write: if isActiveUser();
 
       match /recipeFiles/{fileId} {
-        allow read: if isActiveUser();
-        allow write: if isActiveUser();
+        allow read, write: if isActiveUser();
       }
 
       match /recipePresence/{userId} {
         allow read: if isActiveUser();
         allow write: if request.auth.uid == userId || isAdmin();
+      }
+
+      match /settings/{settingsDoc} {
+        allow read: if isActiveUser();
+        allow write: if isAdmin();
+      }
+
+      match /activity/{eventId} {
+        allow read, create: if isActiveUser();
+        allow update, delete: if false;
       }
     }
 
@@ -235,10 +236,7 @@ service cloud.firestore {
     // ─────────────────────────────────────────
 
     match /trashQueue/{trashId} {
-      allow read: if isActiveUser();
-      allow create: if isActiveUser();
-      allow update: if isActiveUser();
-      allow delete: if false;
+      allow read, write: if isActiveUser();
     }
 
     // ─────────────────────────────────────────

@@ -11,21 +11,13 @@ import type {
   RecipeRuleCells,
   RecipeFile,
 } from '../types'
+import { DISTRIBUTION_CELLS } from '../types'
 
-// ── DC order matching distributionStart row offset ─────────────────────────
+// ── DC keys in order ────────────────────────────────────────────────────────
 
 const DC_KEYS: Array<keyof import('../types').RecipeDistribution> = [
   'miami', 'newJersey', 'california', 'chicago', 'seattle', 'texas',
 ]
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function cellRowOffset(startCell: string, offset: number): string {
-  // E.g. "AI15" + 1 → "AI16"
-  const match = startCell.match(/^([A-Z]+)(\d+)$/)
-  if (!match) return startCell
-  return `${match[1]}${parseInt(match[2]) + offset}`
-}
 
 function num(val: string | undefined): number {
   const n = parseFloat(val ?? '0')
@@ -46,7 +38,7 @@ export async function validateRecipeFile(
   let requiresManualUpdate = false
 
   // Build list of all cells to read up front
-  const dcCells = DC_KEYS.map((_, i) => cellRowOffset(rc.distributionStart, i))
+  const dcCells = DC_KEYS.map((k) => DISTRIBUTION_CELLS[k])
   const allCells = [
     rc.recipeName,
     rc.holiday,
@@ -215,7 +207,7 @@ export async function validateRecipeFile(
   if (totalDist > 100) {
     changes.push({
       field:          'Distribution Total',
-      cell:           rc.distributionStart,
+      cell:           DISTRIBUTION_CELLS.miami,
       currentValue:   `${totalDist}%`,
       suggestedValue: '≤ 100%',
       autoApply:      false,

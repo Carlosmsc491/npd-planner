@@ -6,6 +6,17 @@ const PRICE_REGEX = /^\$?\d+(?:\.\d{1,2})?$/
 const OPTION_REGEX = /^[A-C]$/
 
 /**
+ * Strip characters that are illegal in Windows file/folder names: \ / : * ? " < > |
+ * and collapse multiple spaces.
+ */
+export function sanitizeWindowsName(name: string): string {
+  return name
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
  * Normalize separate components into a canonical recipe display name.
  * Examples:
  *   ("12.99", "A", "Valentine")  → "$12.99 A VALENTINE"

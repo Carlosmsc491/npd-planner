@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import { ArrowLeft, Trash2, GripVertical, Plus, Settings, X, Star } from 'lucide-react'
-import { updateBoard, updateBoardProperties, subscribeToClients } from '../../lib/firestore'
+import { updateBoard, updateBoardProperties, subscribeToClients, subscribeToLabels } from '../../lib/firestore'
+import { useTaskStore } from '../../store/taskStore'
+import { useAuthStore } from '../../store/authStore'
 import { DynamicIcon, PROPERTY_TYPE_LABELS, OPTION_COLORS } from '../../utils/propertyUtils'
 import { BOARD_BUCKETS } from '../../utils/colorUtils'
 import IconPickerPopover from './IconPickerPopover'
 import AddPropertyModal from './AddPropertyModal'
-import type { Board, BoardProperty, PropertyType, SelectOption, Client } from '../../types'
+import type { Board, BoardProperty, PropertyType, SelectOption, Client, Label } from '../../types'
 
 const PRESET_COLORS = [
   '#1D9E75', '#378ADD', '#D4537E', '#F59E0B',
@@ -70,17 +72,35 @@ interface Props {
 }
 
 export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Props) {
+  const setToast = useTaskStore((s) => s.setToast)
+  const { user } = useAuthStore()
+  const isOwner = user?.role === 'owner'
   const [clients, setClients] = useState<Client[]>([])
+  const [labels, setLabels] = useState<Label[]>([])
 
   useEffect(() => {
-    const unsub = subscribeToClients(setClients)
-    return unsub
+    const unsubClients = subscribeToClients(setClients)
+    const unsubLabels = subscribeToLabels(setLabels)
+    return () => {
+      unsubClients()
+      unsubLabels()
+    }
   }, [])
   const [properties, setProperties] = useState<BoardProperty[]>(() => {
     const existing = board.customProperties ?? []
     if (existing.length === 0) return getDefaultProperties(board.type)
     return patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type)
   })
+
+  // Sync local properties state when board.customProperties changes from Firestore
+  useEffect(() => {
+    const existing = board.customProperties ?? []
+    if (existing.length === 0) {
+      setProperties(getDefaultProperties(board.type))
+    } else {
+      setProperties(patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type))
+    }
+  }, [board.customProperties, board.type])
   const [showAddModal, setShowAddModal]       = useState(false)
   const [renamingId, setRenamingId]           = useState<string | null>(null)
   const [renameValue, setRenameValue]         = useState('')
@@ -128,6 +148,16 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
       .map((p, i) => ({ ...p, order: i }))
     setDeletingId(null)
     await saveProperties(updated)
+  }
+
+  const handleDeleteProperty = (propertyId: string) => {
+    // Solo el owner puede eliminar propiedades del sistema
+    const SYSTEM_PROPERTIES = ['builtin-client', 'builtin-status', 'builtin-priority', 'builtin-date', 'builtin-assignees', 'builtin-labels', 'builtin-bucket', 'builtin-awb', 'builtin-po', 'builtin-notes']
+    if (SYSTEM_PROPERTIES.includes(propertyId) && !isOwner) {
+      setToast({ id: crypto.randomUUID(), type: 'error', message: 'Only owners can delete system properties' })
+      return
+    }
+    setDeletingId(propertyId)
   }
 
   async function handleRename(id: string) {
@@ -381,12 +411,13 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                           >
                             <Settings size={14} />
                           </button>
-                          {!isBuiltin && (
+                          {(isOwner || !isBuiltin) && (
                             <button
-                              onClick={() => setDeletingId(prop.id)}
-                              className="opacity-0 group-hover/prop:opacity-100 text-gray-300 hover:text-red-500 dark:text-gray-600 dark:hover:text-red-400 transition-opacity"
+                              onClick={() => handleDeleteProperty(prop.id)}
+                              className="flex items-center justify-center w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors"
+                              title={isOwner && isBuiltin ? 'Delete system property (Owner only)' : 'Delete property'}
                             >
-                              <Trash2 size={15} />
+                              <Trash2 size={14} />
                             </button>
                           )}
                         </>
@@ -489,6 +520,28 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                           </div>
                           <p className="text-[10px] text-gray-400 mt-2">
                             Clients are managed dynamically and appear automatically in task dropdowns.
+                          </p>
+                        </div>
+                      ) : prop.id === 'builtin-labels' ? (
+                        /* Labels field - show available labels */
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">
+                            Available Labels ({labels.length})
+                          </p>
+                          <div className="space-y-1.5 mb-2 max-h-40 overflow-y-auto">
+                            {labels.length === 0 ? (
+                              <p className="text-xs text-gray-400 italic">No labels found. Create labels in Settings → Labels.</p>
+                            ) : (
+                              labels.map((label) => (
+                                <div key={label.id} className="flex items-center gap-2">
+                                  <div className="h-2 w-2 rounded-full" style={{ backgroundColor: label.color }} />
+                                  <span className="text-xs text-gray-700 dark:text-gray-300">{label.name}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-2">
+                            Labels are managed in Settings → Labels and can be applied to tasks across all boards.
                           </p>
                         </div>
                       ) : (

@@ -85,6 +85,18 @@ export async function updateRecipeProject(
   }
 }
 
+export async function deleteRecipeProject(projectId: string): Promise<void> {
+  try {
+    // Delete all recipeFiles subcollection docs first
+    const filesSnap = await getDocs(collection(db, RECIPE_PROJECTS, projectId, RECIPE_FILES))
+    await Promise.all(filesSnap.docs.map((d) => deleteDoc(d.ref)))
+    // Then delete the project document
+    await deleteDoc(doc(db, RECIPE_PROJECTS, projectId))
+  } catch (err) {
+    throw new Error(`Failed to delete recipe project: ${err}`)
+  }
+}
+
 // ─────────────────────────────────────────
 // FILES (subcollection of recipeProjects)
 // ─────────────────────────────────────────
@@ -452,15 +464,13 @@ export async function initDefaultRecipeSettings(userId: string): Promise<RecipeS
     userId,
     ruleCells: { ...RULE_CELLS_DEFAULTS },
     holidayMap: {
-      VALENTINE:    "VALENTINE'S DAY",
-      VALENTINES:   "VALENTINE'S DAY",
-      XMAS:         'CHRISTMAS',
-      CHRISTMAS:    'CHRISTMAS',
-      THANKSGIVING: 'THANKSGIVING',
-      MOTHERS:      "MOTHER'S DAY",
-      FATHERS:      "FATHER'S DAY",
-      EASTER:       'EASTER',
-      HALLOWEEN:    'HALLOWEEN',
+      VALENTINE: "VALENTINE'S DAY",
+      EASTER:    'EASTER',
+      MOTHER:    "MOTHER'S DAY",
+      FALL:      'FALL COLORS',
+      XMAS:      'XMAS COLORS',
+      CHRISTMAS: 'XMAS COLORS',
+      EVERYDAY:  'EVERYDAY',
     },
     sleeveByPrice: {},
     sleeveByStems: {},
@@ -508,15 +518,13 @@ export async function initDefaultRecipeProjectSettings(
   const settings: import('../types').RecipeProjectSettings = {
     ruleCells: { ...RULE_CELLS_DEFAULTS },
     holidayMap: {
-      VALENTINE:    "VALENTINE'S DAY",
-      VALENTINES:   "VALENTINE'S DAY",
-      XMAS:         'CHRISTMAS',
-      CHRISTMAS:    'CHRISTMAS',
-      THANKSGIVING: 'THANKSGIVING',
-      MOTHERS:      "MOTHER'S DAY",
-      FATHERS:      "FATHER'S DAY",
-      EASTER:       'EASTER',
-      HALLOWEEN:    'HALLOWEEN',
+      VALENTINE: "VALENTINE'S DAY",
+      EASTER:    'EASTER',
+      MOTHER:    "MOTHER'S DAY",
+      FALL:      'FALL COLORS',
+      XMAS:      'XMAS COLORS',
+      CHRISTMAS: 'XMAS COLORS',
+      EVERYDAY:  'EVERYDAY',
     },
     sleeveByPrice: {},
     sleeveByStems: {},

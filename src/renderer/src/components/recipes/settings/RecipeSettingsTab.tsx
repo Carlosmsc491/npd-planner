@@ -32,7 +32,8 @@ const RULE_CELL_LABELS: Array<{ key: keyof RecipeRuleCells; label: string }> = [
   { key: 'sleevePrice',       label: 'Sleeve Price' },
   { key: 'sleeveFlag',        label: 'Sleeve Flag' },
   { key: 'stemCount',         label: 'Stem Count' },
-  { key: 'distributionStart', label: 'Distribution Start' },
+  { key: 'pickNeeded',        label: 'Pick Needed' },
+  { key: 'boxType',           label: 'Box Type' },
 ]
 
 export default function RecipeSettingsTab({ userId, section }: Props) {
@@ -189,7 +190,7 @@ export default function RecipeSettingsTab({ userId, section }: Props) {
         description='Maps recipe price strings (e.g. "$12.99") to sleeve price values.'
         action={
           <button
-            onClick={() => update({ sleeveByPrice: { ...settings.sleeveByPrice, '': 0 } })}
+            onClick={() => update({ sleeveByPrice: { ...settings.sleeveByPrice, '': '' } })}
             className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline"
           >
             <Plus size={12} />
@@ -210,7 +211,7 @@ export default function RecipeSettingsTab({ userId, section }: Props) {
         description="Maps stem count values (from cell K3) to sleeve price values."
         action={
           <button
-            onClick={() => update({ sleeveByStems: { ...settings.sleeveByStems, '': 0 } })}
+            onClick={() => update({ sleeveByStems: { ...settings.sleeveByStems, '': '' } })}
             className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline"
           >
             <Plus size={12} />
@@ -313,9 +314,9 @@ function PriceTable({
   keyPlaceholder,
   onChange,
 }: {
-  data: Record<string, number>
+  data: Record<string, string>
   keyPlaceholder: string
-  onChange: (data: Record<string, number>) => void
+  onChange: (data: Record<string, string>) => void
 }) {
   const entries = Object.entries(data)
 
@@ -340,13 +341,12 @@ function PriceTable({
           />
           <span className="text-gray-400 text-xs">→</span>
           <input
-            type="number"
-            step={0.01}
+            type="text"
             value={value}
             placeholder="Sleeve price"
             onChange={(e) => {
               const next = [...entries]
-              next[i] = [key, parseFloat(e.target.value) || 0]
+              next[i] = [key, e.target.value]
               onChange(Object.fromEntries(next))
             }}
             className="w-28 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-green-500"

@@ -161,7 +161,7 @@ export interface Task {
   completed: boolean
   completedAt: Timestamp | null
   completedBy: string | null
-  customFields?: Record<string, unknown>
+  customFields?: Record<string, unknown> | null
   createdBy: string
   createdAt: Timestamp
   updatedAt: Timestamp
@@ -461,9 +461,9 @@ export interface TrashQueueItem {
     awbs: AwbEntry[]
     subtasks: Subtask[]
     recurring: RecurringConfig | null
-    customFields?: Record<string, unknown>
+    customFields: Record<string, unknown> | null
   }
-  
+
   attachments: Array<{
     id: string
     name: string
@@ -528,8 +528,8 @@ export interface RecipeProjectConfig {
 export interface RecipeProjectSettings {
   ruleCells: RecipeRuleCells
   holidayMap: Record<string, string>
-  sleeveByPrice: Record<string, number>
-  sleeveByStems: Record<string, number>
+  sleeveByPrice: Record<string, string>
+  sleeveByStems: Record<string, string>
 }
 
 // Settings del usuario (preferencias personales)
@@ -550,7 +550,7 @@ export interface RecipeProject {
 export interface RecipeFile {
   id: string
   projectId: string
-  fileId: string                  // "{projectId}::{relativePath}"
+  fileId: string                  // "{projectId}::{folder}|{filename}.xlsx" (| replaces / to avoid Firestore path issues)
   relativePath: string            // "Valentine/$12.99 A VALENTINE.xlsx"
   displayName: string             // "$12.99 A VALENTINE"
   price: string                   // "$12.99"
@@ -559,6 +559,8 @@ export interface RecipeFile {
   holidayOverride: string
   customerOverride: string
   wetPackOverride: string         // "Y" | "N"
+  boxTypeOverride: string         // "QUARTER" | "HALF ELITE" | etc. → Z6
+  pickNeededOverride: string      // "Y" | "N" → AC23
   distributionOverride: RecipeDistribution
   status: RecipeFileStatus
   lockedBy: string | null         // display name of user holding the lock
@@ -614,15 +616,16 @@ export interface RecipeRuleCells {
   sleevePrice: string       // "AB25"
   sleeveFlag: string        // "AC25"
   stemCount: string         // "K3"
-  distributionStart: string // "AI15" (AI15:AI20 for the 6 DCs)
+  pickNeeded: string        // "AC23"
+  boxType: string           // "Z6"
 }
 
 export interface RecipeSettings {
   userId: string
   ruleCells: RecipeRuleCells
   holidayMap: Record<string, string>    // keyword → holiday value
-  sleeveByPrice: Record<string, number> // "$12.99" → sleeve price
-  sleeveByStems: Record<string, number> // "12" → sleeve price
+  sleeveByPrice: Record<string, string> // "$12.99" → sleeve price
+  sleeveByStems: Record<string, string> // "12" → sleeve price
   distributionDefaults: RecipeDistribution
   lockTimeoutSeconds: number            // default 300
 }
@@ -634,9 +637,12 @@ export interface RecipeSpec {
   price: string
   option: string
   name: string
+  projectName: string             // Written to Spec Sheet!E4
   holidayOverride: string
   customerOverride: string
   wetPackOverride: string
+  boxTypeOverride: string         // Z6 value: "QUARTER" | "HALF ELITE" | etc.
+  pickNeededOverride: string      // AC23 value: "Y" | "N"
   distributionOverride: RecipeDistribution
   requiresManualUpdate: boolean
 }
@@ -686,7 +692,8 @@ export const DEFAULT_RECIPE_RULE_CELLS: RecipeRuleCells = {
   sleevePrice:       'AB25',
   sleeveFlag:        'AC25',
   stemCount:         'K3',
-  distributionStart: 'AI15',
+  pickNeeded:        'AC23',
+  boxType:           'Z6',
 }
 
 export const DEFAULT_RECIPE_DISTRIBUTION: RecipeDistribution = {
@@ -698,23 +705,97 @@ export const DEFAULT_RECIPE_DISTRIBUTION: RecipeDistribution = {
   texas:     0,
 }
 
+export const DISTRIBUTION_CELLS: Record<keyof RecipeDistribution, string> = {
+  miami:       'AI15',
+  newJersey:   'AI20',
+  california:  'AI25',
+  chicago:     'AI30',
+  seattle:     'AI35',
+  texas:       'AI40',
+}
+
+/** Maps SRP price (with $ prefix) → sleeve price string to write to AB25 */
+export const SLEEVE_PRICE_MAP: Record<string, string> = {
+  '$7.99':   '0.25',
+  '$11.99':  '0.3',
+  '$12.99':  '0.3',
+  '$14.99':  '0.35',
+  '$15.99':  '0.35',
+  '$16.99':  '0.4',
+  '$17.99':  '0.4',
+  '$19.99':  '0.4',
+  '$21.99':  '0.4',
+  '$24.99':  '0.5',
+  '$26.99':  '0.4',
+  '$29.99':  '0.5',
+  '$34.99':  '0.5',
+  '$39.99':  '0.6',
+  '$43.99':  '0.5',
+  '$44.99':  '0.6',
+  '$45.99':  '0.6',
+  '$49.99':  '0.6',
+  '$59.99':  '0.6',
+  '$75.99':  '0.6',
+  '$100.99': '0.6',
+}
+
 export const RECIPE_CUSTOMER_OPTIONS: string[] = [
   'OPEN DESIGN',
-  'WALMART',
+  'NEW CUSTOMER',
+  '365 BY WHOLE FOODS',
+  'ABTFW ASSOCIATED WHOLESALE GROCERS',
+  'AHOLD',
   "ALBERTSON'S IRVINE",
-  'KROGER',
-  'COSTCO',
-  'HEB',
+  "ALBERTSON'S JEWEL",
+  "ALBERTSON'S LANCASTER",
+  "ALBERTSON'S NEWELL & CO",
+  "ALBERTSON'S PHOENIX",
+  "ALBERTSON'S PORTLAND",
+  "ALBERTSON'S SALT LAKE CITY",
+  "ALBERTSON'S SHAWS",
+  'ASSOCIATED WHOLESALE GROCERS INC',
+  'BILO',
+  "BOZZUTO'S IGA INC",
+  'BRISTOL FARMS',
+  'DBA WESTERN BEEF PRODUCE',
+  'EARTH FARE INC',
+  'EFS FRESH DIRECT, LLC',
+  'EFS INDIANA GROCERY GROUP, LLC',
+  'FARM FRESH -SUPERVALU CENTRAL FLORAL WHOLESALE',
+  'GIANT EAGLE',
+  'GROCERY OUTLET',
+  'H.E.BUTT GROCERY COMPANY',
+  'HARRIS TEETER',
+  'KEY FLORAL',
+  'LEGACY FLOWERS S',
+  'MATRANAS PRODUCE',
+  'PROCACCI BROTHERS INC.',
   'PUBLIX',
+  "RALEY'S SUPERMARKETS",
+  'SAFEWAY',
+  "SOLOMON'S FRESH MARKET - BAHAMA'S",
+  'SPARTAN STORES INC.',
+  'SPROUTS FARMERS MARKET',
+  'STRUBE CELERY AND VEGETABLE COMPANY',
+  'SUPERVALU',
+  'SUPERVALU SAVE A LOT',
+  'THE FRESH MARKET',
+  'TOPCO ASSOCIATES LLC',
+  "TRADER JOE'S",
+  'UNITED SALAD CO.',
+  'UNITED SUPERMARKETS LTD',
+  'WAKEFERN FOOD CORPORATION',
+  'WALMART',
+  'WEIS MARKET INC.',
+  'WHOLE FOODS MARKET',
+  'WINN DIXIE',
 ]
 
 export const RECIPE_HOLIDAY_OPTIONS: string[] = [
   'EVERYDAY',
   "VALENTINE'S DAY",
-  'CHRISTMAS',
-  'THANKSGIVING',
-  "MOTHER'S DAY",
-  "FATHER'S DAY",
   'EASTER',
-  'HALLOWEEN',
+  "MOTHER'S DAY",
+  'FALL COLORS',
+  'XMAS COLORS',
 ]

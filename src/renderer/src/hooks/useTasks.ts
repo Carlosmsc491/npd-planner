@@ -75,7 +75,11 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
 
     const retentionDays = user.preferences?.trashRetentionDays ?? 30
     const year = task.createdAt?.toDate?.()?.getFullYear?.() ?? new Date().getFullYear()
-    const sharePointFolderPath = `${year}/unknown/${task.title}`
+    const sharePointRoot = localStorage.getItem('npd_sharepoint_path') ?? ''
+    const safeTitle = task.title.replace(/[<>:"/\\|?*]/g, '_').substring(0, 80)
+    const sharePointFolderPath = sharePointRoot
+      ? `${sharePointRoot}/REPORTS (NPD-SECURE)/${year}/unknown/${safeTitle}`
+      : ''
 
     try {
       await moveTaskToTrash(task, sharePointFolderPath, user.uid, user.name, retentionDays)
