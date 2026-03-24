@@ -13,8 +13,9 @@ import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import type { AppUser, UserStatus, UserRole } from '../../types'
 import type { Timestamp } from 'firebase/firestore'
-import { 
+import {
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut
 } from 'firebase/auth'
 import { auth } from '../../lib/firebase'
@@ -55,6 +56,15 @@ export default function MembersPanel() {
 
   async function setRole(uid: string, role: UserRole) {
     await updateUserRole(uid, role)
+  }
+
+  async function resetPassword(email: string) {
+    try {
+      await sendPasswordResetEmail(auth, email)
+      setToast({ id: `reset-${email}`, message: `Password reset email sent to ${email}`, type: 'success', duration: 4000 })
+    } catch (err) {
+      setToast({ id: `reset-err-${email}`, message: `Failed to send reset email: ${err instanceof Error ? err.message : String(err)}`, type: 'error', duration: 5000 })
+    }
   }
 
   return (
@@ -140,6 +150,7 @@ export default function MembersPanel() {
                     isOwner={isOwner}
                     onRoleChange={setRole}
                     onSuspend={suspend}
+                    onResetPassword={resetPassword}
                   />
                 )}
               </MemberRow>
@@ -532,11 +543,13 @@ function RoleDropdown({
   isOwner,
   onRoleChange,
   onSuspend,
+  onResetPassword,
 }: {
   user: AppUser
   isOwner: boolean
   onRoleChange: (uid: string, role: UserRole) => void
   onSuspend: (uid: string) => void
+  onResetPassword: (email: string) => void
 }) {
   const [open, setOpen] = useState(false)
 
@@ -565,6 +578,10 @@ function RoleDropdown({
                 onClick={() => { onRoleChange(user.uid, 'member'); setOpen(false) }}
               />
             )}
+            <DropdownItem
+              label="Reset Password"
+              onClick={() => { onResetPassword(user.email); setOpen(false) }}
+            />
             <DropdownItem
               label="Suspend"
               danger
