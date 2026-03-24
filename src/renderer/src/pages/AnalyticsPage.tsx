@@ -221,13 +221,29 @@ function DashboardTab({ boards }: DashboardTabProps) {
   }, [])
 
   const clientChartData = useMemo(() => {
-    return clientData.map(d => ({
-      name: clientNames[d.clientId] || 'Unknown',
-      count: d.count
-    }))
+    return clientData.map(d => {
+      const fullName = clientNames[d.clientId] || 'Unknown'
+      return {
+        name: fullName.length > 18 ? fullName.slice(0, 16) + '…' : fullName,
+        fullName,
+        count: d.count,
+      }
+    })
   }, [clientData, clientNames])
 
-  // Tasks by board
+  // Tasks by bucket
+  const bucketData = useMemo(() => {
+    const counts: Record<string, number> = {}
+    tasks.forEach(task => {
+      const bucket = task.bucket || 'No Bucket'
+      counts[bucket] = (counts[bucket] || 0) + 1
+    })
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+  }, [tasks])
+
+  // Tasks by board (kept for PDF export)
   const boardData = useMemo(() => {
     const counts: Record<string, number> = {}
     tasks.forEach(task => {
@@ -236,11 +252,7 @@ function DashboardTab({ boards }: DashboardTabProps) {
         counts[board.name] = (counts[board.name] || 0) + 1
       }
     })
-
-    return Object.entries(counts).map(([name, count]) => ({
-      name,
-      count
-    }))
+    return Object.entries(counts).map(([name, count]) => ({ name, count }))
   }, [tasks, boards])
 
   // Tasks by month this year
@@ -497,16 +509,13 @@ function DashboardTab({ boards }: DashboardTabProps) {
           <ChartCard title="Top 10 Clients" icon={<Briefcase size={16} />}>
             {clientChartData.length > 0 ? (
               <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={clientChartData} layout="vertical" margin={{ left: 80 }}>
+                <BarChart data={clientChartData} layout="vertical" margin={{ left: 120, right: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis type="number" />
-                  <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 12 }} />
+                  <YAxis dataKey="name" type="category" width={110} tick={{ fontSize: 11 }} interval={0} />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px'
-                    }}
+                    contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                    formatter={(_value, _name, props) => [props.payload.count, props.payload.fullName]}
                   />
                   <Bar dataKey="count" fill="#378ADD" radius={[0, 4, 4, 0]} />
                 </BarChart>
@@ -519,13 +528,13 @@ function DashboardTab({ boards }: DashboardTabProps) {
 
         {/* Charts Row 2 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-          {/* Tasks by Board */}
-          <ChartCard title="Tasks by Project" icon={<LayoutGrid size={16} />}>
-            {boardData.length > 0 ? (
+          {/* Tasks by Bucket */}
+          <ChartCard title="Tasks by Bucket" icon={<LayoutGrid size={16} />}>
+            {bucketData.length > 0 ? (
               <ResponsiveContainer width="100%" height={250}>
                 <PieChart>
                   <Pie
-                    data={boardData}
+                    data={bucketData}
                     cx="50%"
                     cy="50%"
                     innerRadius={60}
@@ -534,25 +543,16 @@ function DashboardTab({ boards }: DashboardTabProps) {
                     dataKey="count"
                     nameKey="name"
                   >
-                    {boardData.map((_entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={CHART_COLORS[index % CHART_COLORS.length]}
-                      />
+                    {bucketData.map((_entry, index) => (
+                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px'
-                    }}
-                  />
+                  <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px' }} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <EmptyState message="No board data available" />
+              <EmptyState message="No bucket data available" />
             )}
           </ChartCard>
 
