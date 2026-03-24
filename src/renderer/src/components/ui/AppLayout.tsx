@@ -251,30 +251,17 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
           <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
             Recetas NPD
           </div>
-          {[
-            { path: '/recipes',  label: 'NPD Projects', icon: FlowerIcon },
-            { path: '/settings', label: 'Configuration', icon: Settings2 },
-          ].map((item) => {
-            const Icon = item.icon
-            const isActive =
-              item.path === '/recipes'
-                ? location.pathname.startsWith('/recipes')
-                : location.pathname === '/settings'
-            return (
-              <Link
-                key={`recipe-nav-${item.path}`}
-                to={item.path}
-                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mb-0.5 transition-colors ${
-                  isActive
-                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                }`}
-              >
-                <Icon size={14} className="shrink-0" />
-                <span>{item.label}</span>
-              </Link>
-            )
-          })}
+          <Link
+            to="/recipes"
+            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mb-0.5 transition-colors ${
+              location.pathname.startsWith('/recipes')
+                ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+            }`}
+          >
+            <FlowerIcon size={14} className="shrink-0" />
+            <span>NPD Projects</span>
+          </Link>
 
           {/* New Board button */}
           {isAdmin && (

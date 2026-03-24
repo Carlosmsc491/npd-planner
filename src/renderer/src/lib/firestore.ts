@@ -85,12 +85,25 @@ export async function updateUserRole(uid: string, role: AppUser['role']): Promis
 
 export async function hasAnyAdmin(): Promise<boolean> {
   try {
-    const snap = await getDocs(
-      query(collection(db, COLLECTIONS.USERS), where('role', 'in', ['owner', 'admin']), limit(1))
-    )
-    return !snap.empty
-  } catch {
+    // Read the public bootstrap document — readable without authentication.
+    // This avoids the permission error that occurs when querying `users` before login.
+    const bootstrapSnap = await getDoc(doc(db, COLLECTIONS.SETTINGS, 'appBootstrap'))
+    if (bootstrapSnap.exists()) {
+      return bootstrapSnap.data()?.initialized === true
+    }
+    // Document doesn't exist → no owner registered yet → this is the first user.
     return false
+  } catch {
+    // Fail-safe: if we still can't read, assume admins exist → force awaiting approval.
+    return true
+  }
+}
+
+export async function markAppInitialized(): Promise<void> {
+  try {
+    await setDoc(doc(db, COLLECTIONS.SETTINGS, 'appBootstrap'), { initialized: true })
+  } catch (err) {
+    console.error('Failed to write appBootstrap:', err)
   }
 }
 

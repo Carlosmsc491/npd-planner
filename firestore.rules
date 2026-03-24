@@ -192,6 +192,13 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // appBootstrap is publicly readable so registration can check if an owner exists
+    // without requiring authentication (new users are not yet logged in at that point).
+    match /settings/appBootstrap {
+      allow read: if true;
+      allow write: if isAdmin() || !exists(/databases/$(database)/documents/settings/appBootstrap);
+    }
+
     // ─────────────────────────────────────────
     // USER PRIVATE (personal space - only owner can access)
     // ─────────────────────────────────────────
