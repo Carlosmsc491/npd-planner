@@ -803,6 +803,28 @@ export function subscribeToTaskHistory(
   )
 }
 
+export async function getComments(taskId: string): Promise<Comment[]> {
+  try {
+    const snap = await getDocs(query(
+      collection(db, COLLECTIONS.COMMENTS),
+      where('taskId', '==', taskId),
+      orderBy('createdAt', 'asc')
+    ))
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }) as Comment)
+  } catch { return [] }
+}
+
+export async function getTaskHistory(taskId: string): Promise<TaskHistoryEntry[]> {
+  try {
+    const snap = await getDocs(query(
+      collection(db, COLLECTIONS.HISTORY),
+      where('taskId', '==', taskId),
+      orderBy('timestamp', 'asc')
+    ))
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }) as TaskHistoryEntry)
+  } catch { return [] }
+}
+
 // ─────────────────────────────────────────
 // NOTIFICATIONS
 // ─────────────────────────────────────────

@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { formatDate, isOverdue } from '../../utils/dateUtils'
 import { getInitials, getInitialsColor, getBucketColor } from '../../utils/colorUtils'
+import { generateAndSaveTaskReport } from '../../utils/taskReportSaver'
+import { useTaskStore } from '../../store/taskStore'
 import type { Task, Client, Label, AppUser, Board } from '../../types'
 
 interface Props {
@@ -22,6 +24,26 @@ export default function TaskCard({
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const { setToast } = useTaskStore()
+
+  async function handleGenerateReport() {
+    setMenuOpen(false)
+    const sharePointPath = localStorage.getItem('npd_sharepoint_path') ?? ''
+    if (!sharePointPath) {
+      setToast({ id: 'report-no-sp', message: 'SharePoint path not set. Configure it in Settings.', type: 'error', duration: 4000 })
+      return
+    }
+    const taskLabels = labels.filter(l => (task.labelIds ?? []).includes(l.id))
+    const client = clients.find(c => c.id === task.clientId) ?? null
+    const result = await generateAndSaveTaskReport(task, sharePointPath, client?.name ?? 'Unknown', {
+      client, board: board ?? null, labels: taskLabels, users,
+    })
+    if (result.success) {
+      setToast({ id: `report-ok-${task.id}`, message: 'Report saved to SharePoint ✓', type: 'success', duration: 3000 })
+    } else {
+      setToast({ id: `report-err-${task.id}`, message: `Report failed: ${result.error ?? 'unknown error'}`, type: 'error', duration: 5000 })
+    }
+  }
 
   const client = clients.find((c) => c.id === task.clientId)
   const taskLabels = labels.filter((l) => (task.labelIds ?? []).includes(l.id))
@@ -107,6 +129,7 @@ export default function TaskCard({
               {[
                 { label: 'Duplicate', action: () => { onDuplicate(task); setMenuOpen(false) } },
                 { label: 'Make Recurring', action: () => { onRecurring(task); setMenuOpen(false) } },
+                { label: 'Generate Report', action: handleGenerateReport },
                 { label: 'Delete', danger: true, action: () => { onDelete(task); setMenuOpen(false) } },
               ].map((item) => (
                 <button

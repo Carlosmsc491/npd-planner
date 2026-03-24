@@ -9,13 +9,18 @@ import {
 } from '../lib/firestore'
 import { useTaskStore } from '../store/taskStore'
 import { useAuthStore } from '../store/authStore'
+import { useBoardStore } from '../store/boardStore'
+import { useSettingsStore } from '../store/settingsStore'
 import { Timestamp } from 'firebase/firestore'
 import type { Task, RecurringConfig, BoardType } from '../types'
 import { syncTaskToSharePoint } from '../lib/sharepointTemplates'
+import { generateAndSaveTaskReport } from '../utils/taskReportSaver'
 
 export function useTasks(boardId: string | undefined, boardType?: string) {
   const { tasks, setTasks, selectedTask, setSelectedTask, setToast } = useTaskStore()
   const { user } = useAuthStore()
+  const { boards } = useBoardStore()
+  const { clients, labels } = useSettingsStore()
 
   useEffect(() => {
     if (!boardId) { setTasks([]); return }
@@ -68,6 +73,17 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
             createdAt: Timestamp.now(),
             updatedAt: Timestamp.now(),
           })
+        }
+
+        // Auto-generate SharePoint report (non-blocking)
+        const sharePointPath = localStorage.getItem('npd_sharepoint_path') ?? user.preferences?.sharePointPath ?? ''
+        if (sharePointPath) {
+          const board = boards.find(b => b.id === snapshot.boardId) ?? null
+          const taskLabels = labels.filter(l => (snapshot.labelIds ?? []).includes(l.id))
+          const client = clients.find(c => c.id === snapshot.clientId) ?? null
+          generateAndSaveTaskReport(snapshot, sharePointPath, client?.name ?? 'Unknown', {
+            client, board, labels: taskLabels, users: [],
+          }).catch(() => { /* non-blocking — report failure is silent */ })
         }
 
         setToast({
