@@ -75,6 +75,7 @@ export interface Board {
   customProperties?: BoardProperty[]
   defaultView?: BoardView
   icon?: string   // lucide icon name for custom boards
+  bucketOrder?: string[]  // ordered list of bucket names, persisted in Firestore
 }
 
 // ─────────────────────────────────────────

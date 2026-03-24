@@ -190,6 +190,17 @@ export async function updateBoardProperties(id: string, customProperties: BoardP
   }
 }
 
+export async function updateBoardBucketOrder(
+  boardId: string,
+  bucketOrder: string[]
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.BOARDS, boardId), { bucketOrder })
+  } catch (err) {
+    throw new Error(`Failed to update bucket order: ${err}`)
+  }
+}
+
 export async function deduplicateDefaultBoards(): Promise<void> {
   try {
     const snap = await getDocs(

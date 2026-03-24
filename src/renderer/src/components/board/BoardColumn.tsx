@@ -1,3 +1,4 @@
+import { GripVertical } from 'lucide-react'
 import TaskCard from './TaskCard'
 import type { Task, Client, Label, AppUser, Board } from '../../types'
 import { useBoardStore } from '../../store/boardStore'
@@ -16,11 +17,13 @@ interface Props {
   onRecurring: (task: Task) => void
   onDelete: (task: Task) => void
   onAddTask: (bucket: string) => void
+  isDraggable?: boolean
 }
 
 export default function BoardColumn({
   groupKey, tasks, clients, labels, users, board, bucketColor,
   onComplete, onOpen, onDuplicate, onRecurring, onDelete, onAddTask,
+  isDraggable,
 }: Props) {
   const { showCompleted, toggleShowCompleted } = useBoardStore()
   const isShowingCompleted = showCompleted[groupKey] ?? false
@@ -32,8 +35,14 @@ export default function BoardColumn({
   return (
     <div className="flex w-[280px] shrink-0 flex-col">
       {/* Column header */}
-      <div className="mb-2 flex items-center justify-between px-1">
+      <div className="mb-2 flex items-center justify-between px-1 group/header">
         <div className="flex items-center gap-2">
+          {isDraggable && (
+            <GripVertical
+              size={12}
+              className="text-gray-300 opacity-0 group-hover/header:opacity-100 cursor-grab transition-opacity shrink-0"
+            />
+          )}
           {bucketColor && (
             <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: bucketColor }} />
           )}

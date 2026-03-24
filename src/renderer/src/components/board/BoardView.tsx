@@ -1,6 +1,8 @@
+import { useState, useMemo } from 'react'
 import BoardColumn from './BoardColumn'
 import { BOARD_BUCKETS, getBucketColor } from '../../utils/colorUtils'
 import { useDragScroll } from '../../hooks/useDragScroll'
+import { updateBoardBucketOrder } from '../../lib/firestore'
 import type { Task, Client, Label, AppUser, GroupByField, BoardType, Board } from '../../types'
 
 interface Props {
@@ -76,6 +78,8 @@ export default function BoardView({
   onComplete, onOpen, onDuplicate, onRecurring, onDelete, onAddTask,
 }: Props) {
   const scrollRef = useDragScroll()
+  const [draggedBucket, setDraggedBucket] = useState<string | null>(null)
+  const [dragOverBucket, setDragOverBucket] = useState<string | null>(null)
   const groups = groupTasks(tasks, groupBy, clients, users)
 
   // When grouping by bucket, ensure default buckets are shown even when empty
@@ -90,7 +94,54 @@ export default function BoardView({
       })()
     : groups
 
-  if (visibleGroups.length === 0) {
+  // Sort groups by bucketOrder when grouping by bucket
+  const orderedGroups = useMemo(() => {
+    if (groupBy !== 'bucket' || !board?.bucketOrder) return visibleGroups
+    const order = board.bucketOrder
+    return [...visibleGroups].sort((a, b) => {
+      const idxA = order.indexOf(a.key)
+      const idxB = order.indexOf(b.key)
+      // Items not in order go to the end
+      return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB)
+    })
+  }, [visibleGroups, groupBy, board?.bucketOrder])
+
+  function handleColumnDragStart(bucketKey: string) {
+    setDraggedBucket(bucketKey)
+  }
+
+  function handleColumnDragOver(e: React.DragEvent, bucketKey: string) {
+    e.preventDefault()
+    if (bucketKey !== draggedBucket) {
+      setDragOverBucket(bucketKey)
+    }
+  }
+
+  async function handleColumnDrop(targetBucket: string) {
+    if (!draggedBucket || draggedBucket === targetBucket || !board) return
+
+    const currentOrder = orderedGroups.map(g => g.key)
+    const fromIdx = currentOrder.indexOf(draggedBucket)
+    const toIdx = currentOrder.indexOf(targetBucket)
+    if (fromIdx === -1 || toIdx === -1) return
+
+    const newOrder = [...currentOrder]
+    newOrder.splice(fromIdx, 1)
+    newOrder.splice(toIdx, 0, draggedBucket)
+
+    // Persist to Firestore
+    await updateBoardBucketOrder(board.id, newOrder)
+
+    setDraggedBucket(null)
+    setDragOverBucket(null)
+  }
+
+  function handleColumnDragEnd() {
+    setDraggedBucket(null)
+    setDragOverBucket(null)
+  }
+
+  if (orderedGroups.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center py-20">
         <div className="mb-4 text-5xl">📋</div>
@@ -105,23 +156,35 @@ export default function BoardView({
       ref={scrollRef}
       className="flex gap-4 overflow-x-auto pb-4 px-6 pt-4 h-full cursor-grab"
     >
-      {visibleGroups.map(({ key, tasks: groupTasks }) => (
-        <BoardColumn
+      {orderedGroups.map(({ key, tasks: groupTasks }) => (
+        <div
           key={key}
-          groupKey={key}
-          tasks={groupTasks}
-          clients={clients}
-          labels={labels}
-          users={users}
-          board={board}
-          bucketColor={groupBy === 'bucket' ? getBucketColor(key, board) : undefined}
-          onComplete={onComplete}
-          onOpen={onOpen}
-          onDuplicate={onDuplicate}
-          onRecurring={onRecurring}
-          onDelete={onDelete}
-          onAddTask={onAddTask}
-        />
+          draggable={groupBy === 'bucket'}
+          onDragStart={() => handleColumnDragStart(key)}
+          onDragOver={(e) => handleColumnDragOver(e, key)}
+          onDrop={() => handleColumnDrop(key)}
+          onDragEnd={handleColumnDragEnd}
+          className={`transition-transform ${
+            dragOverBucket === key ? 'scale-[1.02] ring-2 ring-green-400 ring-opacity-50 rounded-xl' : ''
+          } ${draggedBucket === key ? 'opacity-50' : ''}`}
+        >
+          <BoardColumn
+            groupKey={key}
+            tasks={groupTasks}
+            clients={clients}
+            labels={labels}
+            users={users}
+            board={board}
+            bucketColor={groupBy === 'bucket' ? getBucketColor(key, board) : undefined}
+            onComplete={onComplete}
+            onOpen={onOpen}
+            onDuplicate={onDuplicate}
+            onRecurring={onRecurring}
+            onDelete={onDelete}
+            onAddTask={onAddTask}
+            isDraggable={groupBy === 'bucket'}
+          />
+        </div>
       ))}
     </div>
   )
