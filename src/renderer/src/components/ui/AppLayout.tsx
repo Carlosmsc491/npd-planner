@@ -6,7 +6,7 @@ import {
   MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Search,
   LayoutDashboard, CheckSquare, Package, Truck, Camera, Users, Calendar,
   Star, Folder, ShoppingCart, FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
-  User, Lock, List, CalendarDays, FlowerIcon, Settings2, PanelLeftClose, PanelLeftOpen,
+  User, Lock, List, CalendarDays, FlowerIcon, PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react'
 import { auth } from '../../lib/firebase'
