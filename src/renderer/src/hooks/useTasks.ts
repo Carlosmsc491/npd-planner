@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import {
   subscribeToTasks,
   completeTask,
@@ -23,51 +23,68 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
     return unsub
   }, [boardId, setTasks])
 
+  const completingRef = useRef(new Set<string>())
+
   const complete = useCallback(async (task: Task) => {
     if (!user) return
-    const snapshot = { ...task }
-    await completeTask(task.id, user.uid, user.name, boardType)
+    if (completingRef.current.has(task.id)) return  // prevent double-fire
+    completingRef.current.add(task.id)
 
-    // Auto-create next recurring instance
-    if (task.recurring?.enabled && task.recurring.nextDate) {
-      const next = task.recurring.nextDate.toDate()
-      const freq = task.recurring.frequency
-      let newDate: Date
-      if (freq === 'daily')   newDate = new Date(next.setDate(next.getDate() + 1))
-      else if (freq === 'weekly')  newDate = new Date(next.setDate(next.getDate() + 7))
-      else if (freq === 'monthly') newDate = new Date(next.setMonth(next.getMonth() + 1))
-      else if (freq === 'yearly')  newDate = new Date(next.setFullYear(next.getFullYear() + 1))
-      else newDate = next
-
-      const { id: _id, completedAt: _ca, completedBy: _cb, ...rest } = snapshot
-      await createTask({
-        ...rest,
-        completed: false,
-        completedAt: null,
-        completedBy: null,
-        dateStart: Timestamp.fromDate(newDate),
-        dateEnd: task.dateEnd
-          ? Timestamp.fromDate(
-              new Date(newDate.getTime() + (task.dateEnd.toMillis() - (task.dateStart?.toMillis() ?? newDate.getTime())))
-            )
-          : null,
-        recurring: { ...task.recurring, nextDate: Timestamp.fromDate(newDate) },
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-      })
-    }
-
-    setToast({
-      id: `undo-${task.id}`,
-      message: `Completed: ${task.title}`,
-      type: 'info',
-      undoAction: async () => {
+    try {
+      if (task.completed) {
+        // ── UNCOMPLETE: toggle back to active ──
         await updateTaskField(task.id, 'completed', false, user.uid, user.name, true, boardType)
-        await updateTaskField(task.id, 'completedAt', null, user.uid, user.name, snapshot.completedAt, boardType)
-        await updateTaskField(task.id, 'completedBy', null, user.uid, user.name, snapshot.completedBy, boardType)
-      },
-      duration: 5000,
-    })
+        await updateTaskField(task.id, 'completedAt', null, user.uid, user.name, task.completedAt, boardType)
+        await updateTaskField(task.id, 'completedBy', null, user.uid, user.name, task.completedBy, boardType)
+      } else {
+        // ── COMPLETE ──
+        const snapshot = { ...task }
+        await completeTask(task.id, user.uid, user.name, boardType)
+
+        // Auto-create next recurring instance
+        if (task.recurring?.enabled && task.recurring.nextDate) {
+          const next = task.recurring.nextDate.toDate()
+          const freq = task.recurring.frequency
+          let newDate: Date
+          if (freq === 'daily')        newDate = new Date(next.setDate(next.getDate() + 1))
+          else if (freq === 'weekly')  newDate = new Date(next.setDate(next.getDate() + 7))
+          else if (freq === 'monthly') newDate = new Date(next.setMonth(next.getMonth() + 1))
+          else if (freq === 'yearly')  newDate = new Date(next.setFullYear(next.getFullYear() + 1))
+          else newDate = next
+
+          const { id: _id, completedAt: _ca, completedBy: _cb, ...rest } = snapshot
+          await createTask({
+            ...rest,
+            completed: false,
+            completedAt: null,
+            completedBy: null,
+            dateStart: Timestamp.fromDate(newDate),
+            dateEnd: task.dateEnd
+              ? Timestamp.fromDate(
+                  new Date(newDate.getTime() + (task.dateEnd.toMillis() - (task.dateStart?.toMillis() ?? newDate.getTime())))
+                )
+              : null,
+            recurring: { ...task.recurring, nextDate: Timestamp.fromDate(newDate) },
+            createdAt: Timestamp.now(),
+            updatedAt: Timestamp.now(),
+          })
+        }
+
+        setToast({
+          id: `undo-${task.id}`,
+          message: `Completed: ${task.title}`,
+          type: 'info',
+          undoAction: async () => {
+            await updateTaskField(task.id, 'completed', false, user.uid, user.name, true, boardType)
+            await updateTaskField(task.id, 'completedAt', null, user.uid, user.name, snapshot.completedAt, boardType)
+            await updateTaskField(task.id, 'completedBy', null, user.uid, user.name, snapshot.completedBy, boardType)
+          },
+          duration: 5000,
+        })
+      }
+    } finally {
+      setTimeout(() => completingRef.current.delete(task.id), 2000)
+    }
   }, [user, setToast, boardType])
 
   const remove = useCallback(async (task: Task) => {
