@@ -2,6 +2,7 @@
 // Dropdown panel showing the user's notifications with mark-read actions
 
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { Bell, CheckCheck, X } from 'lucide-react'
 import { useNotificationStore } from '../../store/notificationStore'
@@ -16,13 +17,13 @@ interface Props {
 
 function notifIcon(type: AppNotification['type']): string {
   switch (type) {
-    case 'assigned':   return '👤'
-    case 'completed':  return '✅'
-    case 'comment':    return '💬'
-    case 'mentioned':  return '@'
-    case 'reopened':   return '↩'
+    case 'assigned':         return '👤'
+    case 'completed':        return '✅'
+    case 'comment':          return '💬'
+    case 'mentioned':        return '@'
+    case 'reopened':         return '↩'
     case 'new_user_pending': return '👋'
-    default:           return '🔔'
+    default:                 return '🔔'
   }
 }
 
@@ -41,11 +42,27 @@ export default function NotificationCenter({ onClose }: Props) {
     return () => document.removeEventListener('mousedown', handler)
   }, [onClose])
 
+  // Close on Escape
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleEsc)
+    return () => document.removeEventListener('keydown', handleEsc)
+  }, [onClose])
+
+  // Auto mark-as-read after 2 seconds
+  useEffect(() => {
+    if (!user) return
+    const hasUnread = notifications.some(n => !n.read)
+    if (!hasUnread) return
+    const timer = setTimeout(async () => {
+      await markAllNotificationsRead(user.uid)
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [user, notifications])
+
   async function handleClick(notif: AppNotification) {
     if (!notif.read) await markNotificationRead(notif.id)
     onClose()
-    // For task-related notifications, navigate to task
-    // For user approval notifications, navigate to settings/members
     if (notif.taskId) {
       navigate(`/task/${notif.taskId}`)
     } else if (notif.type === 'new_user_pending') {
@@ -58,10 +75,10 @@ export default function NotificationCenter({ onClose }: Props) {
     await markAllNotificationsRead(user.uid)
   }
 
-  return (
+  return createPortal(
     <div
       ref={ref}
-      className="absolute bottom-full left-0 mb-2 z-50 w-80 rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800"
+      className="fixed bottom-16 left-[232px] z-50 w-[420px] max-h-[520px] rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
@@ -87,7 +104,7 @@ export default function NotificationCenter({ onClose }: Props) {
       </div>
 
       {/* List */}
-      <div className="max-h-80 overflow-y-auto">
+      <div className="max-h-[440px] overflow-y-auto">
         {notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-8 text-gray-400 dark:text-gray-500">
             <Bell size={20} className="opacity-40" />
@@ -123,6 +140,7 @@ export default function NotificationCenter({ onClose }: Props) {
           ))
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

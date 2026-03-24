@@ -15,6 +15,7 @@ import { timestampToDateInput, dateStringToTimestamp } from '../../utils/dateUti
 import SubtaskList from './SubtaskList'
 import AttachmentPanel from './AttachmentPanel'
 import RichTextEditor from './RichTextEditor'
+import DateInput from '../ui/DateInput'
 import { CustomFieldInput } from '../settings/BoardTemplateEditor'
 import { OrderStatusSection } from './OrderStatusSection'
 import { useAwbLookup } from '../../hooks/useAwbLookup'
@@ -360,11 +361,9 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                     return (
                       <PropRow key={prop.id} icon={<Calendar size={14} />} label={prop.name}>
                         <div className="flex items-center gap-2 flex-1">
-                          <input type="date" value={timestampToDateInput(task.dateStart)} onChange={(e) => handleDateChange('dateStart', e.target.value)}
-                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500" />
+                          <DateInput value={timestampToDateInput(task.dateStart)} onChange={(value) => handleDateChange('dateStart', value)} />
                           <span className="text-gray-400 text-xs">→</span>
-                          <input type="date" value={timestampToDateInput(task.dateEnd)} onChange={(e) => handleDateChange('dateEnd', e.target.value)}
-                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500" />
+                          <DateInput value={timestampToDateInput(task.dateEnd)} onChange={(value) => handleDateChange('dateEnd', value)} />
                         </div>
                       </PropRow>
                     )

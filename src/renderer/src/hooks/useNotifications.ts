@@ -13,16 +13,27 @@ export function useNotifications(): void {
   const { user } = useAuthStore()
   const { setNotifications } = useNotificationStore()
 
-  // Track IDs we've already sent a desktop notification for (session only)
   const notifiedIds = useRef<Set<string>>(new Set())
+  const isFirstSnapshot = useRef(true)
 
   useEffect(() => {
     if (!user) return
 
+    isFirstSnapshot.current = true
+    notifiedIds.current.clear()
+
     const unsub = subscribeToNotifications(user.uid, (incoming) => {
       setNotifications(incoming)
 
-      // Trigger desktop notifications for newly arrived Planner notifications
+      // On first snapshot: register all existing IDs but skip desktop notifications
+      if (isFirstSnapshot.current) {
+        isFirstSnapshot.current = false
+        for (const notif of incoming) {
+          notifiedIds.current.add(notif.id)
+        }
+        return
+      }
+
       if (!isElectron) return
 
       const prefs = user.preferences
@@ -35,9 +46,8 @@ export function useNotifications(): void {
         if (notifiedIds.current.has(notif.id)) continue
         notifiedIds.current.add(notif.id)
 
-        // Only desktop-notify for new (unread) Planner task notifications
         if (notif.read) continue
-        if (notif.type === 'new_user_pending') continue  // Skip user approval notifications
+        if (notif.type === 'new_user_pending') continue
         if (!notif.boardType || notif.boardType !== 'planner') continue
         if (!notif.taskId || !notif.taskTitle) continue
 
@@ -46,7 +56,7 @@ export function useNotifications(): void {
           notif.taskTitle,
           notif.taskId,
           notif.boardType,
-          dndActive  // silent=true during DND (no sound/popup)
+          dndActive
         )
       }
     })
@@ -54,9 +64,9 @@ export function useNotifications(): void {
     return unsub
   }, [user, setNotifications])
 
-  // Keep notifiedIds in sync if user changes (e.g., switch account)
   useEffect(() => {
     notifiedIds.current.clear()
+    isFirstSnapshot.current = true
   }, [user?.uid])
 }
 
