@@ -21,6 +21,7 @@ import RecipeHomePage from './components/recipes/RecipeHomePage'
 import RecipeProjectPage from './components/recipes/RecipeProjectPage'
 import NewRecipeProjectWizard from './components/recipes/wizard/NewRecipeProjectWizard'
 import { useKeyboardShortcuts, useGlobalSearchState } from './hooks/useKeyboardShortcuts'
+import WelcomeWizard from './components/ui/WelcomeWizard'
 
 export default function App() {
   const { setUser, setLoading, user } = useAuthStore()
@@ -75,6 +76,11 @@ export default function App() {
   return (
     <>
     {searchOpen && <GlobalSearch onClose={closeSearch} />}
+
+    {/* Welcome Wizard — shown on first login when SharePoint path not set */}
+    {user?.status === 'active' && !user?.preferences?.sharePointPath && (
+      <WelcomeWizard user={user} onComplete={() => window.location.reload()} />
+    )}
 
     {/* Update-ready banner — appears when a new version downloaded in background */}
     {updateReady && (
