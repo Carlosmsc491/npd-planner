@@ -15,6 +15,8 @@ import { Timestamp } from 'firebase/firestore'
 /**
  * Convert a Date (from FullCalendar or a date input) to a Firestore Timestamp
  * using UTC noon so timezone offsets never shift the date by ±1 day.
+ * NOTE: For Date objects parsed from <input type="date"> strings, use
+ * dateStringToTimestamp() instead to avoid timezone offset issues.
  */
 export function toFirestoreDate(date: Date): Timestamp {
   const d = new Date(Date.UTC(
@@ -23,6 +25,22 @@ export function toFirestoreDate(date: Date): Timestamp {
     date.getDate(),
     12, 0, 0, 0,
   ))
+  return Timestamp.fromDate(d)
+}
+
+/**
+ * Convert a "YYYY-MM-DD" string (from <input type="date">) to a Firestore Timestamp.
+ * Parses the components directly to avoid timezone offset issues.
+ */
+export function dateStringToTimestamp(dateStr: string): Timestamp | null {
+  if (!dateStr) return null
+  const [yearStr, monthStr, dayStr] = dateStr.split('-')
+  const year = Number(yearStr)
+  const month = Number(monthStr) - 1  // JS months are 0-indexed
+  const day = Number(dayStr)
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return null
+  // Store as UTC noon to prevent timezone drift
+  const d = new Date(Date.UTC(year, month, day, 12, 0, 0, 0))
   return Timestamp.fromDate(d)
 }
 

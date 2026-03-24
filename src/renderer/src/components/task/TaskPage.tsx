@@ -11,7 +11,7 @@ import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { STATUS_STYLES, getBoardColor, BOARD_BUCKETS, getInitials, getInitialsColor } from '../../utils/colorUtils'
-import { toFirestoreDate, timestampToDateInput } from '../../utils/dateUtils'
+import { timestampToDateInput, dateStringToTimestamp } from '../../utils/dateUtils'
 import SubtaskList from './SubtaskList'
 import AttachmentPanel from './AttachmentPanel'
 import RichTextEditor from './RichTextEditor'
@@ -171,7 +171,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   }
 
   async function handleDateChange(field: 'dateStart' | 'dateEnd', value: string) {
-    const ts = value ? toFirestoreDate(new Date(value)) : null
+    const ts = dateStringToTimestamp(value)
     await save(field, ts, task[field])
   }
 
