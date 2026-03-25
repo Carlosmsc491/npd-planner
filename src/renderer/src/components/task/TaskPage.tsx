@@ -238,6 +238,10 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                 onBlur={saveTitle}
                 onKeyDown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { setEditingTitle(false); setTitleDraft(task.title) } }}
                 className="w-full text-xl font-bold text-gray-900 dark:text-white bg-transparent border-b-2 border-green-500 focus:outline-none pb-0.5"
+                onContextMenu={(e) => {
+                  // Allow native context menu for copy/paste
+                  e.stopPropagation()
+                }}
               />
             ) : (
               <h2
@@ -314,6 +318,10 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                                 onKeyDown={(e) => { if (e.key === 'Enter') handleCreateClient(); if (e.key === 'Escape') setShowNewClient(false) }}
                                 placeholder="Client name"
                                 className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 focus:outline-none focus:border-green-500"
+                                onContextMenu={(e) => {
+                                  // Allow native context menu for copy/paste
+                                  e.stopPropagation()
+                                }}
                               />
                               <button onClick={handleCreateClient} className="text-xs font-medium text-green-600 hover:text-green-700">Add</button>
                               <button onClick={() => setShowNewClient(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
@@ -553,6 +561,10 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                           onBlur={(e) => { if (e.target.value !== task.poNumber) save('poNumber', e.target.value, task.poNumber) }}
                           className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
                           placeholder="PO number"
+                          onContextMenu={(e) => {
+                            // Allow native context menu for copy/paste
+                            e.stopPropagation()
+                          }}
                         />
                       </PropRow>
                     )

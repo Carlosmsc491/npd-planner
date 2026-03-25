@@ -157,7 +157,15 @@ export default function BoardPage() {
 
         {/* Content — board + optional task panel */}
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 overflow-auto">
+          <div 
+            className="flex-1 overflow-auto"
+            onClick={(e) => {
+              // Close task panel when clicking on board background (not on interactive elements)
+              if (e.currentTarget === e.target && selectedTask) {
+                setSelectedTask(null)
+              }
+            }}
+          >
             {view === 'cards' && (
               <BoardView
                 tasks={tasks}

@@ -28,6 +28,10 @@ class EditorErrorBoundary extends Component<BoundaryProps, BoundaryState> {
           rows={5}
           placeholder="Add a description…"
           className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500 resize-none"
+          onContextMenu={(e) => {
+            // Allow native context menu for copy/paste
+            e.stopPropagation()
+          }}
         />
       )
     }
@@ -208,6 +212,12 @@ function RichTextEditorInner({ content, onBlur, placeholder = 'Add a description
     editorProps: {
       attributes: {
         class: 'prose prose-sm focus:outline-none min-h-[120px] p-3 dark:prose-invert prose-gray text-gray-900 dark:text-gray-100',
+      },
+      handleDOMEvents: {
+        contextmenu: () => {
+          // Allow native context menu for copy/paste
+          return false
+        },
       },
     },
   })
