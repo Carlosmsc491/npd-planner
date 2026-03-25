@@ -113,12 +113,24 @@ export function parseTrazeCsv(csvContent: string): CsvAwbRow[] {
     const awb = (cells[colAwb] ?? '').trim();
     if (!awb) continue; // skip empty rows
 
+    const eta = (cells[colEta] ?? '').trim()
+    let ata   = (cells[colAta] ?? '').trim()
+
+    // ATA can never be earlier than ETA — treat it as unassigned if so
+    if (ata && eta) {
+      const etaDate = parseFlightDate(eta)
+      const ataDate = parseFlightDate(ata)
+      if (etaDate && ataDate && ataDate < etaDate) {
+        ata = ''
+      }
+    }
+
     rows.push({
       awb,
       carrier:  (cells[colCarrier]  ?? '').trim(),
       shipDate: (cells[colShipDate] ?? '').trim(),
-      eta:      (cells[colEta]      ?? '').trim(),
-      ata:      (cells[colAta]      ?? '').trim(),
+      eta,
+      ata,
     });
   }
 
