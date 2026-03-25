@@ -12,12 +12,26 @@ interface FlightRow {
   taskTitle: string
   poNumber: string
   awbNumber: string
-  guia: string | null
   eta: string | null
   ata: string | null
   status: FlightStatus
   delayed: boolean
   previousEta: string | null
+}
+
+function fmtDate(val: string | null): string {
+  if (!val) return '—'
+  if (val.includes('1900')) return '—'
+  const parts = val.trim().split(' ')
+  const [m, d] = parts[0].split('/')
+  let result = `${m}/${d}`
+  if (parts[1]) {
+    const [hh, mm] = parts[1].split(':').map(Number)
+    const ampm = hh >= 12 ? 'PM' : 'AM'
+    const h12 = hh % 12 === 0 ? 12 : hh % 12
+    result += ` ${h12}:${String(mm).padStart(2, '0')} ${ampm}`
+  }
+  return result
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -125,7 +139,6 @@ export default function FlightStatusPanel({ tasks, onTaskClick }: Props) {
           taskTitle: task.title,
           poNumber: task.poNumber,
           awbNumber: awb.number,
-          guia: awb.guia ?? null,
           eta: awb.eta,
           ata: awb.ata,
           status,
@@ -168,9 +181,9 @@ export default function FlightStatusPanel({ tasks, onTaskClick }: Props) {
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Task</th>
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">PO</th>
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">AWB</th>
-              <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Guía</th>
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Status</th>
-              <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Scheduled</th>
+              <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">ETA</th>
+              <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">ATA</th>
             </tr>
           </thead>
           <tbody>
@@ -185,20 +198,22 @@ export default function FlightStatusPanel({ tasks, onTaskClick }: Props) {
                 <td className="px-4 py-2.5 font-medium text-gray-900 dark:text-gray-100 max-w-[180px] truncate">{row.taskTitle}</td>
                 <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 text-xs">{row.poNumber || '—'}</td>
                 <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300 font-mono text-xs">{row.awbNumber}</td>
-                <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 text-xs">{row.guia || '—'}</td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-col gap-0.5">
                     <StatusBadge status={row.status} />
                     {row.delayed && row.previousEta && (
                       <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
                         <AlertTriangle size={9} />
-                        now {row.eta} · before {row.previousEta}
+                        was {row.previousEta}
                       </span>
                     )}
                   </div>
                 </td>
                 <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
-                  {row.ata ? `ATA ${row.ata}` : row.eta ? `ETA ${row.eta}` : '—'}
+                  {fmtDate(row.eta)}
+                </td>
+                <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
+                  {fmtDate(row.ata)}
                 </td>
               </tr>
             ))}

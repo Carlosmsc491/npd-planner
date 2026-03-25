@@ -8,82 +8,31 @@
  * Only shown for Planner Board tasks.
  */
 
-import { useState, useEffect, useRef } from 'react';
-import { Timestamp }     from 'firebase/firestore';
-import type { AwbEntry, EtaHistoryEntry } from '../../types';
+import { useState, useEffect } from 'react';
+
+function formatFlightDate(val: string | null): string {
+  if (!val) return '—'
+  if (val.includes('1900')) return '—'
+  const parts = val.trim().split(' ')
+  const datePart = parts[0]
+  const timePart = parts[1]
+  const dateSplit = datePart.split('/')
+  if (dateSplit.length < 3) return val
+  const month = dateSplit[0]
+  const day = dateSplit[1]
+  let result = `${month}/${day}`
+  if (timePart) {
+    const [hh, mm] = timePart.split(':').map(Number)
+    const ampm = hh >= 12 ? 'PM' : 'AM'
+    const hour12 = hh % 12 === 0 ? 12 : hh % 12
+    result += ` ${hour12}:${String(mm).padStart(2, '0')} ${ampm}`
+  }
+  return result
+}
+import type { AwbEntry } from '../../types';
 import { nanoid }        from 'nanoid';
 import { RefreshCw }     from 'lucide-react';
 import { useTrazeRefresh } from '../../hooks/useTrazeRefresh';
-
-// ─── ETA History Popover ──────────────────────────────────────────────────────
-
-interface EtaHistoryPopoverProps {
-  awbNumber: string
-  history:   EtaHistoryEntry[]
-  onClose:   () => void
-}
-
-function EtaHistoryPopover({ awbNumber, history, onClose }: EtaHistoryPopoverProps) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
-
-  const formatTs = (ts: Timestamp) =>
-    new Date(ts.seconds * 1000).toLocaleString('en-US', {
-      month:  '2-digit',
-      day:    '2-digit',
-      hour:   '2-digit',
-      minute: '2-digit',
-    });
-
-  return (
-    <div
-      ref={ref}
-      className="absolute z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3 w-72"
-      style={{ top: '100%', left: 0, marginTop: 4 }}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">
-          ETA History — {awbNumber}
-        </span>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm">✕</button>
-      </div>
-
-      {!history || history.length === 0 ? (
-        <p className="text-xs text-gray-400">No history yet.</p>
-      ) : (
-        <div className="space-y-2">
-          {[...(history || [])].reverse().map((entry, idx) => (
-            <div key={idx} className="border-b border-gray-100 dark:border-gray-700 pb-2 last:border-0 last:pb-0">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {formatTs(entry.recordedAt)}
-                </span>
-                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500">
-                  {entry.source === 'auto' ? 'auto' : 'manual'}
-                </span>
-              </div>
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-100 mt-0.5">
-                {entry.eta || '—'}
-              </p>
-              {entry.previousEta && (
-                <p className="text-xs text-gray-400">
-                  ← was: {entry.previousEta}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─── AWB Row ──────────────────────────────────────────────────────────────────
 
@@ -96,8 +45,6 @@ interface AwbRowProps {
 }
 
 function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
-  const [showHistory, setShowHistory] = useState(false);
-  
   // Ensure awb has default values to prevent crashes
   const safeAwb: AwbEntry = {
     id: awb.id || '',
@@ -161,42 +108,21 @@ function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
       {/* Ship Date (auto-filled from CSV) */}
       <td className="py-2 pr-2">
         <span className="text-sm text-gray-600 dark:text-gray-400">
-          {safeAwb.shipDate || '—'}
+          {formatFlightDate(safeAwb.shipDate)}
         </span>
       </td>
 
       {/* ETA */}
-      <td className="py-2 pr-2 relative">
-        <div className="flex items-center gap-1">
-          <span className="text-sm text-gray-700 dark:text-gray-300">
-            {safeAwb.eta || '—'}
-          </span>
-          {safeAwb.etaChanged && (
-            <div className="relative">
-              <button
-                onClick={() => setShowHistory(v => !v)}
-                className="flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors"
-                title="ETA changed — click to see history"
-              >
-                <span>⚠</span>
-                <span>changed</span>
-              </button>
-              {showHistory && (
-                <EtaHistoryPopover
-                  awbNumber={safeAwb.number}
-                  history={safeAwb.etaHistory}
-                  onClose={() => setShowHistory(false)}
-                />
-              )}
-            </div>
-          )}
-        </div>
+      <td className="py-2 pr-2">
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatFlightDate(safeAwb.eta)}
+        </span>
       </td>
 
       {/* ATA (auto-filled from CSV) */}
       <td className="py-2 pr-2">
         <span className="text-sm text-gray-600 dark:text-gray-400">
-          {safeAwb.ata || '—'}
+          {formatFlightDate(safeAwb.ata)}
         </span>
       </td>
 
