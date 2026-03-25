@@ -94,7 +94,7 @@ export default function DashboardPage() {
 
   // Tasks with at least one AWB that has ETA or ATA — from ALL boards, not just planner
   const flightTasks = allTasks.filter(
-    (t) => !t.completed && t.awbs?.some((a) => a.eta || a.ata)
+    (t) => t.awbs?.some((a) => a.eta || a.ata)
   )
 
   return (

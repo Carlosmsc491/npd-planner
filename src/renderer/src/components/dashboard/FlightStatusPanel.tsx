@@ -121,13 +121,12 @@ export default function FlightStatusPanel({ tasks, onTaskClick }: Props) {
       for (const awb of task.awbs) {
         if (!awb.eta && !awb.ata) continue  // skip AWBs with no dates
         const status = computeStatus(awb.eta, awb.ata)
-        // Don't show arrived flights from before today
+        // Don't show arrived flights older than 7 days
         if (status === 'arrived') {
           const ataDate = parseFlightDate(awb.ata)
           if (ataDate) {
-            const now = new Date()
-            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-            if (ataDate < todayStart) continue
+            const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+            if (ataDate < cutoff) continue
           }
         }
         const lastHistory = awb.etaHistory?.length > 0
