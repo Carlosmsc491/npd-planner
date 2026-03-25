@@ -2,7 +2,7 @@
 // Full-screen onboarding wizard shown on first login (active user with no SharePoint path)
 
 import { useState } from 'react'
-import { CheckCircle2, FolderOpen, Wifi, WifiOff, ChevronRight, SkipForward } from 'lucide-react'
+import { CheckCircle2, FolderOpen, Wifi, WifiOff, ChevronRight, SkipForward, AlertTriangle } from 'lucide-react'
 import { updateUserPreferences } from '../../lib/firestore'
 import type { AppUser } from '../../types'
 
@@ -19,7 +19,7 @@ export default function WelcomeWizard({ user, onComplete }: Props) {
   // Step 2 — SharePoint
   const [spPath, setSpPath] = useState('')
   const [spVerified, setSpVerified] = useState(false)
-  const [spError, setSpError] = useState<string | null>(null)
+  const [spWarning, setSpWarning] = useState<string | null>(null)
   const [spVerifying, setSpVerifying] = useState(false)
 
   // Step 3 — Traze
@@ -33,7 +33,7 @@ export default function WelcomeWizard({ user, onComplete }: Props) {
 
   async function handleBrowse() {
     setSpVerified(false)
-    setSpError(null)
+    setSpWarning(null)
     const folder = await window.electronAPI.selectFolder()
     if (folder) setSpPath(folder)
   }
@@ -41,23 +41,24 @@ export default function WelcomeWizard({ user, onComplete }: Props) {
   async function handleVerify() {
     if (!spPath) return
     setSpVerifying(true)
-    setSpError(null)
+    setSpWarning(null)
     try {
       const result = await window.electronAPI.verifySharePointFolder(spPath, 'REPORTS (NPD-SECURE)')
       if (result.valid) {
         setSpVerified(true)
       } else {
-        setSpError(result.error ?? 'Folder not recognized. Make sure it contains REPORTS (NPD-SECURE).')
+        // Solo advertencia, no bloqueo
+        setSpWarning('This folder does not contain "REPORTS (NPD-SECURE)". This is optional but recommended for proper organization.')
       }
     } catch {
-      setSpError('Verification failed. Please try again.')
+      setSpWarning('Could not verify folder. You can still continue.')
     } finally {
       setSpVerifying(false)
     }
   }
 
   async function handleNextFromSharePoint() {
-    if (!spVerified) return
+    if (!spPath) return
     await updateUserPreferences(user.uid, { sharePointPath: spPath })
     localStorage.setItem('npd_sharepoint_path', spPath)
     setStep(3)
@@ -138,9 +139,9 @@ export default function WelcomeWizard({ user, onComplete }: Props) {
               <div>
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">Connect your SharePoint folder</h2>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                  Select the folder where SharePoint syncs on your computer. It should contain a subfolder called{' '}
-                  <span className="font-mono text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">REPORTS (NPD-SECURE)</span>.
-                  Usually under <span className="italic">OneDrive - Elite Flower/</span>
+                  Select the folder where SharePoint syncs on your computer. We suggest a folder containing{' '}
+                  <span className="font-mono text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">REPORTS (NPD-SECURE)</span>,
+                  but you can choose any folder you prefer.
                 </p>
               </div>
 
@@ -166,7 +167,7 @@ export default function WelcomeWizard({ user, onComplete }: Props) {
                   disabled={spVerifying}
                   className="w-full py-2 rounded-lg border border-green-500 text-green-600 dark:text-green-400 text-sm font-medium hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors disabled:opacity-50"
                 >
-                  {spVerifying ? 'Verifying…' : 'Verify Folder'}
+                  {spVerifying ? 'Verifying…' : 'Check Folder (Optional)'}
                 </button>
               )}
 
@@ -176,14 +177,17 @@ export default function WelcomeWizard({ user, onComplete }: Props) {
                 </div>
               )}
 
-              {spError && (
-                <p className="text-red-500 dark:text-red-400 text-xs">{spError}</p>
+              {spWarning && (
+                <div className="flex items-start gap-2 text-amber-600 dark:text-amber-400 text-xs bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3">
+                  <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                  <span>{spWarning}</span>
+                </div>
               )}
 
               <div className="flex justify-end pt-2">
                 <button
                   onClick={handleNextFromSharePoint}
-                  disabled={!spVerified}
+                  disabled={!spPath}
                   className="flex items-center gap-2 px-5 py-2.5 bg-green-500 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-semibold text-sm transition-colors"
                 >
                   Next <ChevronRight size={16} />
