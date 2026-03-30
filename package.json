@@ -17,7 +17,9 @@
     "build:win": "npm run typecheck && electron-vite build && electron-builder --win",
     "build:mac": "npm run typecheck && electron-vite build && electron-builder --mac",
     "build:unpack": "npm run build && electron-builder --dir",
-    "build:linux": "npm run typecheck && electron-vite build && electron-builder --linux"
+    "build:linux": "npm run typecheck && electron-vite build && electron-builder --linux",
+    "prepare-playwright": "npx playwright install chromium",
+    "postinstall": "npx playwright install chromium"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
@@ -36,6 +38,7 @@
     "nanoid": "^5.1.7",
     "pdfjs-dist": "^5.5.207",
     "playwright": "^1.58.2",
+    "xlsx": "^0.18.5",
     "zustand": "^5.0.0"
   },
   "devDependencies": {

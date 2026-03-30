@@ -12,6 +12,7 @@ interface FlightRow {
   taskTitle: string
   poNumber: string
   awbNumber: string
+  boxes: number
   eta: string | null
   ata: string | null
   status: FlightStatus
@@ -38,6 +39,7 @@ function fmtDate(val: string | null): string {
 
 function parseFlightDate(val: string | null): Date | null {
   if (!val) return null
+  if (val.includes('1900')) return null  // sentinel/placeholder from Traze
   const parts = val.trim().split(' ')
   const [m, d, y] = parts[0].split('/')
   if (!m || !d || !y) return null
@@ -45,10 +47,22 @@ function parseFlightDate(val: string | null): Date | null {
   return new Date(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm))
 }
 
+/** If ATA is before ETA, ATA is invalid (placeholder/sentinel) — treat as null */
+function sanitizeAta(eta: string | null, ata: string | null): string | null {
+  if (!ata) return null
+  if (ata.includes('1900')) return null
+  if (!eta) return ata
+  const etaDate = parseFlightDate(eta)
+  const ataDate = parseFlightDate(ata)
+  if (etaDate && ataDate && ataDate < etaDate) return null
+  return ata
+}
+
 function computeStatus(eta: string | null, ata: string | null): FlightStatus {
   const now = new Date()
   const etaDate = parseFlightDate(eta)
-  const ataDate = parseFlightDate(ata)
+  const cleanAta = sanitizeAta(eta, ata)
+  const ataDate = parseFlightDate(cleanAta)
 
   // Arrived: ATA exists and has passed
   if (ataDate && ataDate <= now) return 'arrived'
@@ -119,27 +133,24 @@ export default function FlightStatusPanel({ tasks, onTaskClick }: Props) {
     for (const task of tasks) {
       if (!task.awbs || task.awbs.length === 0) continue
       for (const awb of task.awbs) {
-        if (!awb.eta && !awb.ata) continue  // skip AWBs with no dates
+        // Skip AWBs with no usable dates (empty or 1900 sentinel)
+        const hasEta = awb.eta && !awb.eta.includes('1900')
+        const hasAta = awb.ata && !awb.ata.includes('1900')
+        if (!hasEta && !hasAta) continue
         const status = computeStatus(awb.eta, awb.ata)
-        // Don't show arrived flights older than 7 days
-        if (status === 'arrived') {
-          const ataDate = parseFlightDate(awb.ata)
-          if (ataDate) {
-            const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-            if (ataDate < cutoff) continue
-          }
-        }
         const lastHistory = awb.etaHistory?.length > 0
           ? awb.etaHistory[awb.etaHistory.length - 1]
           : null
+        const cleanAta = sanitizeAta(awb.eta, awb.ata)
         result.push({
           taskId: task.id,
           boardId: task.boardId,
           taskTitle: task.title,
           poNumber: task.poNumber,
           awbNumber: awb.number,
+          boxes: awb.boxes ?? 0,
           eta: awb.eta,
-          ata: awb.ata,
+          ata: cleanAta,
           status,
           delayed: awb.etaChanged,
           previousEta: lastHistory?.previousEta ?? null,
@@ -180,6 +191,7 @@ export default function FlightStatusPanel({ tasks, onTaskClick }: Props) {
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Task</th>
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">PO</th>
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">AWB</th>
+              <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Boxes</th>
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Status</th>
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">ETA</th>
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide">ATA</th>
@@ -197,6 +209,9 @@ export default function FlightStatusPanel({ tasks, onTaskClick }: Props) {
                 <td className="px-4 py-2.5 font-medium text-gray-900 dark:text-gray-100 max-w-[180px] truncate">{row.taskTitle}</td>
                 <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 text-xs">{row.poNumber || '—'}</td>
                 <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300 font-mono text-xs">{row.awbNumber}</td>
+                <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                  {row.boxes > 0 ? row.boxes : '—'}
+                </td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-col gap-0.5">
                     <StatusBadge status={row.status} />

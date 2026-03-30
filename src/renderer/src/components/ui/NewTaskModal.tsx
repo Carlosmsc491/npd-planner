@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Timestamp } from 'firebase/firestore'
-import { createTask } from '../../lib/firestore'
+import { createTask, createDivision } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useSettingsStore } from '../../store/settingsStore'
+import { useDivisions } from '../../hooks/useDivisions'
 import { BOARD_BUCKETS } from '../../utils/colorUtils'
 import { toFirestoreDate } from '../../utils/dateUtils'
 import type { Board, TaskStatus, TaskPriority } from '../../types'
@@ -20,34 +21,53 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
   const { clients, setClients } = useSettingsStore()
   const [title, setTitle] = useState('')
   const [clientId, setClientId] = useState('')
+  const [divisionId, setDivisionId] = useState('')
   const [bucket, setBucket] = useState(defaultBucket ?? '')
   const [status] = useState<TaskStatus>('todo')
   const [priority, setPriority] = useState<TaskPriority>('normal')
   const [newClientName, setNewClientName] = useState('')
   const [showNewClient, setShowNewClient] = useState(false)
+  const [newDivisionName, setNewDivisionName] = useState('')
+  const [showNewDivision, setShowNewDivision] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const { divisions } = useDivisions(clientId)
 
   async function handleCreateClient() {
     if (!newClientName.trim() || !user) return
     const { createClient } = await import('../../lib/firestore')
     const id = await createClient(newClientName.trim(), user.uid)
-    
+
     // Add to local store immediately so it appears in the dropdown
     // Note: Firestore will sync the actual createdAt Timestamp
     const trimmedName = newClientName.trim()
-    const newClient: import('../../types').Client = { 
-      id, 
-      name: trimmedName, 
-      active: true, 
+    const newClient: import('../../types').Client = {
+      id,
+      name: trimmedName,
+      active: true,
       createdBy: user.uid,
       createdAt: Timestamp.now() as unknown as import('firebase/firestore').Timestamp
     }
     setClients([...clients, newClient].sort((a, b) => a.name.localeCompare(b.name)))
-    
+
     setClientId(id)
+    setDivisionId('') // Reset division when client changes
     setNewClientName('')
     setShowNewClient(false)
+  }
+
+  async function handleCreateDivision() {
+    if (!newDivisionName.trim() || !clientId || !user) return
+    const id = await createDivision({
+      clientId,
+      name: newDivisionName.trim().toUpperCase(),
+      active: true,
+      createdBy: user.uid,
+    })
+    setDivisionId(id)
+    setNewDivisionName('')
+    setShowNewDivision(false)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -64,6 +84,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
         boardId: board.id,
         title: title.trim(),
         clientId,
+        divisionId: divisionId || null,
         bucket,
         status,
         priority,
@@ -136,7 +157,14 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
                 <button type="button" onClick={() => setShowNewClient(false)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500">Cancel</button>
               </div>
             ) : (
-              <select value={clientId} onChange={(e) => { if (e.target.value === '__new__') setShowNewClient(true); else setClientId(e.target.value) }}
+              <select value={clientId} onChange={(e) => {
+                if (e.target.value === '__new__') {
+                  setShowNewClient(true)
+                } else {
+                  setClientId(e.target.value)
+                  setDivisionId('') // Reset division when client changes
+                }
+              }}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
               >
                 <option value="">— Select client —</option>
@@ -145,6 +173,32 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
               </select>
             )}
           </div>
+
+          {/* Division - only shown when client is selected */}
+          {clientId && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Division</label>
+              {showNewDivision ? (
+                <div className="flex gap-2">
+                  <input autoFocus value={newDivisionName} onChange={(e) => setNewDivisionName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateDivision() } if (e.key === 'Escape') setShowNewDivision(false) }}
+                    placeholder="New division name"
+                    className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
+                  />
+                  <button type="button" onClick={handleCreateDivision} className="rounded-lg bg-green-500 px-3 py-2 text-sm font-medium text-white hover:bg-green-600">Add</button>
+                  <button type="button" onClick={() => setShowNewDivision(false)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500">Cancel</button>
+                </div>
+              ) : (
+                <select value={divisionId} onChange={(e) => { if (e.target.value === '__new__') setShowNewDivision(true); else setDivisionId(e.target.value) }}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
+                >
+                  <option value="">— Select division —</option>
+                  {divisions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  <option value="__new__">+ New Division</option>
+                </select>
+              )}
+            </div>
+          )}
 
           {/* Bucket */}
           <div>

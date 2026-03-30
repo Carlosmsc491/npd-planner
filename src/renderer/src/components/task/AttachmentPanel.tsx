@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useSharePoint } from '../../hooks/useSharePoint'
 import { useSettingsStore } from '../../store/settingsStore'
+import { useDivisions } from '../../hooks/useDivisions'
 import * as pdfjsLib from 'pdfjs-dist'
 import type { Task, TaskAttachment } from '../../types'
 
@@ -25,6 +26,7 @@ if (import.meta.env.DEV) {
 
 interface Props {
   task: Task
+  readOnly?: boolean
 }
 
 // ─── File type helpers ────────────────────────────────────────────────────────
@@ -306,7 +308,7 @@ function AttachmentRow({ attachment, onRemove, onOpen, onPreview }: RowProps) {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function AttachmentPanel({ task }: Props) {
+export default function AttachmentPanel({ task, readOnly }: Props) {
   const { clients } = useSettingsStore()
   const {
     sharePointPath,
@@ -324,11 +326,15 @@ export default function AttachmentPanel({ task }: Props) {
   const [settingUp, setSettingUp] = useState(false)
 
   const clientName = clients.find((c) => c.id === task.clientId)?.name ?? 'Unknown Client'
+  const { divisions } = useDivisions(task.clientId)
+  const divisionName = task.divisionId
+    ? divisions.find((d) => d.id === task.divisionId)?.name
+    : undefined
 
   async function handleAttach() {
     setAttaching(true)
     setFeedback(null)
-    const result = await attachFile(task, clientName)
+    const result = await attachFile(task, clientName, divisionName)
     setAttaching(false)
     if (!result.success && result.error) {
       setFeedback({ type: 'error', message: result.error })
@@ -436,7 +442,7 @@ export default function AttachmentPanel({ task }: Props) {
       )}
 
       {/* Attach button */}
-      {isElectron && sharePointPath && (
+      {!readOnly && isElectron && sharePointPath && (
         <button
           onClick={handleAttach}
           disabled={attaching}

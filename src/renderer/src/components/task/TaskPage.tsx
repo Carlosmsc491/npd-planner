@@ -6,7 +6,7 @@ import {
   Layers, Maximize2, ChevronDown,
 } from 'lucide-react'
 import { db } from '../../lib/firebase'
-import { updateTaskField, createNotification } from '../../lib/firestore'
+import { updateTaskField, createNotification, createDivision } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useSettingsStore } from '../../store/settingsStore'
@@ -19,6 +19,7 @@ import DateInput from '../ui/DateInput'
 import { CustomFieldInput } from '../settings/BoardTemplateEditor'
 import { OrderStatusSection } from './OrderStatusSection'
 import { useAwbLookup } from '../../hooks/useAwbLookup'
+import { useDivisions } from '../../hooks/useDivisions'
 import type { Task, AppUser, Board, TaskStatus, TaskPriority, AwbEntry } from '../../types'
 
 interface Props {
@@ -30,9 +31,10 @@ interface Props {
   onRecurring: (task: Task) => void
   onDuplicate: (task: Task) => void
   isFullPage?: boolean
+  readOnly?: boolean
 }
 
-export default function TaskPage({ task: initialTask, board, users, onClose, onDelete, onRecurring, onDuplicate, isFullPage }: Props) {
+export default function TaskPage({ task: initialTask, board, users, onClose, onDelete, onRecurring, onDuplicate, isFullPage, readOnly }: Props) {
   const navigate = useNavigate()
   const { user } = useAuthStore()
   const { setSelectedTask } = useTaskStore()
@@ -52,6 +54,8 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   const [titleDraft, setTitleDraft] = useState(task.title)
   const [newClientName, setNewClientName] = useState('')
   const [showNewClient, setShowNewClient] = useState(false)
+  const [newDivisionName, setNewDivisionName] = useState('')
+  const [showNewDivision, setShowNewDivision] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [bucketOpen, setBucketOpen] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -133,8 +137,26 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     const { createClient } = await import('../../lib/firestore')
     const id = await createClient(newClientName.trim(), user.uid)
     await save('clientId', id, task.clientId)
+    // Clear division when client changes
+    await save('divisionId', null, task.divisionId)
     setNewClientName('')
     setShowNewClient(false)
+  }
+
+  // Divisions for the current task's client
+  const { divisions } = useDivisions(task.clientId)
+
+  async function handleCreateDivision() {
+    if (!newDivisionName.trim() || !task.clientId || !user) return
+    const id = await createDivision({
+      clientId: task.clientId,
+      name: newDivisionName.trim().toUpperCase(),
+      active: true,
+      createdBy: user.uid,
+    })
+    await save('divisionId', id, task.divisionId)
+    setNewDivisionName('')
+    setShowNewDivision(false)
   }
 
   async function toggleLabel(labelId: string) {
@@ -245,8 +267,8 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
               />
             ) : (
               <h2
-                onClick={() => setEditingTitle(true)}
-                className={`text-xl font-bold cursor-text hover:text-gray-700 dark:hover:text-gray-300 transition-colors ${task.completed ? 'line-through text-gray-400' : 'text-gray-900 dark:text-white'}`}
+                onClick={() => { if (!readOnly) setEditingTitle(true) }}
+                className={`text-xl font-bold ${readOnly ? 'cursor-default' : 'cursor-text hover:text-gray-700 dark:hover:text-gray-300'} transition-colors ${task.completed ? 'line-through text-gray-400' : 'text-gray-900 dark:text-white'}`}
               >
                 {task.title}
               </h2>
@@ -262,32 +284,39 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <div className="relative">
-            <button
-              onClick={() => setMenuOpen((v) => !v)}
-              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            >
-              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-              </svg>
-            </button>
-            {menuOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                <div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
-                  {[
-                    { label: 'Duplicate', action: () => { onDuplicate(task); setMenuOpen(false) } },
-                    { label: 'Make Recurring', action: () => { onRecurring(task); setMenuOpen(false) } },
-                    { label: 'Delete', danger: true, action: () => { onDelete(task); setMenuOpen(false); setSelectedTask(null) } },
-                  ].map((item) => (
-                    <button key={item.label} onClick={item.action}
-                      className={`w-full px-3 py-2 text-left text-sm first:rounded-t-xl last:rounded-b-xl transition-colors ${item.danger ? 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'}`}
-                    >{item.label}</button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+          {readOnly && (
+            <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 mr-1">
+              View only
+            </span>
+          )}
+          {!readOnly && (
+            <div className="relative">
+              <button
+                onClick={() => setMenuOpen((v) => !v)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                </svg>
+              </button>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                  <div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                    {[
+                      { label: 'Duplicate', action: () => { onDuplicate(task); setMenuOpen(false) } },
+                      { label: 'Make Recurring', action: () => { onRecurring(task); setMenuOpen(false) } },
+                      { label: 'Delete', danger: true, action: () => { onDelete(task); setMenuOpen(false); setSelectedTask(null) } },
+                    ].map((item) => (
+                      <button key={item.label} onClick={item.action}
+                        className={`w-full px-3 py-2 text-left text-sm first:rounded-t-xl last:rounded-b-xl transition-colors ${item.danger ? 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+                      >{item.label}</button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -328,12 +357,54 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                             </div>
                           ) : (
                             <select value={task.clientId}
-                              onChange={(e) => { if (e.target.value === '__new__') setShowNewClient(true); else save('clientId', e.target.value, task.clientId) }}
+                              onChange={(e) => {
+                                if (e.target.value === '__new__') {
+                                  setShowNewClient(true)
+                                } else {
+                                  // Clear division when client changes
+                                  save('clientId', e.target.value, task.clientId)
+                                  save('divisionId', null, task.divisionId)
+                                }
+                              }}
                               className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
                             >
                               <option value="">— Select client —</option>
                               {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                               <option value="__new__">+ New Client</option>
+                            </select>
+                          )}
+                        </div>
+                      </PropRow>
+                    )
+
+                  case 'builtin-division':
+                    return (
+                      <PropRow key={prop.id} icon={<Layers size={14} />} label={prop.name}>
+                        <div className="flex-1">
+                          {!task.clientId ? (
+                            <span className="text-sm text-gray-400 italic">Select a client first</span>
+                          ) : showNewDivision ? (
+                            <div className="flex items-center gap-2">
+                              <input autoFocus value={newDivisionName} onChange={(e) => setNewDivisionName(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleCreateDivision(); if (e.key === 'Escape') setShowNewDivision(false) }}
+                                placeholder="Division name"
+                                className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 focus:outline-none focus:border-green-500"
+                                onContextMenu={(e) => {
+                                  // Allow native context menu for copy/paste
+                                  e.stopPropagation()
+                                }}
+                              />
+                              <button onClick={handleCreateDivision} className="text-xs font-medium text-green-600 hover:text-green-700">Add</button>
+                              <button onClick={() => setShowNewDivision(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                            </div>
+                          ) : (
+                            <select value={task.divisionId ?? ''}
+                              onChange={(e) => { if (e.target.value === '__new__') setShowNewDivision(true); else save('divisionId', e.target.value || null, task.divisionId) }}
+                              className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
+                            >
+                              <option value="">— Select division —</option>
+                              {divisions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                              <option value="__new__">+ New Division</option>
                             </select>
                           )}
                         </div>
@@ -557,7 +628,10 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                     if (board?.type === 'planner') return null
                     return (
                       <PropRow key={prop.id} icon={<ChevronDown size={14} />} label={prop.name}>
-                        <input type="text" defaultValue={task.poNumber}
+                        <input
+                          key={task.id + '-poNumber'}
+                          type="text"
+                          defaultValue={task.poNumber}
                           onBlur={(e) => { if (e.target.value !== task.poNumber) save('poNumber', e.target.value, task.poNumber) }}
                           className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
                           placeholder="PO number"
@@ -594,6 +668,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Description</p>
               <RichTextEditor
+                key={task.id + '-description'}
                 content={task.description ?? ''}
                 onBlur={saveDescription}
               />
@@ -602,13 +677,13 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
             {/* Subtasks */}
             <div>
               <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Subtasks</h4>
-              <SubtaskList task={task} />
+              <SubtaskList task={task} readOnly={readOnly} />
             </div>
 
             {/* Files */}
             <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Files</h4>
-              <AttachmentPanel task={task} />
+              <AttachmentPanel task={task} readOnly={readOnly} />
             </div>
           </>
 

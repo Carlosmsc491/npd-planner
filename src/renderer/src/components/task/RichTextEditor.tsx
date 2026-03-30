@@ -1,4 +1,4 @@
-import { Component, useState, useCallback } from 'react'
+import { Component, useState, useCallback, useEffect } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
@@ -221,6 +221,18 @@ function RichTextEditorInner({ content, onBlur, placeholder = 'Add a description
       },
     },
   })
+
+  // Sync content when prop changes (but not while user is actively editing)
+  useEffect(() => {
+    if (!editor) return
+    // Don't reset while the user is actively editing
+    if (editor.isFocused) return
+    const incoming = normalizeContent(content)
+    // Only update if the content is actually different to avoid cursor resets
+    if (editor.getHTML() !== incoming) {
+      editor.commands.setContent(incoming, false as unknown as Parameters<typeof editor.commands.setContent>[1]) // don't emit update
+    }
+  }, [content, editor])
 
   if (!editor) return null
 

@@ -18,6 +18,8 @@ import { chromium } from 'playwright';
 import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
+import { execSync } from 'child_process';
+import * as os from 'os';
 import { readPreferences } from './trazePreferencesService';
 
 const CSV_OUTPUT_DIR    = path.join(app.getPath('userData'), 'traze-exports');
@@ -26,6 +28,53 @@ const CREDENTIALS_FILE  = path.join(app.getPath('userData'), 'traze-credentials.
 interface TrazeCredentials {
   email:    string;
   password: string;
+}
+
+/**
+ * Resolves the correct Chromium executable path.
+ * In production (packaged app), looks in bundled extraResources first.
+ * Falls back to default Playwright path, auto-installing if missing.
+ */
+function resolveChromiumPath(): string | undefined {
+  const defaultPath = chromium.executablePath()
+
+  if (app.isPackaged) {
+    // In production, try bundled browser in extraResources
+    const bundledBase = path.join(process.resourcesPath, 'playwright-browsers')
+    if (fs.existsSync(bundledBase)) {
+      // Replace the user-local ms-playwright path with the bundled one
+      const homeMsPlaywright = path.join(
+        process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
+        'ms-playwright'
+      )
+      const bundledPath = defaultPath.replace(homeMsPlaywright, bundledBase)
+      if (fs.existsSync(bundledPath)) {
+        console.log('[Traze] Using bundled Chromium:', bundledPath)
+        return bundledPath
+      }
+    }
+  }
+
+  // Dev mode or bundled path not found — use default
+  if (fs.existsSync(defaultPath)) {
+    return defaultPath
+  }
+
+  // Auto-install as last resort
+  console.log('[Traze] Chromium not found, attempting auto-install...')
+  try {
+    execSync('npx playwright install chromium', {
+      stdio: 'inherit',
+      timeout: 120_000,
+    })
+    console.log('[Traze] Chromium installed successfully')
+    if (fs.existsSync(defaultPath)) return defaultPath
+  } catch (err) {
+    console.error('[Traze] Failed to auto-install chromium:', err)
+  }
+
+  // Let Playwright try its default (may fail, but gives a clear error)
+  return undefined
 }
 
 function loadCredentials(): TrazeCredentials {
@@ -51,7 +100,11 @@ export async function downloadTrazeCSV(): Promise<string> {
 
   // Check user preference for view browser mode
   const preferences = readPreferences();
-  const browser = await chromium.launch({ headless: !preferences.viewBrowser });
+  const executablePath = resolveChromiumPath();
+  const browser = await chromium.launch({
+    headless: !preferences.viewBrowser,
+    ...(executablePath ? { executablePath } : {}),
+  });
   const context = await browser.newContext({ acceptDownloads: true });
   const page    = await context.newPage();
 
@@ -188,7 +241,10 @@ export async function downloadTrazeCSV(): Promise<string> {
     // ── PASO 5: Export CSV ───────────────────────────────────────────────────
     await page.waitForSelector('button:has-text("Export")', { state: 'visible', timeout: 15000 });
 
-    const savePath = path.join(CSV_OUTPUT_DIR, 'traze_export.csv');
+    // Timestamped filename so each download is preserved (7-day retention)
+    const now = new Date();
+    const ts = now.toISOString().slice(0, 19).replace(/[T:]/g, '-'); // YYYY-MM-DD-HH-mm-ss
+    const savePath = path.join(CSV_OUTPUT_DIR, `traze_export_${ts}.csv`);
 
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 30000 }),

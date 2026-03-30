@@ -9,29 +9,32 @@ import {
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type {
-  AppUser, Board, BoardType, BoardProperty, Task, Client, Label, Comment,
+  AppUser, Board, BoardType, BoardProperty, Task, Client, Division, Label, Comment,
   TaskHistoryEntry, AppNotification, AnnualSummary,
   GlobalSettings, HistoryAction, ConflictData,
   PersonalNote, PersonalTask, QuickLink, TrashQueueItem, TrashItemStatus,
-  AttachmentStatus
+  AttachmentStatus, AreaPermissions
 } from '../types'
 
 // ─────────────────────────────────────────
 // COLLECTION NAMES (single source of truth)
 // ─────────────────────────────────────────
 export const COLLECTIONS = {
-  USERS:        'users',
-  BOARDS:       'boards',
-  TASKS:        'tasks',
-  CLIENTS:      'clients',
-  LABELS:       'labels',
-  COMMENTS:     'comments',
-  HISTORY:      'taskHistory',
-  NOTIFICATIONS:'notifications',
-  ARCHIVE:      'archive',
-  SETTINGS:     'settings',
-  USER_PRIVATE: 'userPrivate',
-  TRASH:        'trashQueue',
+  USERS:             'users',
+  BOARDS:            'boards',
+  TASKS:             'tasks',
+  CLIENTS:           'clients',
+  DIVISIONS:         'divisions',
+  LABELS:            'labels',
+  COMMENTS:          'comments',
+  HISTORY:           'taskHistory',
+  NOTIFICATIONS:     'notifications',
+  ARCHIVE:           'archive',
+  SETTINGS:          'settings',
+  USER_PRIVATE:      'userPrivate',
+  TRASH:             'trashQueue',
+  HISTORICAL_TASKS:  'historicalTasks',
+  IMPORT_BATCHES:    'importBatches',
 } as const
 
 // ─────────────────────────────────────────
@@ -69,7 +72,15 @@ export function subscribeToUsers(callback: (users: AppUser[]) => void): Unsubscr
 
 export async function updateUserStatus(uid: string, status: AppUser['status']): Promise<void> {
   try {
-    await updateDoc(doc(db, COLLECTIONS.USERS, uid), { status })
+    const updates: Record<string, unknown> = { status }
+    // When approving a member, apply default permissions if configured
+    if (status === 'active') {
+      const defaults = await getDefaultPermissions()
+      if (defaults) {
+        updates.areaPermissions = defaults
+      }
+    }
+    await updateDoc(doc(db, COLLECTIONS.USERS, uid), updates)
   } catch (err) {
     throw new Error(`Failed to update user status: ${err}`)
   }
@@ -80,6 +91,47 @@ export async function updateUserRole(uid: string, role: AppUser['role']): Promis
     await updateDoc(doc(db, COLLECTIONS.USERS, uid), { role })
   } catch (err) {
     throw new Error(`Failed to update user role: ${err}`)
+  }
+}
+
+export async function updateUserAreaPermissions(
+  uid: string,
+  areaPermissions: AreaPermissions
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.USERS, uid), {
+      areaPermissions,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (err) {
+    throw new Error(`Failed to update area permissions: ${err}`)
+  }
+}
+
+export async function getDefaultPermissions(): Promise<AreaPermissions | null> {
+  try {
+    const snap = await getDoc(doc(db, COLLECTIONS.SETTINGS, 'defaultPermissions'))
+    if (snap.exists()) {
+      const data = snap.data()
+      return (data.areaPermissions as AreaPermissions) ?? null
+    }
+    return null
+  } catch (err) {
+    console.error('getDefaultPermissions failed:', err)
+    return null
+  }
+}
+
+export async function saveDefaultPermissions(
+  areaPermissions: AreaPermissions
+): Promise<void> {
+  try {
+    await setDoc(doc(db, COLLECTIONS.SETTINGS, 'defaultPermissions'), {
+      areaPermissions,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (err) {
+    throw new Error(`Failed to save default permissions: ${err}`)
   }
 }
 
@@ -639,6 +691,67 @@ export async function updateClient(id: string, data: Partial<Client>): Promise<v
     await updateDoc(doc(db, COLLECTIONS.CLIENTS, id), data)
   } catch (err) {
     throw new Error(`Failed to update client: ${err}`)
+  }
+}
+
+// ─────────────────────────────────────────
+// DIVISIONS
+// ─────────────────────────────────────────
+
+export function subscribeToDivisions(
+  clientId: string,
+  callback: (divisions: Division[]) => void
+): Unsubscribe {
+  return onSnapshot(
+    query(
+      collection(db, COLLECTIONS.DIVISIONS),
+      where('clientId', '==', clientId),
+      where('active', '==', true),
+      orderBy('name')
+    ),
+    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Division)),
+    (err) => console.error('subscribeToDivisions error:', err)
+  )
+}
+
+export function subscribeToAllDivisions(callback: (divisions: Division[]) => void): Unsubscribe {
+  return onSnapshot(
+    query(
+      collection(db, COLLECTIONS.DIVISIONS),
+      where('active', '==', true),
+      orderBy('name')
+    ),
+    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Division)),
+    (err) => console.error('subscribeToAllDivisions error:', err)
+  )
+}
+
+export async function createDivision(
+  data: Omit<Division, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<string> {
+  try {
+    const ref = await addDoc(collection(db, COLLECTIONS.DIVISIONS), {
+      ...data,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+    return ref.id
+  } catch (err) {
+    throw new Error(`Failed to create division: ${err}`)
+  }
+}
+
+export async function updateDivision(
+  id: string,
+  data: Partial<Pick<Division, 'name' | 'active'>>
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.DIVISIONS, id), {
+      ...data,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (err) {
+    throw new Error(`Failed to update division: ${err}`)
   }
 }
 
@@ -1523,5 +1636,120 @@ export async function updateTrashItemStatus(
     await updateDoc(doc(db, COLLECTIONS.TRASH, trashId), { status })
   } catch (err) {
     console.error('Failed to update trash item status:', err)
+  }
+}
+
+// ─────────────────────────────────────────
+// HISTORICAL TASKS (Microsoft Planner Import)
+// ─────────────────────────────────────────
+
+import type { HistoricalTask, ImportBatch } from '../types'
+
+export async function createHistoricalTasks(tasks: HistoricalTask[]): Promise<void> {
+  try {
+    const batch = writeBatch(db)
+    for (const task of tasks) {
+      // Use the provided ID (generated by nanoid) instead of auto-generating one
+      const ref = doc(db, COLLECTIONS.HISTORICAL_TASKS, task.id)
+      batch.set(ref, task)
+    }
+    await batch.commit()
+  } catch (err) {
+    throw new Error(`Failed to create historical tasks: ${err}`)
+  }
+}
+
+export async function createImportBatch(batch: Omit<ImportBatch, 'id'>): Promise<string> {
+  try {
+    const ref = await addDoc(collection(db, COLLECTIONS.IMPORT_BATCHES), batch)
+    return ref.id
+  } catch (err) {
+    throw new Error(`Failed to create import batch: ${err}`)
+  }
+}
+
+export async function getHistoricalTasks(
+  filters: { year?: number; clientId?: string; importBatchId?: string } = {}
+): Promise<HistoricalTask[]> {
+  try {
+    const constraints: ReturnType<typeof where>[] = []
+    
+    if (filters.year !== undefined) {
+      constraints.push(where('year', '==', filters.year))
+    }
+    if (filters.clientId !== undefined) {
+      constraints.push(where('clientId', '==', filters.clientId))
+    }
+    if (filters.importBatchId !== undefined) {
+      constraints.push(where('importBatchId', '==', filters.importBatchId))
+    }
+    
+    // Try with ordering first (requires composite index)
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, COLLECTIONS.HISTORICAL_TASKS),
+          ...constraints,
+          orderBy('createdAt', 'desc')
+        )
+      )
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }) as HistoricalTask)
+    } catch (indexErr: unknown) {
+      // If index error, fallback to query without ordering
+      const errMsg = String((indexErr as { message?: string }).message || '')
+      if (errMsg.includes('index')) {
+        console.warn('Firestore index missing, fetching without order. Create index at:', errMsg)
+        const snap = await getDocs(
+          query(
+            collection(db, COLLECTIONS.HISTORICAL_TASKS),
+            ...constraints
+          )
+        )
+        // Sort client-side as fallback
+        const tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }) as HistoricalTask)
+        return tasks.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis())
+      }
+      throw indexErr
+    }
+  } catch (err) {
+    console.error('getHistoricalTasks failed:', err)
+    return []
+  }
+}
+
+export async function getImportBatches(): Promise<ImportBatch[]> {
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, COLLECTIONS.IMPORT_BATCHES),
+        orderBy('importedAt', 'desc')
+      )
+    )
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }) as ImportBatch)
+  } catch (err) {
+    console.error('getImportBatches failed:', err)
+    return []
+  }
+}
+
+export async function deleteImportBatch(batchId: string): Promise<void> {
+  try {
+    const batch = writeBatch(db)
+    
+    // Delete all tasks associated with this batch
+    const tasksSnap = await getDocs(
+      query(
+        collection(db, COLLECTIONS.HISTORICAL_TASKS),
+        where('importBatchId', '==', batchId)
+      )
+    )
+    tasksSnap.docs.forEach(d => batch.delete(d.ref))
+    
+    // Delete the batch document
+    batch.delete(doc(db, COLLECTIONS.IMPORT_BATCHES, batchId))
+    
+    await batch.commit()
+  } catch (err) {
+    throw new Error(`Failed to delete import batch: ${err}`)
   }
 }

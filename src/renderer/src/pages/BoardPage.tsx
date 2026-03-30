@@ -17,13 +17,15 @@ import { subscribeToUsers } from '../lib/firestore'
 import { useBoardStore } from '../store/boardStore'
 import { getBoardColor } from '../utils/colorUtils'
 import { exportTasksToCSV, downloadCSV } from '../utils/exportUtils'
-import { Download } from 'lucide-react'
+import { Download, Eye } from 'lucide-react'
+import { useBoardPermission } from '../hooks/useAreaPermission'
 import type { Task, AppUser, RecurringConfig, BoardView as BoardViewType } from '../types'
 
 export default function BoardPage() {
   const { activeBoard } = useBoard()
   const { clients } = useClients()
   const { labels } = useLabels()
+  const boardAccess = useBoardPermission(activeBoard?.id ?? '')
 
   const { tasks, selectedTask, setSelectedTask, complete, remove, duplicate, setRecurring } =
     useTasks(activeBoard?.id, activeBoard?.type)
@@ -106,6 +108,12 @@ export default function BoardPage() {
           <div className="flex items-center gap-2 mr-2">
             <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: boardColor }} />
             <h1 className="text-sm font-bold text-gray-900 dark:text-white">{activeBoard.name}</h1>
+            {boardAccess === 'view' && (
+              <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                <Eye size={10} />
+                View only
+              </span>
+            )}
           </div>
 
           {/* View switcher */}
@@ -142,30 +150,24 @@ export default function BoardPage() {
               <Download size={13} />
               CSV
             </button>
-            <button
-              onClick={() => { setNewTaskBucket(undefined); setShowNewTask(true) }}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors"
-              style={{ backgroundColor: boardColor }}
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-              </svg>
-              New Task
-            </button>
+            {boardAccess === 'edit' && (
+              <button
+                onClick={() => { setNewTaskBucket(undefined); setShowNewTask(true) }}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+                style={{ backgroundColor: boardColor }}
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                </svg>
+                New Task
+              </button>
+            )}
           </div>
         </div>
 
         {/* Content — board + optional task panel */}
         <div className="flex flex-1 overflow-hidden">
-          <div 
-            className="flex-1 overflow-auto"
-            onClick={(e) => {
-              // Close task panel when clicking on board background (not on interactive elements)
-              if (e.currentTarget === e.target && selectedTask) {
-                setSelectedTask(null)
-              }
-            }}
-          >
+          <div className="relative flex-1 overflow-auto">
             {view === 'cards' && (
               <BoardView
                 tasks={tasks}
@@ -210,11 +212,19 @@ export default function BoardPage() {
                 onOpenTask={setSelectedTask}
               />
             )}
+            {/* Invisible overlay — clicking the board while a task is open closes the panel */}
+            {selectedTask && (
+              <div
+                className="absolute inset-0 z-10 cursor-pointer"
+                onClick={() => setSelectedTask(null)}
+                aria-label="Close task panel"
+              />
+            )}
           </div>
 
           {/* Task side panel */}
           {selectedTask && (
-            <div className="w-[600px] shrink-0 border-l border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="relative z-20 w-[600px] shrink-0 border-l border-gray-200 dark:border-gray-700 overflow-hidden">
               <TaskPagePanel
                 task={selectedTask}
                 board={activeBoard}
@@ -223,6 +233,7 @@ export default function BoardPage() {
                 onDelete={remove}
                 onRecurring={(t) => setRecurringTask(t)}
                 onDuplicate={handleDuplicate}
+                readOnly={boardAccess === 'view'}
               />
             </div>
           )}

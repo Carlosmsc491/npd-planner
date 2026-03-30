@@ -6,9 +6,10 @@ import type { Task, Subtask } from '../../types'
 
 interface Props {
   task: Task
+  readOnly?: boolean
 }
 
-export default function SubtaskList({ task }: Props) {
+export default function SubtaskList({ task, readOnly }: Props) {
   const { user } = useAuthStore()
   const [newTitle, setNewTitle] = useState('')
 
@@ -102,6 +103,7 @@ export default function SubtaskList({ task }: Props) {
       </div>
 
       {/* Add subtask input */}
+      {!readOnly && (
       <div className="flex items-center gap-2">
         <div className="h-4 w-4 shrink-0 rounded border-2 border-dashed border-gray-300 dark:border-gray-600" />
         <input
@@ -121,6 +123,7 @@ export default function SubtaskList({ task }: Props) {
           </button>
         )}
       </div>
+      )}
     </div>
   )
 }

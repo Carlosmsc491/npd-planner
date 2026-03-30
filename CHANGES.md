@@ -12,13 +12,10 @@ Before writing any code or running any command:
 
 1. Read `CLAUDE.md` — coding rules, schema, business logic
 2. Read `README.md` — project overview
-3. Read `IMPLEMENTATION_PLAN.md` — what needs to be implemented
+3. Read `DOCUMENTACION_TECNICA_NPD_PLANNER.md` — what needs to be implemented
 
 ---
 
-## STEP 2 — Make Your Changes
-
-Implement whatever is described in `IMPLEMENTATION_PLAN.md`.
 
 After **every file change**, run:
 ```bash

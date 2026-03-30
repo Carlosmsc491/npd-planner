@@ -1,8 +1,14 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
+import { useAreaPermission } from '../../hooks/useAreaPermission'
 
-export default function ProtectedRoute() {
+interface ProtectedRouteProps {
+  areaId?: string
+}
+
+export default function ProtectedRoute({ areaId }: ProtectedRouteProps) {
   const { user, isLoading } = useAuthStore()
+  const permission = useAreaPermission(areaId ?? '')
 
   if (isLoading) {
     return (
@@ -15,6 +21,11 @@ export default function ProtectedRoute() {
   if (!user) return <Navigate to="/login" replace />
   if (user.status === 'awaiting') return <Navigate to="/awaiting-approval" replace />
   if (user.status === 'suspended') return <Navigate to="/login" replace />
+
+  // Area-level access check (only enforced when areaId is provided)
+  if (areaId && permission === 'none') {
+    return <Navigate to="/dashboard" replace />
+  }
 
   return <Outlet />
 }

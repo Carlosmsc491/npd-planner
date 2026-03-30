@@ -12,6 +12,9 @@ export type UserRole = 'owner' | 'admin' | 'member'
 export type UserStatus = 'active' | 'awaiting' | 'suspended'
 export type Theme = 'light' | 'dark' | 'system'
 
+export type AreaPermission = 'none' | 'view' | 'edit'
+export type AreaPermissions = Record<string, AreaPermission>
+
 export interface UserPreferences {
   theme: Theme
   dndEnabled: boolean     // master toggle for DND
@@ -33,6 +36,7 @@ export interface AppUser {
   createdAt: Timestamp
   lastSeen: Timestamp
   preferences: UserPreferences
+  areaPermissions?: AreaPermissions
 }
 
 // ─────────────────────────────────────────
@@ -144,6 +148,7 @@ export interface Task {
   boardId: string
   title: string
   clientId: string          // REQUIRED
+  divisionId?: string | null // Optional sub-level under client
   status: TaskStatus
   priority: TaskPriority
   assignees: string[]       // array of uids
@@ -179,6 +184,16 @@ export interface Client {
   name: string
   active: boolean
   createdAt: Timestamp
+  createdBy: string
+}
+
+export interface Division {
+  id: string
+  clientId: string
+  name: string
+  active: boolean
+  createdAt: Timestamp
+  updatedAt: Timestamp
   createdBy: string
 }
 
@@ -801,3 +816,56 @@ export const RECIPE_HOLIDAY_OPTIONS: string[] = [
   'FALL COLORS',
   'XMAS COLORS',
 ]
+
+// ─────────────────────────────────────────
+// IMPORT HISTORY (Microsoft Planner)
+// ─────────────────────────────────────────
+
+export interface RawPlannerTask {
+  title: string
+  bucket: string
+  assigneeNames: string[]
+  createdAt: Date
+  dateStart: Date | null
+  dateEnd: Date | null
+  notes: string
+}
+
+export interface MatchResult {
+  task: RawPlannerTask
+  clientId: string | null
+  clientName: string | null
+  confidence: 'auto' | 'none'
+}
+
+export interface HistoricalTask {
+  id: string
+  title: string
+  clientId: string
+  clientName: string
+  bucket: string
+  assigneeNames: string[]
+  dateStart: Timestamp | null
+  dateEnd: Timestamp | null
+  createdAt: Timestamp
+  notes: string
+  source: 'planner'
+  importedAt: Timestamp
+  importedBy: string
+  importBatchId: string
+  year: number
+  month: number
+}
+
+export interface ImportBatch {
+  id: string
+  fileName: string
+  taskCount: number
+  dateRange: {
+    earliest: Timestamp
+    latest: Timestamp
+  }
+  importedAt: Timestamp
+  importedBy: string
+  source: 'planner'
+}

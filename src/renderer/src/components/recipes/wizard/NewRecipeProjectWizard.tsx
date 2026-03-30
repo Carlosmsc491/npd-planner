@@ -423,6 +423,9 @@ export default function NewRecipeProjectWizard() {
               } satisfies WizardDefaults}
               sourceMode={data.sourceMode}
               onChange={(folders) => patchData({ folders })}
+              onValidityChange={() => {
+                // Optional: handle validity state
+              }}
             />
           )}
         </div>

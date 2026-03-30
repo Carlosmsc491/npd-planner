@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, globalShortcut } from 'electron'
+import { app, BrowserWindow, ipcMain, globalShortcut, Menu, MenuItem } from 'electron'
 import { setupAutoUpdater } from './updater'
 import { join } from 'path'
 import { registerFileHandlers } from './ipc/fileHandlers'
@@ -55,6 +55,52 @@ function createWindow(): BrowserWindow {
     errorReporter.handleError('renderer-crash', `Renderer crashed: ${details.reason}`)
   })
   
+  // Enable native right-click context menu for text fields
+  win.webContents.on('context-menu', (_event, params) => {
+    const menu = new Menu()
+
+    if (params.isEditable) {
+      if (params.selectionText) {
+        menu.append(new MenuItem({
+          label: 'Cut',
+          role: 'cut',
+          enabled: params.editFlags.canCut,
+        }))
+        menu.append(new MenuItem({
+          label: 'Copy',
+          role: 'copy',
+          enabled: params.editFlags.canCopy,
+        }))
+      } else {
+        menu.append(new MenuItem({
+          label: 'Copy',
+          role: 'copy',
+          enabled: params.editFlags.canCopy,
+        }))
+      }
+      menu.append(new MenuItem({
+        label: 'Paste',
+        role: 'paste',
+        enabled: params.editFlags.canPaste,
+      }))
+      menu.append(new MenuItem({ type: 'separator' }))
+      menu.append(new MenuItem({
+        label: 'Select All',
+        role: 'selectAll',
+        enabled: params.editFlags.canSelectAll,
+      }))
+    } else if (params.selectionText) {
+      menu.append(new MenuItem({
+        label: 'Copy',
+        role: 'copy',
+      }))
+    }
+
+    if (menu.items.length > 0) {
+      menu.popup({ window: win })
+    }
+  })
+
   win.on('ready-to-show', () => {
     console.log('[Main] Window ready to show')
     win.show()

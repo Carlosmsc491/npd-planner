@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   User, Users, Palette, Bell, Keyboard,
   LayoutDashboard, Building2, Tag, FolderOpen, Truck, Trash2, Archive,
-  Grid2X2, CalendarDays, DollarSign, Settings2,
+  Grid2X2, CalendarDays, DollarSign, Settings2, History, Layers,
   type LucideIcon,
 } from 'lucide-react'
 import AppLayout from '../components/ui/AppLayout'
@@ -13,18 +13,21 @@ import SharePointSetup from '../components/settings/SharePointSetup'
 import TrazeSettings from '../components/settings/TrazeSettings'
 import RecipeSettingsTab from '../components/recipes/settings/RecipeSettingsTab'
 import ClientManager from '../components/settings/ClientManager'
+import DivisionManager from '../components/settings/DivisionManager'
 import LabelManager from '../components/settings/LabelManager'
 import TrashPanel from '../components/settings/TrashPanel'
+import ImportHistoryPanel from '../components/settings/ImportHistoryPanel'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
-import { updateUserName, updateUserPreferences } from '../lib/firestore'
+import { useTaskStore } from '../store/taskStore'
+import { updateUserName, updateUserPreferences, getDefaultPermissions, saveDefaultPermissions } from '../lib/firestore'
 import { getBoardColor } from '../utils/colorUtils'
-import type { AppUser, Board, Theme, ShortcutAction } from '../types'
+import type { AppUser, Board, Theme, ShortcutAction, AreaPermission, AreaPermissions } from '../types'
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTION_LABELS } from '../types'
 
 type SettingsTab =
   | 'profile' | 'members' | 'appearance' | 'notifications' | 'shortcuts'
-  | 'boards' | 'clients' | 'labels' | 'files' | 'traze' | 'archive' | 'trash'
+  | 'boards' | 'clients' | 'divisions' | 'labels' | 'files' | 'traze' | 'archive' | 'trash' | 'import-history'
   | 'recipe-cells' | 'recipe-holidays' | 'recipe-sleeve' | 'recipe-general'
 
 interface TabDef {
@@ -53,13 +56,15 @@ const SETTINGS_SECTIONS: SectionDef[] = [
   {
     label: 'Planner',
     tabs: [
-      { id: 'boards',   label: 'Boards',   icon: LayoutDashboard, adminOnly: true },
-      { id: 'clients',  label: 'Clients',  icon: Building2,       adminOnly: true },
-      { id: 'labels',   label: 'Labels',   icon: Tag,             adminOnly: true },
-      { id: 'files',    label: 'Files',    icon: FolderOpen },
-      { id: 'traze',    label: 'Traze',    icon: Truck },
-      { id: 'archive',  label: 'Archive',  icon: Archive,         adminOnly: true },
-      { id: 'trash',    label: 'Trash',    icon: Trash2 },
+      { id: 'boards',         label: 'Boards',        icon: LayoutDashboard, adminOnly: true },
+      { id: 'clients',        label: 'Clients',       icon: Building2,       adminOnly: true },
+      { id: 'divisions',      label: 'Divisions',     icon: Layers,          adminOnly: true },
+      { id: 'labels',         label: 'Labels',        icon: Tag,             adminOnly: true },
+      { id: 'files',          label: 'Files',         icon: FolderOpen },
+      { id: 'traze',          label: 'Traze',         icon: Truck },
+      { id: 'archive',        label: 'Archive',       icon: Archive,         adminOnly: true },
+      { id: 'trash',          label: 'Trash',         icon: Trash2 },
+      { id: 'import-history', label: 'Import History', icon: History,        adminOnly: true },
     ],
   },
   {
@@ -170,7 +175,14 @@ export default function SettingsPage() {
               />
             )}
 
-            {activeTab === 'members' && isAdmin && <MembersPanel />}
+            {activeTab === 'members' && isAdmin && (
+              <>
+                <MembersPanel />
+                <div className="mt-10 border-t border-gray-200 dark:border-gray-700 pt-8">
+                  <DefaultPermissionsPanel />
+                </div>
+              </>
+            )}
 
             {activeTab === 'boards' && isAdmin && (
               editingBoard ? (
@@ -191,6 +203,16 @@ export default function SettingsPage() {
                   Manage clients for your organization. Inactive clients won't appear in dropdowns but their task history is preserved.
                 </p>
                 <ClientManager />
+              </div>
+            )}
+
+            {activeTab === 'divisions' && isAdmin && (
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">Division Management</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+                  Manage divisions per client. Divisions appear as a sub-level under clients in tasks.
+                </p>
+                <DivisionManager />
               </div>
             )}
 
@@ -245,6 +267,10 @@ export default function SettingsPage() {
                 </p>
                 <TrashPanel />
               </div>
+            )}
+
+            {activeTab === 'import-history' && isAdmin && (
+              <ImportHistoryPanel />
             )}
 
             {activeTab === 'traze' && <TrazeSettings />}
@@ -935,6 +961,108 @@ function ArchivePanel() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Default Permissions Panel ─────────────────────────────────────────────
+
+const DEFAULT_PERM_AREAS: { label: string; areaId: string; options: AreaPermission[] }[] = [
+  { label: 'Dashboard',        areaId: 'dashboard',     options: ['none', 'view'] },
+  { label: 'My Tasks',         areaId: 'my_tasks',       options: ['none', 'view'] },
+  { label: 'My Space',         areaId: 'my_space',       options: ['none', 'view'] },
+  { label: 'Master Calendar',  areaId: 'calendar',       options: ['none', 'view'] },
+  { label: 'Analytics',        areaId: 'analytics',      options: ['none', 'view'] },
+  { label: 'EliteQuote',       areaId: 'elitequote',     options: ['none', 'view', 'edit'] },
+  { label: 'Files (Settings)', areaId: 'settings_files', options: ['none', 'view'] },
+]
+
+const PERM_LABELS: Record<AreaPermission, string> = { none: 'None', view: 'View', edit: 'Edit' }
+
+function DefaultPermissionsPanel() {
+  const { setToast } = useTaskStore()
+  const [perms, setPerms] = useState<AreaPermissions>({})
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    getDefaultPermissions().then((defaults) => {
+      if (defaults) setPerms(defaults)
+      setLoaded(true)
+    })
+  }, [])
+
+  function setValue(areaId: string, value: AreaPermission) {
+    setPerms((prev) => ({ ...prev, [areaId]: value }))
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await saveDefaultPermissions(perms)
+      setToast({ id: 'default-perms-saved', message: 'Default permissions saved', type: 'success', duration: 3000 })
+    } catch (err) {
+      setToast({ id: 'default-perms-err', message: `Failed: ${err instanceof Error ? err.message : String(err)}`, type: 'error', duration: 5000 })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!loaded) return null
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">Default Permissions for New Members</h3>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+        When a new member is approved, they automatically receive these permissions. You can customize per user afterward.
+      </p>
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        {DEFAULT_PERM_AREAS.map((area, i) => (
+          <div
+            key={area.areaId}
+            className={`flex items-center justify-between px-4 py-2.5 ${i < DEFAULT_PERM_AREAS.length - 1 ? 'border-b border-gray-100 dark:border-gray-700/50' : ''}`}
+          >
+            <span className="text-sm text-gray-700 dark:text-gray-300">{area.label}</span>
+            <div className="flex items-center gap-4">
+              {(['none', 'view', 'edit'] as AreaPermission[]).map((opt) => {
+                const available = area.options.includes(opt)
+                if (!available) {
+                  return (
+                    <span key={opt} className="w-16 text-xs text-gray-300 dark:text-gray-600 flex items-center gap-1">
+                      <span className="h-3.5 w-3.5 rounded-full border border-gray-200 dark:border-gray-700" />
+                      N/A
+                    </span>
+                  )
+                }
+                const selected = (perms[area.areaId] ?? 'none') === opt
+                return (
+                  <label key={opt} className="flex items-center gap-1 text-xs cursor-pointer w-16">
+                    <input
+                      type="radio"
+                      name={`default-${area.areaId}`}
+                      checked={selected}
+                      onChange={() => setValue(area.areaId, opt)}
+                      className="h-3.5 w-3.5 accent-green-600"
+                    />
+                    <span className={selected ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}>
+                      {PERM_LABELS[opt]}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex justify-end">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save Default Template'}
+        </button>
+      </div>
     </div>
   )
 }

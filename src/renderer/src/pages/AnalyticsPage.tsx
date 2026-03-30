@@ -7,13 +7,17 @@ import {
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import AppLayout from '../components/ui/AppLayout'
+import AnalyticsTabs from '../components/analytics/AnalyticsTabs'
+import HistoricalAnalytics from '../components/analytics/HistoricalAnalytics'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import {
-  subscribeToAllTasks, subscribeToArchive, getArchiveByYear, subscribeToUsers as subscribeToUsersFn, subscribeToClients
+  subscribeToAllTasks, subscribeToArchive, getArchiveByYear, subscribeToUsers as subscribeToUsersFn, subscribeToClients,
+  getHistoricalTasks
 } from '../lib/firestore'
 import { exportSummaryToCSV } from '../utils/exportUtils'
-import type { Task, AnnualSummary, AppUser, Board, Client } from '../types'
+import type { Task, AnnualSummary, AppUser, Board, Client, HistoricalTask } from '../types'
+import type { AnalyticsTabType } from '../components/analytics/AnalyticsTabs'
 import {
   TrendingUp, TrendingDown, Calendar, Users, Briefcase, LayoutGrid,
   FileText, FileSpreadsheet, Archive, CheckCircle2
@@ -25,12 +29,23 @@ const CHART_COLORS = [
   '#EC4899', '#14B8A6', '#F97316', '#EF4444', '#6B7280'
 ]
 
-type TabType = 'dashboard' | 'annual'
-
 export default function AnalyticsPage() {
   const { user } = useAuthStore()
   const { boards } = useBoardStore()
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard')
+  const [activeTab, setActiveTab] = useState<AnalyticsTabType>('current')
+  const [historicalYears, setHistoricalYears] = useState<number[]>([])
+  const [historicalTasks, setHistoricalTasks] = useState<HistoricalTask[]>([])
+
+  // Fetch available years from historical tasks
+  useEffect(() => {
+    async function fetchHistoricalData() {
+      const tasks = await getHistoricalTasks()
+      setHistoricalTasks(tasks)
+      const years = Array.from(new Set(tasks.map(t => t.year))).sort((a, b) => b - a)
+      setHistoricalYears(years)
+    }
+    fetchHistoricalData()
+  }, [])
 
   if (user?.role !== 'admin' && user?.role !== 'owner') {
     return <Navigate to="/dashboard" replace />
@@ -47,38 +62,20 @@ export default function AnalyticsPage() {
               Insights and reports for NPD Planner
             </p>
           </div>
-
-          {/* Tab Switcher */}
-          <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                activeTab === 'dashboard'
-                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              Dashboard
-            </button>
-            <button
-              onClick={() => setActiveTab('annual')}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                activeTab === 'annual'
-                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              Annual Reports
-            </button>
-          </div>
         </div>
 
-        {/* Tab Content */}
-        {activeTab === 'dashboard' ? (
-          <DashboardTab boards={boards} currentUser={user} />
-        ) : (
-          <AnnualReportsTab />
-        )}
+        {/* Tabbed Analytics */}
+        <AnalyticsTabs activeTab={activeTab} onTabChange={setActiveTab}>
+          {activeTab === 'current' && (
+            <DashboardTab boards={boards} currentUser={user} />
+          )}
+          {activeTab === 'historical' && (
+            <HistoricalAnalytics availableYears={historicalYears} />
+          )}
+          {activeTab === 'annual' && (
+            <AnnualReportsTab historicalTasks={historicalTasks} />
+          )}
+        </AnalyticsTabs>
       </div>
     </AppLayout>
   )
@@ -95,6 +92,7 @@ interface DashboardTabProps {
 
 function DashboardTab({ boards }: DashboardTabProps) {
   const [tasks, setTasks] = useState<Task[]>([])
+  const [historicalTasks, setHistoricalTasks] = useState<HistoricalTask[]>([])
   const [loading, setLoading] = useState(true)
   const [users, setUsers] = useState<AppUser[]>([])
   const [, setClients] = useState<Client[]>([])
@@ -107,11 +105,21 @@ function DashboardTab({ boards }: DashboardTabProps) {
       boards.map(b => b.id),
       (allTasks) => {
         setTasks(allTasks)
-        setLoading(false)
       }
     )
     return unsub
   }, [boards])
+
+  // Fetch historical tasks for current year
+  useEffect(() => {
+    async function fetchHistorical() {
+      const currentYear = new Date().getFullYear()
+      const data = await getHistoricalTasks({ year: currentYear })
+      setHistoricalTasks(data)
+      setLoading(false)
+    }
+    fetchHistorical()
+  }, [])
 
   // Fetch users for assignee names
   useEffect(() => {
@@ -161,13 +169,19 @@ function DashboardTab({ boards }: DashboardTabProps) {
     // Active tasks (not completed)
     const activeTasks = tasks.filter(t => !t.completed)
 
+    // Historical tasks count (current year)
+    const currentYear = new Date().getFullYear()
+    const currentYearHistorical = historicalTasks.filter(ht => ht.year === currentYear).length
+
     return {
       thisWeekCount,
       lastWeekCount,
       percentChange,
-      activeTasksCount: activeTasks.length
+      activeTasksCount: activeTasks.length,
+      currentYearHistorical,
+      totalCurrentYear: activeTasks.length + currentYearHistorical
     }
-  }, [tasks])
+  }, [tasks, historicalTasks])
 
   // Tasks by assignee
   const assigneeData = useMemo(() => {
@@ -459,42 +473,68 @@ function DashboardTab({ boards }: DashboardTabProps) {
           <StatCard
             title="Active Tasks"
             value={stats.activeTasksCount}
-            subtitle="Across all boards"
+            subtitle="NPD Planner boards"
             icon={<CheckCircle2 size={20} className="text-blue-500" />}
           />
 
-          {/* Total Tasks */}
+          {/* Historical Tasks (Current Year) */}
           <StatCard
-            title="Total Tasks"
-            value={tasks.length}
-            subtitle="All time"
-            icon={<LayoutGrid size={20} className="text-purple-500" />}
+            title="Imported Tasks"
+            value={stats.currentYearHistorical}
+            subtitle={`${new Date().getFullYear()} (Microsoft Planner)`}
+            icon={<Archive size={20} className="text-purple-500" />}
           />
 
-          {/* Completion Rate */}
+          {/* Total Current Year */}
           <StatCard
-            title="Completion Rate"
-            value={`${tasks.length > 0 ? Math.round((tasks.filter(t => t.completed).length / tasks.length) * 100) : 0}%`}
-            subtitle="Overall"
+            title="Total This Year"
+            value={stats.totalCurrentYear}
+            subtitle="Active + Imported"
             icon={<TrendingUp size={20} className="text-orange-500" />}
           />
         </div>
+
+        {/* Historical Tasks Notice */}
+        {stats.currentYearHistorical > 0 && (
+          <div className="mt-4 rounded-lg bg-blue-50 px-4 py-3 dark:bg-blue-900/20">
+            <div className="flex items-center gap-2">
+              <Archive className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>{stats.currentYearHistorical} historical tasks</strong> from Microsoft Planner import are included in this year's totals.
+                <button 
+                  onClick={() => window.location.href = '/analytics?tab=historical'}
+                  className="ml-2 text-xs underline hover:text-blue-800 dark:hover:text-blue-200"
+                >
+                  View in Historical tab →
+                </button>
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Charts Row 1 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
           {/* Tasks by Assignee */}
           <ChartCard title="Workload by Team Member" icon={<Users size={16} />}>
             {assigneeData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={assigneeData} layout="vertical" margin={{ left: 80 }}>
+              <ResponsiveContainer width="100%" height={Math.max(300, assigneeData.length * 36)}>
+                <BarChart data={assigneeData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis type="number" />
-                  <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 12 }} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    width={130}
+                    tick={{ fontSize: 11 }}
+                    interval={0}
+                    tickFormatter={(v: string) => v.length > 20 ? v.slice(0, 18) + '...' : v}
+                  />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: 'white',
                       border: '1px solid #e5e7eb',
-                      borderRadius: '8px'
+                      borderRadius: '8px',
+                      fontSize: '12px',
                     }}
                   />
                   <Bar dataKey="count" fill="#1D9E75" radius={[0, 4, 4, 0]} />
@@ -508,13 +548,13 @@ function DashboardTab({ boards }: DashboardTabProps) {
           {/* Tasks by Client */}
           <ChartCard title="Top 10 Clients" icon={<Briefcase size={16} />}>
             {clientChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={clientChartData} layout="vertical" margin={{ left: 120, right: 10 }}>
+              <ResponsiveContainer width="100%" height={Math.max(300, clientChartData.length * 32)}>
+                <BarChart data={clientChartData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis type="number" />
-                  <YAxis dataKey="name" type="category" width={110} tick={{ fontSize: 11 }} interval={0} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11 }} interval={0} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                    contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '12px' }}
                     formatter={(_value, _name, props) => [props.payload.count, props.payload.fullName]}
                   />
                   <Bar dataKey="count" fill="#378ADD" radius={[0, 4, 4, 0]} />
@@ -531,15 +571,15 @@ function DashboardTab({ boards }: DashboardTabProps) {
           {/* Tasks by Bucket */}
           <ChartCard title="Tasks by Bucket" icon={<LayoutGrid size={16} />}>
             {bucketData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={250}>
+              <ResponsiveContainer width="100%" height={320}>
                 <PieChart>
                   <Pie
                     data={bucketData}
                     cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={5}
+                    cy="40%"
+                    innerRadius={55}
+                    outerRadius={95}
+                    paddingAngle={4}
                     dataKey="count"
                     nameKey="name"
                   >
@@ -547,8 +587,11 @@ function DashboardTab({ boards }: DashboardTabProps) {
                       <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px' }} />
-                  <Legend />
+                  <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '12px' }} />
+                  <Legend
+                    wrapperStyle={{ fontSize: '10px', lineHeight: '16px' }}
+                    formatter={(value) => (value as string).length > 22 ? (value as string).slice(0, 20) + '...' : value}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
@@ -558,8 +601,8 @@ function DashboardTab({ boards }: DashboardTabProps) {
 
           {/* Tasks by Month */}
           <ChartCard title="Tasks by Month (This Year)" icon={<Calendar size={16} />}>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={monthlyData}>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={monthlyData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="month" tick={{ fontSize: 12 }} />
                 <YAxis />
@@ -591,7 +634,11 @@ function DashboardTab({ boards }: DashboardTabProps) {
 // Annual Reports Tab
 // ─────────────────────────────────────────
 
-function AnnualReportsTab() {
+interface AnnualReportsTabProps {
+  historicalTasks: HistoricalTask[]
+}
+
+function AnnualReportsTab({ historicalTasks }: AnnualReportsTabProps) {
   const [archives, setArchives] = useState<AnnualSummary[]>([])
   const [selectedYear, setSelectedYear] = useState<number | null>(null)
   const [summary, setSummary] = useState<AnnualSummary | null>(null)
@@ -609,12 +656,33 @@ function AnnualReportsTab() {
     return unsub
   }, [selectedYear])
 
-  // Load selected year summary
+  // Load selected year summary and merge with historical tasks
   useEffect(() => {
     if (selectedYear) {
-      getArchiveByYear(selectedYear).then(setSummary)
+      getArchiveByYear(selectedYear).then(archiveSummary => {
+        if (!archiveSummary) {
+          setSummary(null)
+          return
+        }
+        
+        // Get historical tasks for this year
+        const yearHistoricalTasks = historicalTasks.filter(t => t.year === selectedYear)
+        
+        // Merge stats
+        const mergedSummary: AnnualSummary = {
+          ...archiveSummary,
+          totalTasks: archiveSummary.totalTasks + yearHistoricalTasks.length,
+          // Merge byMonth - add historical task counts to each month
+          byMonth: archiveSummary.byMonth.map((count, idx) => {
+            const historicalCount = yearHistoricalTasks.filter(t => t.month === idx + 1).length
+            return count + historicalCount
+          }),
+        }
+        
+        setSummary(mergedSummary)
+      })
     }
-  }, [selectedYear])
+  }, [selectedYear, historicalTasks])
 
   const handleExportPDF = async () => {
     if (!reportRef.current || !summary) return
@@ -861,6 +929,49 @@ function AnnualReportsTab() {
               icon={<TrendingUp size={20} className="text-orange-500" />}
             />
           </div>
+
+          {/* Combined Data Breakdown */}
+          {selectedYear && historicalTasks.filter(t => t.year === selectedYear).length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
+                {selectedYear} Data Sources
+              </h3>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                    <div 
+                      className="h-full bg-green-500"
+                      style={{ 
+                        width: `${(summary.totalTasks - historicalTasks.filter(t => t.year === selectedYear).length) / summary.totalTasks * 100}%` 
+                      }}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-600 dark:text-gray-400 w-32 text-right">
+                    NPD Planner: {summary.totalTasks - historicalTasks.filter(t => t.year === selectedYear).length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                    <div 
+                      className="h-full bg-blue-500"
+                      style={{ 
+                        width: `${historicalTasks.filter(t => t.year === selectedYear).length / summary.totalTasks * 100}%` 
+                      }}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-600 dark:text-gray-400 w-32 text-right">
+                    Historical: {historicalTasks.filter(t => t.year === selectedYear).length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 pt-1">
+                  <div className="flex-1" />
+                  <span className="text-xs font-medium text-gray-900 dark:text-white w-32 text-right">
+                    Total: {summary.totalTasks}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

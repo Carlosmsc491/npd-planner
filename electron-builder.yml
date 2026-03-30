@@ -11,6 +11,11 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.*}'
   - '!{tailwind.config.js,postcss.config.js}'
+extraResources:
+  - from: "${env.LOCALAPPDATA}/ms-playwright"
+    to: "playwright-browsers"
+    filter:
+      - "chromium*/**"
 asarUnpack:
   - resources/**
 win:
@@ -49,3 +54,4 @@ publish:
   provider: github
   owner: Carlosmsc491
   repo: npd-planner
+  releaseType: release

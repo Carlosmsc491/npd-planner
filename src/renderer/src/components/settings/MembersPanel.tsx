@@ -2,15 +2,17 @@
 // Admin/Owner panel to manage team members: approve, reject, change role, suspend
 
 import { useEffect, useState } from 'react'
-import { Plus, Eye, EyeOff, Loader2, X } from 'lucide-react'
-import { 
-  subscribeToUsers, 
-  updateUserStatus, 
+import { Plus, Eye, EyeOff, Loader2, X, Shield } from 'lucide-react'
+import {
+  subscribeToUsers,
+  updateUserStatus,
   updateUserRole
 } from '../../lib/firestore'
 import { getInitials, getInitialsColor } from '../../utils/colorUtils'
 import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
+import { useBoardStore } from '../../store/boardStore'
+import AccessPermissionsModal from './AccessPermissionsModal'
 import type { AppUser, UserStatus, UserRole } from '../../types'
 import type { Timestamp } from 'firebase/firestore'
 import {
@@ -23,8 +25,10 @@ import { auth } from '../../lib/firebase'
 export default function MembersPanel() {
   const { user: currentUser } = useAuthStore()
   const { setToast } = useTaskStore()
+  const { boards } = useBoardStore()
   const [users, setUsers] = useState<AppUser[]>([])
   const [showAddModal, setShowAddModal] = useState(false)
+  const [accessUser, setAccessUser] = useState<AppUser | null>(null)
 
   useEffect(() => {
     const unsub = subscribeToUsers(setUsers)
@@ -85,6 +89,15 @@ export default function MembersPanel() {
         )}
       </div>
 
+      {/* Access Permissions Modal */}
+      {accessUser && (
+        <AccessPermissionsModal
+          targetUser={accessUser}
+          boards={boards}
+          onClose={() => setAccessUser(null)}
+        />
+      )}
+
       {/* Add Member Modal */}
       {showAddModal && (
         <AddMemberModal 
@@ -144,6 +157,16 @@ export default function MembersPanel() {
             )
             return (
               <MemberRow key={u.uid} user={u} isSelf={isSelf}>
+                {canAct && u.role === 'member' && (
+                  <button
+                    onClick={() => setAccessUser(u)}
+                    title="Manage area access permissions"
+                    className="flex items-center gap-1 rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <Shield size={12} />
+                    Access
+                  </button>
+                )}
                 {canAct && (
                   <RoleDropdown
                     user={u}

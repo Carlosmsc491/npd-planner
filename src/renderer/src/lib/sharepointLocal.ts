@@ -28,7 +28,8 @@ export function verifySharePointPath(_folderPath: string): Promise<{
 
 /**
  * Builds the destination path for a file attachment.
- * Structure: [sharePointRoot]/[year]/[clientName]/[taskTitle]/[fileName]
+ * Structure: [sharePointRoot]/[year]/[clientName]/[divisionName]/[taskTitle]/[fileName]
+ * When divisionName is not provided: [sharePointRoot]/[year]/[clientName]/[taskTitle]/[fileName]
  *
  * Sanitizes folder names to remove characters not allowed in file paths.
  */
@@ -37,19 +38,31 @@ export function buildDestinationPath(
   year: number,
   clientName: string,
   taskTitle: string,
-  fileName: string
+  fileName: string,
+  divisionName?: string
 ): string {
   const sanitize = (s: string) =>
     s.replace(/[<>:"/\\|?*]/g, '-').replace(/\s+/g, ' ').trim()
 
+  const segments = divisionName
+    ? [
+        sharePointRoot,
+        String(year),
+        sanitize(clientName),
+        sanitize(divisionName),
+        sanitize(taskTitle),
+        sanitize(fileName),
+      ]
+    : [
+        sharePointRoot,
+        String(year),
+        sanitize(clientName),
+        sanitize(taskTitle),
+        sanitize(fileName),
+      ]
+
   // Use path segments — Electron main process will join with correct separator
-  return [
-    sharePointRoot,
-    String(year),
-    sanitize(clientName),
-    sanitize(taskTitle),
-    sanitize(fileName),
-  ].join('|||')  // delimiter that main process splits on to use path.join()
+  return segments.join('|||')  // delimiter that main process splits on to use path.join()
 }
 
 /**
@@ -60,12 +73,15 @@ export function buildRelativePath(
   year: number,
   clientName: string,
   taskTitle: string,
-  fileName: string
+  fileName: string,
+  divisionName?: string
 ): string {
   const sanitize = (s: string) =>
     s.replace(/[<>:"/\\|?*]/g, '-').replace(/\s+/g, ' ').trim()
 
-  return `${year}/${sanitize(clientName)}/${sanitize(taskTitle)}/${sanitize(fileName)}`
+  return divisionName
+    ? `${year}/${sanitize(clientName)}/${sanitize(divisionName)}/${sanitize(taskTitle)}/${sanitize(fileName)}`
+    : `${year}/${sanitize(clientName)}/${sanitize(taskTitle)}/${sanitize(fileName)}`
 }
 
 // ─────────────────────────────────────────

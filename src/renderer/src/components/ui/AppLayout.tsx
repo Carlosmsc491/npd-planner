@@ -21,6 +21,7 @@ import GlobalSearch from '../search/GlobalSearch'
 import { useNotifications } from '../../hooks/useNotifications'
 import { useClients } from '../../hooks/useClients'
 import { useLabels } from '../../hooks/useLabels'
+import { getAreaPermission } from '../../hooks/useAreaPermission'
 import type { Board, BoardType } from '../../types'
 
 type IconComponent = LucideIcon
@@ -170,11 +171,11 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
         {/* Nav */}
         <nav className={`flex-1 overflow-y-auto px-2 py-2 ${sidebarOpen ? '' : 'hidden'}`}>
           {[
-            { path: '/dashboard',      label: 'Dashboard', icon: LayoutGrid },
-            { path: '/my-tasks',       label: 'My Tasks', icon: List },
-            { path: '/my-space',       label: 'My Space', icon: User, isPrivate: true },
-            { path: '/calendar',       label: 'Master Calendar', icon: CalendarDays },
-          ].map((item) => {
+            { path: '/dashboard',      label: 'Dashboard', icon: LayoutGrid, areaId: 'dashboard' },
+            { path: '/my-tasks',       label: 'My Tasks', icon: List, areaId: 'my_tasks' },
+            { path: '/my-space',       label: 'My Space', icon: User, isPrivate: true, areaId: 'my_space' },
+            { path: '/calendar',       label: 'Master Calendar', icon: CalendarDays, areaId: 'calendar' },
+          ].filter((item) => getAreaPermission(item.areaId) !== 'none').map((item) => {
             const Icon = item.icon
             return (
               <Link
@@ -206,7 +207,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
               <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
                 Boards
               </div>
-              {boards.map((board) => {
+              {boards.filter((b) => getAreaPermission(`board_${b.id}`) !== 'none').map((board) => {
                 const color = getBoardColor(board)
                 const isActive = location.pathname === `/board/${board.id}`
                 const BoardIcon = (board.type === 'custom' && board.icon && CUSTOM_BOARD_ICONS[board.icon])
@@ -248,20 +249,24 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
           )}
 
           {/* ── RECETAS NPD section ──────────────────────────────────── */}
-          <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-            Recetas NPD
-          </div>
-          <Link
-            to="/recipes"
-            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mb-0.5 transition-colors ${
-              location.pathname.startsWith('/recipes')
-                ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
-            }`}
-          >
-            <FlowerIcon size={14} className="shrink-0" />
-            <span>NPD Projects</span>
-          </Link>
+          {getAreaPermission('elitequote') !== 'none' && (
+            <>
+              <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                Recetas NPD
+              </div>
+              <Link
+                to="/recipes"
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mb-0.5 transition-colors ${
+                  location.pathname.startsWith('/recipes')
+                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                }`}
+              >
+                <FlowerIcon size={14} className="shrink-0" />
+                <span>NPD Projects</span>
+              </Link>
+            </>
+          )}
 
           {/* New Board button */}
           {isAdmin && (
@@ -287,7 +292,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
             Settings
           </Link>
 
-          {(user?.role === 'admin' || user?.role === 'owner') && (
+          {getAreaPermission('analytics') !== 'none' && (
             <Link
               to="/analytics"
               className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mt-0.5 transition-colors ${

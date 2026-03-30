@@ -1,10 +1,11 @@
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from './lib/firebase'
 import { getUser } from './lib/firestore'
 import { useAuthStore } from './store/authStore'
 import ProtectedRoute from './components/ui/ProtectedRoute'
+import { useAreaPermission } from './hooks/useAreaPermission'
 import LoginPage from './pages/LoginPage'
 import AwaitingApprovalPage from './pages/AwaitingApprovalPage'
 import EmergencyPage from './pages/EmergencyPage'
@@ -22,6 +23,13 @@ import RecipeProjectPage from './components/recipes/RecipeProjectPage'
 import NewRecipeProjectWizard from './components/recipes/wizard/NewRecipeProjectWizard'
 import { useKeyboardShortcuts, useGlobalSearchState } from './hooks/useKeyboardShortcuts'
 import WelcomeWizard from './components/ui/WelcomeWizard'
+
+function BoardRoute() {
+  const { boardId } = useParams<{ boardId: string }>()
+  const permission = useAreaPermission(`board_${boardId ?? ''}`)
+  if (permission === 'none') return <Navigate to="/dashboard" replace />
+  return <BoardPage />
+}
 
 export default function App() {
   const { setUser, setLoading, user } = useAuthStore()
@@ -101,19 +109,29 @@ export default function App() {
       <Route path="/awaiting-approval" element={<AwaitingApprovalPage />} />
       <Route path="/emergency" element={<EmergencyPage />} />
       <Route element={<ProtectedRoute />}>
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/my-tasks" element={<MyTasksPage />} />
-        <Route path="/my-space" element={<MySpacePage />} />
-        <Route path="/board/:boardId" element={<BoardPage />} />
+        <Route element={<ProtectedRoute areaId="dashboard" />}>
+          <Route path="/dashboard" element={<DashboardPage />} />
+        </Route>
+        <Route element={<ProtectedRoute areaId="my_tasks" />}>
+          <Route path="/my-tasks" element={<MyTasksPage />} />
+        </Route>
+        <Route element={<ProtectedRoute areaId="my_space" />}>
+          <Route path="/my-space" element={<MySpacePage />} />
+        </Route>
+        <Route element={<ProtectedRoute areaId="calendar" />}>
+          <Route path="/calendar" element={<CalendarPage />} />
+        </Route>
+        <Route element={<ProtectedRoute areaId="analytics" />}>
+          <Route path="/analytics" element={<AnalyticsPage />} />
+        </Route>
+        <Route element={<ProtectedRoute areaId="elitequote" />}>
+          <Route path="/recipes" element={<RecipeHomePage />} />
+          <Route path="/recipes/new" element={<NewRecipeProjectWizard />} />
+          <Route path="/recipes/:projectId" element={<RecipeProjectPage />} />
+        </Route>
+        <Route path="/board/:boardId" element={<BoardRoute />} />
         <Route path="/task/:taskId" element={<TaskFullPage />} />
-        <Route path="/calendar" element={<CalendarPage />} />
-        <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/my-tasks" element={<MyTasksPage />} />
-        <Route path="/my-space" element={<MySpacePage />} />
-        <Route path="/recipes" element={<RecipeHomePage />} />
-        <Route path="/recipes/new" element={<NewRecipeProjectWizard />} />
-        <Route path="/recipes/:projectId" element={<RecipeProjectPage />} />
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/login" replace />} />

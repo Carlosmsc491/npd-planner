@@ -298,10 +298,35 @@ export function registerRecipeHandlers(): void {
       _recipeData: RecipeSpec
     ): Promise<{ success: boolean }> => {
       try {
+        const safeSrc = np(templatePath)
         const safeOut = np(outputPath)
         fs.mkdirSync(path.dirname(safeOut), { recursive: true })
-        fs.copyFileSync(np(templatePath), safeOut)
-        return { success: true }
+
+        // Retry up to 5 times — EBUSY happens when the template is open in Excel
+        // or OneDrive is syncing it. Short delays are usually enough to clear it.
+        const MAX_RETRIES = 5
+        const RETRY_DELAY_MS = 800
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+          try {
+            fs.copyFileSync(safeSrc, safeOut)
+            return { success: true }
+          } catch (copyErr: unknown) {
+            const nodeErr = copyErr as NodeJS.ErrnoException
+            if (nodeErr.code === 'EBUSY' || nodeErr.code === 'EPERM') {
+              await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+            } else {
+              throw copyErr
+            }
+          }
+        }
+
+        // All retries exhausted — surface a friendly message
+        const friendly = new Error(
+          `The template file is locked by another program (e.g. Excel or OneDrive). ` +
+          `Please close it and try again.\n\nFile: ${path.basename(safeSrc)}`
+        )
+        ;(friendly as NodeJS.ErrnoException).code = 'EBUSY'
+        throw friendly
       } catch (err) {
         console.error('recipe:generateFromTemplate error:', err)
         throw err

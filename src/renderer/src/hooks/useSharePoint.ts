@@ -119,7 +119,8 @@ export function useSharePoint() {
 
   async function attachFile(
     task: Task,
-    clientName: string
+    clientName: string,
+    divisionName?: string
   ): Promise<{ success: boolean; attachment?: TaskAttachment; error?: string }> {
     if (!isElectron) return { success: false, error: 'File attachments require the desktop app.' }
     if (!sharePointPath) {
@@ -141,10 +142,15 @@ export function useSharePoint() {
     const year = new Date().getFullYear().toString()
     const safeClient = sanitizeName(clientName || 'Unknown Client')
     const safeTitle = sanitizeName(task.title)
+    const safeDivision = divisionName ? sanitizeName(divisionName) : undefined
 
     // Use ||| delimiter so main process can path.join safely
-    const destPath = [sharePointPath, year, safeClient, safeTitle, fileName].join('|||')
-    const relativePath = [year, safeClient, safeTitle, fileName].join('/')
+    const destPath = safeDivision
+      ? [sharePointPath, year, safeClient, safeDivision, safeTitle, fileName].join('|||')
+      : [sharePointPath, year, safeClient, safeTitle, fileName].join('|||')
+    const relativePath = safeDivision
+      ? [year, safeClient, safeDivision, safeTitle, fileName].join('/')
+      : [year, safeClient, safeTitle, fileName].join('/')
 
     const attachment: TaskAttachment = {
       id: crypto.randomUUID(),

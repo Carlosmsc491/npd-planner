@@ -38,7 +38,7 @@
  */
 
 import { ipcMain } from 'electron';
-import { readLatestCsv, getLatestCsvStatus } from '../services/awbLookupService';
+import { readMergedCsvs, getLatestCsvStatus } from '../services/awbLookupService';
 import { forceTrazeDownload } from '../services/trazeIntegrationService';
 import {
   readCredentials,
@@ -68,7 +68,9 @@ export function registerAwbIpcHandlers(): void {
 
   // ── Renderer requests latest CSV content for AWB lookup ──────────────────
   ipcMain.handle('awb:get-latest-csv', async () => {
-    const content = readLatestCsv();
+    // Merge ALL retained CSVs (7 days) so AWBs that dropped off newer exports
+    // still have their tracking data from older files
+    const content = readMergedCsvs();
     const status  = getLatestCsvStatus();
 
     return {

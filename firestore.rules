@@ -77,7 +77,7 @@ service cloud.firestore {
                        (isSelf(uid) &&
                         !request.resource.data.diff(resource.data)
                           .affectedKeys()
-                          .hasAny(['role', 'status', 'email', 'uid']));
+                          .hasAny(['role', 'status', 'email', 'uid', 'areaPermissions']));
 
       // Only owner can delete users (soft delete via status is preferred)
       allow delete: if isAppOwner();
@@ -110,6 +110,15 @@ service cloud.firestore {
       allow update: if isActiveUser();
       // Only admins can permanently delete clients
       allow delete: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────
+    // DIVISIONS
+    // ─────────────────────────────────────────
+
+    match /divisions/{divisionId} {
+      allow read: if isActiveUser();
+      allow write: if isActiveUser();
     }
 
     // ─────────────────────────────────────────
@@ -244,6 +253,20 @@ service cloud.firestore {
 
     match /trashQueue/{trashId} {
       allow read, write: if isActiveUser();
+    }
+
+    // ─────────────────────────────────────────
+    // HISTORICAL TASKS (Microsoft Planner import)
+    // ─────────────────────────────────────────
+
+    match /historicalTasks/{taskId} {
+      allow read: if isActiveUser();
+      allow write: if isAdmin();
+    }
+
+    match /importBatches/{batchId} {
+      allow read: if isActiveUser();
+      allow write: if isAdmin();
     }
 
     // ─────────────────────────────────────────

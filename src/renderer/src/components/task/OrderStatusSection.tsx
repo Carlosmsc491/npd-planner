@@ -10,6 +10,24 @@
 
 import { useState, useEffect } from 'react';
 
+/** If ATA is before ETA, it's invalid (placeholder/sentinel) — treat as null */
+function sanitizeAta(eta: string | null, ata: string | null): string | null {
+  if (!ata) return null
+  if (ata.includes('1900')) return null
+  if (!eta) return ata
+  const parseDate = (v: string): Date | null => {
+    const parts = v.trim().split(' ')
+    const [m, d, y] = parts[0].split('/')
+    if (!m || !d || !y) return null
+    const [hh, mm] = parts[1] ? parts[1].split(':') : ['0', '0']
+    return new Date(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm))
+  }
+  const etaDate = parseDate(eta)
+  const ataDate = parseDate(ata)
+  if (etaDate && ataDate && ataDate < etaDate) return null
+  return ata
+}
+
 function formatFlightDate(val: string | null): string {
   if (!val) return '—'
   if (val.includes('1900')) return '—'
@@ -119,10 +137,10 @@ function AwbRow({ awb, readonly, onChange, onDelete }: AwbRowProps) {
         </span>
       </td>
 
-      {/* ATA (auto-filled from CSV) */}
+      {/* ATA (auto-filled from CSV) — if ATA < ETA, treat as unassigned */}
       <td className="py-2 pr-2">
         <span className="text-sm text-gray-600 dark:text-gray-400">
-          {formatFlightDate(safeAwb.ata)}
+          {formatFlightDate(sanitizeAta(safeAwb.eta, safeAwb.ata))}
         </span>
       </td>
 
