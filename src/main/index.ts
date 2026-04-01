@@ -13,6 +13,42 @@ import { createSplashWindow, closeSplashWindow } from './splash'
 const isDev = process.env.NODE_ENV === 'development' || !!process.env.ELECTRON_RENDERER_URL
 let splashMinTime = 0
 
+// Remove the native menu bar in production (Windows + Linux)
+// On Mac we keep a minimal menu so Cmd+Q / Cmd+H / system shortcuts still work
+if (!isDev) {
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      {
+        label: app.name,
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { role: 'quit' },
+        ],
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' },
+        ],
+      },
+    ]))
+  } else {
+    // Windows / Linux — remove completely
+    Menu.setApplicationMenu(null)
+  }
+}
+
 function createWindow(): BrowserWindow {
   console.log('[Main] Creating window...')
   console.log('[Main] __dirname:', __dirname)
