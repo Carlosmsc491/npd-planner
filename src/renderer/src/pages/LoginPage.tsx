@@ -224,16 +224,24 @@ export default function LoginPage() {
       }
 
       // Create user document in Firestore
-      const now = serverTimestamp() as unknown as Timestamp
-      const appUser = await createUser(firebaseUser.uid, {
-        email: signupEmail.toLowerCase(),
-        name: fullName,
-        role,
-        status,
-        preferences,
-        createdAt: now,
-        lastSeen: now,
-      })
+      // If this fails, delete the Auth user so the state stays clean and the user can retry
+      let appUser
+      try {
+        const now = serverTimestamp() as unknown as Timestamp
+        appUser = await createUser(firebaseUser.uid, {
+          email: signupEmail.toLowerCase(),
+          name: fullName,
+          role,
+          status,
+          preferences,
+          createdAt: now,
+          lastSeen: now,
+        })
+      } catch (firestoreErr) {
+        // Roll back the Auth user so the email is free to register again
+        await firebaseUser.delete().catch(() => {})
+        throw firestoreErr
+      }
 
       // If this is the first owner, mark the app as initialized (public flag for future registrations)
       if (role === 'owner') {
@@ -255,7 +263,7 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       console.error('Signup error:', err)
-      
+
       if (err.code === 'auth/email-already-in-use') {
         setError('An account with this email already exists. Please sign in instead.')
         setActiveTab('login')
