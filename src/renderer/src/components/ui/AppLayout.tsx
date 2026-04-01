@@ -202,7 +202,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
           })}
 
           {/* Boards section */}
-          {boards.length > 0 && (
+          {(boards.length > 0 || isAdmin) && (
             <>
               <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
                 Boards
@@ -245,14 +245,26 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
                   </div>
                 )
               })}
+              {/* New Board button — right after the last board */}
+              {isAdmin && (
+                <button
+                  onClick={() => setShowNewBoard(true)}
+                  className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-400 hover:bg-gray-50 hover:text-gray-600 dark:hover:bg-gray-700/50 dark:hover:text-gray-200 transition-colors"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  New Board
+                </button>
+              )}
             </>
           )}
 
-          {/* ── RECETAS NPD section ──────────────────────────────────── */}
+          {/* ── NPD Recipes section ──────────────────────────────────── */}
           {getAreaPermission('elitequote') !== 'none' && (
             <>
               <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                Recetas NPD
+                NPD Recipes
               </div>
               <Link
                 to="/recipes"
@@ -266,19 +278,6 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
                 <span>NPD Projects</span>
               </Link>
             </>
-          )}
-
-          {/* New Board button */}
-          {isAdmin && (
-            <button
-              onClick={() => setShowNewBoard(true)}
-              className="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-400 hover:bg-gray-50 hover:text-gray-600 dark:hover:bg-gray-700/50 dark:hover:text-gray-200 transition-colors"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              New Board
-            </button>
           )}
 
           <Link
