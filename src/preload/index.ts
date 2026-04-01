@@ -20,6 +20,7 @@ const INVOKE_CHANNELS = [
   // Traze preferences
   'traze:get-preferences',
   'traze:set-view-browser',
+  'traze:chromium-available',
   // SharePoint template files
   'file:save-text',
 ] as const

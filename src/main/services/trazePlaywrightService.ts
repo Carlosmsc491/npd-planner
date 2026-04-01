@@ -18,7 +18,6 @@ import { chromium } from 'playwright';
 import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
-import { execSync } from 'child_process';
 import * as os from 'os';
 import { readPreferences } from './trazePreferencesService';
 
@@ -32,49 +31,49 @@ interface TrazeCredentials {
 
 /**
  * Resolves the correct Chromium executable path.
- * In production (packaged app), looks in bundled extraResources first.
- * Falls back to default Playwright path, auto-installing if missing.
+ * Returns undefined immediately if Chromium is not available — never tries
+ * to auto-install (npx is not available in a packaged Electron app).
  */
-function resolveChromiumPath(): string | undefined {
+export function resolveChromiumPath(): string | undefined {
   const defaultPath = chromium.executablePath()
 
   if (app.isPackaged) {
-    // In production, try bundled browser in extraResources
+    // Bundled Chromium is always at resources/playwright-browsers/chromium-1208
+    // Windows: bundled from %LOCALAPPDATA%/ms-playwright/chromium-1208
+    // Mac: bundled from ~/.cache/ms-playwright/chromium-1208
     const bundledBase = path.join(process.resourcesPath, 'playwright-browsers')
     if (fs.existsSync(bundledBase)) {
-      // Replace the user-local ms-playwright path with the bundled one
-      const homeMsPlaywright = path.join(
-        process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
-        'ms-playwright'
-      )
-      const bundledPath = defaultPath.replace(homeMsPlaywright, bundledBase)
+      // Playwright's executablePath points deep inside chromium-XXXX/
+      // We replace the user-local ms-playwright root with our bundled root
+      const localMsPlaywright =
+        process.platform === 'darwin'
+          ? path.join(os.homedir(), '.cache', 'ms-playwright')
+          : path.join(
+              process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
+              'ms-playwright'
+            )
+      const bundledPath = defaultPath.replace(localMsPlaywright, bundledBase)
       if (fs.existsSync(bundledPath)) {
         console.log('[Traze] Using bundled Chromium:', bundledPath)
         return bundledPath
       }
+      console.warn('[Traze] playwright-browsers folder exists but executable not found at:', bundledPath)
     }
   }
 
-  // Dev mode or bundled path not found — use default
+  // Use the user-local Playwright Chromium if present
   if (fs.existsSync(defaultPath)) {
+    console.log('[Traze] Using local Chromium:', defaultPath)
     return defaultPath
   }
 
-  // Auto-install as last resort
-  console.log('[Traze] Chromium not found, attempting auto-install...')
-  try {
-    execSync('npx playwright install chromium', {
-      stdio: 'inherit',
-      timeout: 120_000,
-    })
-    console.log('[Traze] Chromium installed successfully')
-    if (fs.existsSync(defaultPath)) return defaultPath
-  } catch (err) {
-    console.error('[Traze] Failed to auto-install chromium:', err)
-  }
-
-  // Let Playwright try its default (may fail, but gives a clear error)
+  console.warn('[Traze] Chromium not found — Traze integration disabled')
   return undefined
+}
+
+/** Returns true if Chromium is available and Traze can run. */
+export function isChromiumAvailable(): boolean {
+  return resolveChromiumPath() !== undefined
 }
 
 function loadCredentials(): TrazeCredentials {
@@ -94,16 +93,23 @@ function loadCredentials(): TrazeCredentials {
  * Returns the absolute path to the saved CSV file.
  */
 export async function downloadTrazeCSV(): Promise<string> {
+  const executablePath = resolveChromiumPath();
+  if (!executablePath) {
+    throw new Error(
+      'Chromium no está instalado. La integración con Traze no está disponible en esta máquina. ' +
+      'Contacta al administrador para configurar Playwright.'
+    )
+  }
+
   const creds = loadCredentials();
 
   fs.mkdirSync(CSV_OUTPUT_DIR, { recursive: true });
 
   // Check user preference for view browser mode
   const preferences = readPreferences();
-  const executablePath = resolveChromiumPath();
   const browser = await chromium.launch({
     headless: !preferences.viewBrowser,
-    ...(executablePath ? { executablePath } : {}),
+    executablePath,
   });
   const context = await browser.newContext({ acceptDownloads: true });
   const page    = await context.newPage();

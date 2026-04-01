@@ -40,6 +40,7 @@
 import { ipcMain } from 'electron';
 import { readMergedCsvs, getLatestCsvStatus } from '../services/awbLookupService';
 import { forceTrazeDownload } from '../services/trazeIntegrationService';
+import { isChromiumAvailable } from '../services/trazePlaywrightService';
 import {
   readCredentials,
   saveCredentials,
@@ -95,6 +96,11 @@ export function registerAwbIpcHandlers(): void {
   // ── Renderer checks CSV status ────────────────────────────────────────────
   ipcMain.handle('traze:get-status', async () => {
     return getLatestCsvStatus();
+  });
+
+  // ── Renderer checks if Chromium is installed (Traze can run) ─────────────
+  ipcMain.handle('traze:chromium-available', () => {
+    return { available: isChromiumAvailable() };
   });
 
   // ── Credential Management ─────────────────────────────────────────────────

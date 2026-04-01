@@ -11,7 +11,7 @@ import { BrowserWindow } from 'electron';
 import * as fs   from 'fs';
 import * as path from 'path';
 import { app }   from 'electron';
-import { downloadTrazeCSV }    from './trazePlaywrightService';
+import { downloadTrazeCSV, isChromiumAvailable } from './trazePlaywrightService';
 import { cleanupOldCsvFiles }  from './awbLookupService';
 
 const CSV_OUTPUT_DIR = path.join(app.getPath('userData'), 'traze-exports');
@@ -111,6 +111,12 @@ export function startTrazeIntegration(mainWindow: BrowserWindow): void {
   npdWindow = mainWindow;
 
   if (schedulerInterval) stopTrazeIntegration();
+
+  // Skip entirely if Chromium is not installed on this machine
+  if (!isChromiumAvailable()) {
+    console.warn('[TrazeIntegration] Chromium no disponible — integración Traze desactivada en esta máquina.')
+    return
+  }
 
   console.log('[TrazeIntegration] Iniciado. Horario: 7 AM–6 PM, cada 1 hora.');
 
