@@ -21,18 +21,23 @@ interface Props {
   onDelete: (task: Task) => void
   onAddTask: (bucket: string) => void
   isDraggable?: boolean
+  // Cross-column drag
+  onTaskDragStart?: (task: Task, fromBucket: string) => void
+  onTaskDragEnd?: () => void
+  externalDragActive?: boolean  // a task from another bucket is being dragged
 }
 
 export default function BoardColumn({
   groupKey, tasks, clients, labels, users, board, bucketColor,
   onComplete, onOpen, onDuplicate, onRecurring, onDelete, onAddTask,
-  isDraggable,
+  isDraggable, onTaskDragStart, onTaskDragEnd, externalDragActive,
 }: Props) {
   const { showCompleted, toggleShowCompleted } = useBoardStore()
   const isShowingCompleted = showCompleted[groupKey] ?? false
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null)
   const [dragOverPosition, setDragOverPosition] = useState<'above' | 'below' | null>(null)
+  const [externalDragOver, setExternalDragOver] = useState(false)
 
   const active = tasks.filter((t) => !t.completed)
   const completed = tasks.filter((t) => t.completed)
@@ -140,7 +145,33 @@ export default function BoardColumn({
       </div>
 
       {/* Task cards */}
-      <div className="flex flex-col gap-2 flex-1">
+      <div
+        className={`flex flex-col gap-2 flex-1 rounded-xl transition-all ${
+          externalDragActive && externalDragOver
+            ? 'ring-2 ring-green-400 bg-green-50/40 dark:bg-green-900/10'
+            : ''
+        }`}
+        onDragOver={(e) => {
+          if (!externalDragActive) return
+          e.preventDefault()
+          e.stopPropagation()
+          setExternalDragOver(true)
+        }}
+        onDragLeave={(e) => {
+          // Only clear if leaving the column container itself
+          if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+            setExternalDragOver(false)
+          }
+        }}
+        onDrop={(e) => {
+          if (!externalDragActive) return
+          e.preventDefault()
+          e.stopPropagation()
+          setExternalDragOver(false)
+          // BoardView listens for this via the wrapper div — nothing to do here,
+          // the drop is handled at BoardView level via onDrop on the column wrapper
+        }}
+      >
         {visible.length === 0 && (
           <button
             onClick={() => onAddTask(groupKey)}
@@ -157,6 +188,7 @@ export default function BoardColumn({
               e.stopPropagation()  // prevent column drag from activating
               e.dataTransfer.effectAllowed = 'move'
               setDraggedTaskId(task.id)
+              onTaskDragStart?.(task, groupKey)
             }}
             onDragOver={(e) => {
               e.preventDefault()
@@ -177,6 +209,7 @@ export default function BoardColumn({
               setDraggedTaskId(null)
               setDragOverTaskId(null)
               setDragOverPosition(null)
+              onTaskDragEnd?.()
             }}
             className={`transition-all ${
               draggedTaskId === task.id ? 'opacity-40 scale-95' : ''
@@ -217,6 +250,13 @@ export default function BoardColumn({
               ? `Hide completed (${completed.length})`
               : `Show completed (${completed.length})`}
           </button>
+        )}
+
+        {/* External drag drop zone hint */}
+        {externalDragActive && externalDragOver && (
+          <div className="mt-1 rounded-xl border-2 border-dashed border-green-400 py-3 text-center text-xs font-medium text-green-600 dark:text-green-400">
+            Drop to move here
+          </div>
         )}
       </div>
     </div>

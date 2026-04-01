@@ -1,8 +1,10 @@
 import { useState, useMemo } from 'react'
+import { doc, updateDoc, Timestamp } from 'firebase/firestore'
 import BoardColumn from './BoardColumn'
 import { BOARD_BUCKETS, getBucketColor } from '../../utils/colorUtils'
 import { useDragScroll } from '../../hooks/useDragScroll'
 import { updateBoardBucketOrder } from '../../lib/firestore'
+import { db } from '../../lib/firebase'
 import type { Task, Client, Label, AppUser, GroupByField, BoardType, Board } from '../../types'
 
 interface Props {
@@ -80,6 +82,11 @@ export default function BoardView({
   const scrollRef = useDragScroll()
   const [draggedBucket, setDraggedBucket] = useState<string | null>(null)
   const [dragOverBucket, setDragOverBucket] = useState<string | null>(null)
+
+  // Cross-column task drag state
+  const [crossDrag, setCrossDrag] = useState<{ task: Task; fromBucket: string } | null>(null)
+  const [pendingMove, setPendingMove] = useState<{ task: Task; fromBucket: string; toBucket: string } | null>(null)
+
   const groups = groupTasks(tasks, groupBy, clients, users)
 
   // When grouping by bucket, ensure default buckets are shown even when empty
@@ -141,6 +148,37 @@ export default function BoardView({
     setDragOverBucket(null)
   }
 
+  // ── Cross-column task drag ────────────────────────────────────────────────
+
+  function handleTaskDragStart(task: Task, fromBucket: string) {
+    setCrossDrag({ task, fromBucket })
+  }
+
+  function handleTaskDragEnd() {
+    setCrossDrag(null)
+  }
+
+  function handleColumnDropTask(e: React.DragEvent, targetBucket: string) {
+    e.preventDefault()
+    if (!crossDrag) return
+    if (crossDrag.fromBucket === targetBucket) return   // same column — handled by BoardColumn internally
+    setPendingMove({ task: crossDrag.task, fromBucket: crossDrag.fromBucket, toBucket: targetBucket })
+    setCrossDrag(null)
+  }
+
+  async function confirmMove() {
+    if (!pendingMove) return
+    try {
+      await updateDoc(doc(db, 'tasks', pendingMove.task.id), {
+        bucket: pendingMove.toBucket,
+        updatedAt: Timestamp.now(),
+      })
+    } catch (err) {
+      console.error('Failed to move task:', err)
+    }
+    setPendingMove(null)
+  }
+
   if (orderedGroups.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center py-20">
@@ -152,6 +190,7 @@ export default function BoardView({
   }
 
   return (
+    <>
     <div
       ref={scrollRef}
       className="flex gap-4 overflow-x-auto pb-4 px-6 pt-4 h-full cursor-grab"
@@ -159,10 +198,22 @@ export default function BoardView({
       {orderedGroups.map(({ key, tasks: groupTasks }) => (
         <div
           key={key}
-          draggable={groupBy === 'bucket'}
+          draggable={groupBy === 'bucket' && !crossDrag}
           onDragStart={() => handleColumnDragStart(key)}
-          onDragOver={(e) => handleColumnDragOver(e, key)}
-          onDrop={() => handleColumnDrop(key)}
+          onDragOver={(e) => {
+            if (crossDrag && crossDrag.fromBucket !== key) {
+              e.preventDefault()
+            } else {
+              handleColumnDragOver(e, key)
+            }
+          }}
+          onDrop={(e) => {
+            if (crossDrag && crossDrag.fromBucket !== key) {
+              handleColumnDropTask(e, key)
+            } else {
+              handleColumnDrop(key)
+            }
+          }}
           onDragEnd={handleColumnDragEnd}
           className={`transition-transform ${
             dragOverBucket === key ? 'scale-[1.02] ring-2 ring-green-400 ring-opacity-50 rounded-xl' : ''
@@ -183,9 +234,53 @@ export default function BoardView({
             onDelete={onDelete}
             onAddTask={onAddTask}
             isDraggable={groupBy === 'bucket'}
+            onTaskDragStart={groupBy === 'bucket' ? handleTaskDragStart : undefined}
+            onTaskDragEnd={groupBy === 'bucket' ? handleTaskDragEnd : undefined}
+            externalDragActive={groupBy === 'bucket' && crossDrag !== null && crossDrag.fromBucket !== key}
           />
         </div>
       ))}
     </div>
+
+    {/* ── Confirm bucket move dialog ────────────────────────────────────── */}
+    {pendingMove && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-700 p-6">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+            Move task?
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 leading-relaxed">
+            <span className="font-medium text-gray-800 dark:text-gray-200">
+              "{pendingMove.task.title}"
+            </span>
+            <br />
+            <span className="inline-flex items-center gap-1.5 mt-1.5">
+              <span className="rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-300">
+                {pendingMove.fromBucket}
+              </span>
+              <span className="text-gray-400">→</span>
+              <span className="rounded-full bg-green-100 dark:bg-green-900/30 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-400">
+                {pendingMove.toBucket}
+              </span>
+            </span>
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setPendingMove(null)}
+              className="rounded-xl px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmMove}
+              className="rounded-xl bg-green-600 hover:bg-green-700 px-4 py-2 text-sm font-medium text-white transition-colors"
+            >
+              Yes, move it
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
