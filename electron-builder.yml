@@ -11,11 +11,8 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.*}'
   - '!{tailwind.config.js,postcss.config.js}'
-# Windows build: bundles Chromium from %LOCALAPPDATA%/ms-playwright/chromium-1208
-# Mac build: bundles Chromium from ~/.cache/ms-playwright/chromium-1208
-# Both land in resources/playwright-browsers/chromium-1208 inside the app
 extraResources:
-  - from: "%LOCALAPPDATA%/ms-playwright/chromium-1208"
+  - from: ".chromium-bundle"
     to: playwright-browsers/chromium-1208
     filter:
       - "**/*"
@@ -31,11 +28,6 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
-  extraResources:
-    - from: "~/.cache/ms-playwright/chromium-1208"
-      to: playwright-browsers/chromium-1208
-      filter:
-        - "**/*"
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.

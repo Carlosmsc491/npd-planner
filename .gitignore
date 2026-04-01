@@ -89,3 +89,4 @@ coverage/
 .cache/
 .eslintcache
 .vite/
+.chromium-bundle
