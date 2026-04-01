@@ -8,8 +8,10 @@ import { registerAwbIpcHandlers } from './ipc/awbIpcHandlers'
 import { errorReporter } from './services/errorReporter'
 import { startTrashCleanupService, registerTrashCleanupHandlers } from './services/trashCleanupService'
 import { registerRecipeHandlers } from './ipc/recipeIpcHandlers'
+import { createSplashWindow, closeSplashWindow } from './splash'
 
 const isDev = process.env.NODE_ENV === 'development' || !!process.env.ELECTRON_RENDERER_URL
+let splashMinTime = 0
 
 function createWindow(): BrowserWindow {
   console.log('[Main] Creating window...')
@@ -103,7 +105,13 @@ function createWindow(): BrowserWindow {
 
   win.on('ready-to-show', () => {
     console.log('[Main] Window ready to show')
-    win.show()
+    const remainingTime = Math.max(0, splashMinTime - Date.now())
+    setTimeout(() => {
+      closeSplashWindow()
+      setTimeout(() => {
+        win.show()
+      }, 700)
+    }, remainingTime)
   })
   
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
@@ -120,6 +128,9 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  createSplashWindow()
+  splashMinTime = Date.now() + 5500  // Full animation (5s) + 0.5s hold on final frame
+
   // Error reporter IPC handlers
   ipcMain.handle('error-report:send', async (_event, report) => {
     const reportPath = await errorReporter.generateReportFile(report)
