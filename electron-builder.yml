@@ -4,6 +4,7 @@ directories:
   buildResources: resources
   output: dist-electron
 files:
+  - '!.chromium-bundle{,/**/*}'
   - '!**/.vscode/*'
   - '!src/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
