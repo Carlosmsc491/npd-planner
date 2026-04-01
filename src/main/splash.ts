@@ -3,7 +3,7 @@
  * Shows a centered white window with the Lottie logo animation
  * while the main app window loads in the background.
  */
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, app } from 'electron'
 import { join } from 'path'
 
 let splashWindow: BrowserWindow | null = null
@@ -13,7 +13,10 @@ function getResourcesPath(): string {
   if (isDev) {
     return join(__dirname, '../../resources')
   }
-  return join(process.resourcesPath, 'resources')
+  // In production, resources are unpacked from the asar to app.asar.unpacked/resources/
+  // app.getAppPath() = .../resources/app.asar
+  // so '../app.asar.unpacked/resources' is the correct location
+  return join(app.getAppPath(), '..', 'app.asar.unpacked', 'resources')
 }
 
 export function createSplashWindow(): BrowserWindow {
@@ -34,7 +37,15 @@ export function createSplashWindow(): BrowserWindow {
     }
   })
 
-  splashWindow.loadFile(join(resourcesPath, 'splash.html'))
+  splashWindow.loadFile(join(resourcesPath, 'splash.html')).catch(err => {
+    // If splash.html can't be found, log and destroy the window gracefully.
+    // Never let this crash the main process.
+    console.error('[Splash] Failed to load splash.html:', err)
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.destroy()
+      splashWindow = null
+    }
+  })
 
   splashWindow.once('ready-to-show', () => {
     splashWindow?.show()
