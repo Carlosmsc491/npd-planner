@@ -1,7 +1,7 @@
 appId: com.eliteflower.npdplanner
 productName: NPD Planner
 directories:
-  buildResources: resources
+  buildResources: build
   output: dist-electron
 files:
   - '!.chromium-bundle{,/**/*}'
