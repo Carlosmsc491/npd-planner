@@ -11,6 +11,8 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.*}'
   - '!{tailwind.config.js,postcss.config.js}'
+# copy-chromium.js copies the local Playwright Chromium to .chromium-bundle/ before build
+# so electron-builder can include it as extraResources (works on Windows and Mac)
 extraResources:
   - from: ".chromium-bundle"
     to: playwright-browsers/chromium-1208
