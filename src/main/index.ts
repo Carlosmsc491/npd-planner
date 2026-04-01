@@ -163,6 +163,9 @@ function createWindow(): BrowserWindow {
   return win
 }
 
+// Set app user model ID so Windows notifications show "NPD Planner" not "electron.app.NPD Planner"
+app.setAppUserModelId('NPD Planner')
+
 app.whenReady().then(() => {
   createSplashWindow()
   splashMinTime = Date.now() + 5500  // Full animation (5s) + 0.5s hold on final frame
