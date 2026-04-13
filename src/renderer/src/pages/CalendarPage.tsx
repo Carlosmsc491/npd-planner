@@ -52,10 +52,11 @@ export default function CalendarPage() {
     return unsub
   }, [boards])
 
-  // Main task events
+  // Main task events — only for tasks WITHOUT taskDates
   const mainEvents = tasks
     .filter((t) => !t.completed && (t.dateStart || t.dateEnd))
     .filter((t) => !hiddenBoards.has(t.boardId))
+    .filter((t) => !t.taskDates || t.taskDates.length === 0)
     .map((t) => {
       const board = boards.find((b) => b.id === t.boardId)
       const boardColor = board ? (getBoardColor(board)) : '#888'
@@ -68,16 +69,16 @@ export default function CalendarPage() {
         start,
         end,
         allDay: true,
-        backgroundColor: eventColor,
+        backgroundColor: eventColor + 'DD',
         borderColor: eventColor,
         textColor: '#ffffff',
-        extendedProps: { task: t, board },
+        extendedProps: { task: t, board, isTaskDate: false },
       }
     })
 
-  // Task date events (from taskDates array)
+  // Task date events — replace main event for tasks WITH taskDates
   const taskDateEvents = tasks
-    .filter((t) => !hiddenBoards.has(t.boardId))
+    .filter((t) => !t.completed && !hiddenBoards.has(t.boardId) && t.taskDates && t.taskDates.length > 0)
     .flatMap((t) =>
       (t.taskDates ?? []).flatMap((td) => {
         const dt = dateTypes.find((x) => x.key === td.typeKey)
@@ -92,7 +93,7 @@ export default function CalendarPage() {
           backgroundColor: dt.color + 'CC',
           borderColor: dt.color,
           textColor: '#ffffff',
-          editable: false, // Task date events are not draggable
+          editable: false,
           extendedProps: {
             task: t,
             board,
@@ -222,14 +223,59 @@ export default function CalendarPage() {
             eventResize={handleEventResize}
             eventClick={handleEventClick}
             eventContent={(arg) => {
-              const { isTaskDate, dateTypeIcon } = arg.event.extendedProps
-              const Icon = isTaskDate ? (ICON_MAP[dateTypeIcon] ?? CalendarIcon) : null
-              return (
-                <div className="flex items-center gap-1 px-1 overflow-hidden w-full">
-                  {Icon && <Icon size={10} className="shrink-0 opacity-90" />}
-                  <span className="truncate text-xs font-medium">{arg.event.title}</span>
-                </div>
-              )
+              const { isTaskDate, dateTypeIcon } = arg.event.extendedProps as {
+                isTaskDate?: boolean
+                dateTypeIcon?: string
+              }
+
+              if (!isTaskDate) {
+                return (
+                  <div className="flex items-center gap-1 px-1 py-0.5 overflow-hidden w-full">
+                    <span className="truncate text-xs font-medium">{arg.event.title}</span>
+                  </div>
+                )
+              }
+
+              const Icon = ICON_MAP[dateTypeIcon ?? ''] ?? CalendarIcon
+              const eventStart = arg.event.start
+              const eventEnd = arg.event.end
+              const hasRange = eventStart && eventEnd &&
+                (eventEnd.getTime() - eventStart.getTime()) > 86400000
+
+              if (!hasRange) {
+                return (
+                  <div className="flex items-center gap-1 px-1 py-0.5 overflow-hidden w-full">
+                    <Icon size={10} className="shrink-0 opacity-90" />
+                    <span className="truncate text-xs font-medium">{arg.event.title}</span>
+                  </div>
+                )
+              }
+
+              if (arg.isStart && arg.isEnd) {
+                return (
+                  <div className="flex items-center w-full px-1 py-0.5 gap-1 overflow-hidden">
+                    <Icon size={10} className="shrink-0" />
+                    <span className="flex-1 truncate text-xs font-medium">{arg.event.title}</span>
+                    <Icon size={10} className="shrink-0" />
+                  </div>
+                )
+              }
+              if (arg.isStart) {
+                return (
+                  <div className="flex items-center gap-1 px-1 py-0.5 overflow-hidden w-full">
+                    <Icon size={10} className="shrink-0" />
+                    <span className="truncate text-xs font-medium">{arg.event.title}</span>
+                  </div>
+                )
+              }
+              if (arg.isEnd) {
+                return (
+                  <div className="flex items-center justify-end px-1 py-0.5 w-full">
+                    <Icon size={10} className="shrink-0" />
+                  </div>
+                )
+              }
+              return <div className="w-full h-full" />
             }}
             dayCellContent={(arg: DayCellContentArg) => (
               <div className="group/day relative flex items-center justify-between w-full px-1">

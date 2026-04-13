@@ -3,15 +3,19 @@ import { useNavigate } from 'react-router-dom'
 import { onSnapshot, doc } from 'firebase/firestore'
 import {
   User, Calendar, CircleDot, Zap, Users, Tag,
-  Layers, Maximize2, ChevronDown,
+  Layers, Maximize2, ChevronDown, Plus, X, Hammer, Truck, Wrench, Star,
+  type LucideIcon,
 } from 'lucide-react'
+import { nanoid } from 'nanoid'
 import { db } from '../../lib/firebase'
 import { updateTaskField, createNotification, createDivision } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { STATUS_STYLES, getBoardColor, BOARD_BUCKETS, getInitials, getInitialsColor } from '../../utils/colorUtils'
-import { timestampToDateInput, dateStringToTimestamp } from '../../utils/dateUtils'
+import { timestampToDateInput, dateStringToTimestamp, toLocalDateString } from '../../utils/dateUtils'
+import { useDateTypeStore } from '../../store/dateTypeStore'
+import type { TaskDate } from '../../types'
 import SubtaskList from './SubtaskList'
 import AttachmentPanel from './AttachmentPanel'
 import RichTextEditor from './RichTextEditor'
@@ -59,6 +63,14 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   const [menuOpen, setMenuOpen] = useState(false)
   const [bucketOpen, setBucketOpen] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
+
+  // ── Event Dates state ────────────────────────────────────────────
+  const { dateTypes } = useDateTypeStore()
+  const [addingDate, setAddingDate] = useState(false)
+  const [newDateTypeKey, setNewDateTypeKey] = useState('')
+  const [newDateStart, setNewDateStart] = useState('')
+  const [newDateEnd, setNewDateEnd] = useState('')
+  const [hasEndDate, setHasEndDate] = useState(false)
 
   // ── Order Status (AWB + PO) state ────────────────────────────────────────
   const [localAwbs, setLocalAwbs] = useState<AwbEntry[]>(task.awbs ?? [])
@@ -235,6 +247,54 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
       }
       poSaveTimeoutRef.current = null
     }, 1000)
+  }
+
+  // ── Event Dates handlers ─────────────────────────────────────────
+  function getTaskBounds(): { min: string; max: string } {
+    return {
+      min: task.dateStart ? toLocalDateString(task.dateStart.toDate()) : '',
+      max: task.dateEnd   ? toLocalDateString(task.dateEnd.toDate())   : '',
+    }
+  }
+
+  async function handleAddTaskDate() {
+    if (!newDateTypeKey || !newDateStart || !user) return
+
+    const bounds = getTaskBounds()
+    if (bounds.min && newDateStart < bounds.min) return
+    if (bounds.max && newDateStart > bounds.max) return
+    if (hasEndDate && newDateEnd) {
+      if (newDateEnd < newDateStart) return
+      if (bounds.max && newDateEnd > bounds.max) return
+    }
+    const { Timestamp: Ts } = await import('firebase/firestore')
+
+    const startDate = new Date(newDateStart + 'T12:00:00')  // noon para evitar drift
+    const endDate = hasEndDate && newDateEnd
+      ? new Date(newDateEnd + 'T12:00:00')
+      : null
+
+    const newEntry: TaskDate = {
+      id: nanoid(),
+      typeKey: newDateTypeKey,
+      dateStart: Ts.fromDate(startDate),
+      dateEnd: endDate ? Ts.fromDate(endDate) : null,
+    }
+
+    const updated = [...(task.taskDates ?? []), newEntry]
+    await save('taskDates', updated, task.taskDates)
+
+    // Reset form
+    setAddingDate(false)
+    setNewDateTypeKey('')
+    setNewDateStart('')
+    setNewDateEnd('')
+    setHasEndDate(false)
+  }
+
+  async function handleRemoveTaskDate(id: string) {
+    const updated = (task.taskDates ?? []).filter((td) => td.id !== id)
+    await save('taskDates', updated, task.taskDates)
   }
 
   return (
@@ -661,6 +721,145 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
               })
             }
 
+            {/* ── Event Dates ────────────────────────────────── */}
+            {dateTypes.length > 0 && (
+              <div className="mt-2">
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                  Event Dates
+                </p>
+
+                {/* Lista de taskDates existentes */}
+                <div className="space-y-1.5">
+                  {(task.taskDates ?? []).map((td) => {
+                    const dt = dateTypes.find((x) => x.key === td.typeKey)
+                    if (!dt) return null
+                    const Icon = getDateTypeIcon(dt.icon)
+                    const startStr = toLocalDateString(td.dateStart.toDate())
+                    const endStr = td.dateEnd ? toLocalDateString(td.dateEnd.toDate()) : null
+                    const isOutOfBounds =
+                      (task.dateStart && td.dateStart.toMillis() < task.dateStart.toMillis()) ||
+                      (task.dateEnd && td.dateEnd && td.dateEnd.toMillis() > task.dateEnd.toMillis())
+
+                    return (
+                      <div
+                        key={td.id}
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                          isOutOfBounds
+                            ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20'
+                            : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
+                        }`}
+                      >
+                        <div
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+                          style={{ backgroundColor: dt.color + '20', color: dt.color }}
+                        >
+                          <Icon size={14} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{dt.label}</p>
+                          {endStr ? (
+                            <div className="flex items-center gap-1 text-xs font-medium text-gray-800 dark:text-gray-200">
+                              <span>{startStr}</span>
+                              <span className="text-gray-400">────</span>
+                              <span>{endStr}</span>
+                            </div>
+                          ) : (
+                            <p className="text-xs font-medium text-gray-800 dark:text-gray-200">{startStr}</p>
+                          )}
+                        </div>
+                        {isOutOfBounds && (
+                          <span className="text-xs text-amber-600 dark:text-amber-400 font-medium shrink-0">⚠</span>
+                        )}
+                        <button
+                          onClick={() => handleRemoveTaskDate(td.id)}
+                          className="text-gray-400 hover:text-red-500 transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Form inline para agregar */}
+                {addingDate ? (
+                  <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3 space-y-2">
+                    {/* Selector de tipo */}
+                    <select
+                      value={newDateTypeKey}
+                      onChange={(e) => setNewDateTypeKey(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 focus:outline-none"
+                    >
+                      <option value="">Select type...</option>
+                      {dateTypes.map((dt) => (
+                        <option key={dt.key} value={dt.key}>{dt.label}</option>
+                      ))}
+                    </select>
+
+                    {/* Start date */}
+                    <input
+                      type="date"
+                      value={newDateStart}
+                      min={getTaskBounds().min || undefined}
+                      max={getTaskBounds().max || undefined}
+                      onChange={(e) => {
+                        setNewDateStart(e.target.value)
+                        if (newDateEnd && e.target.value > newDateEnd) setNewDateEnd('')
+                      }}
+                      className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 focus:outline-none"
+                    />
+
+                    {/* Toggle end date */}
+                    <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={hasEndDate}
+                        onChange={(e) => setHasEndDate(e.target.checked)}
+                        className="rounded"
+                      />
+                      Add end date
+                    </label>
+
+                    {hasEndDate && (
+                      <input
+                        type="date"
+                        value={newDateEnd}
+                        min={newDateStart || getTaskBounds().min || undefined}
+                        max={getTaskBounds().max || undefined}
+                        onChange={(e) => setNewDateEnd(e.target.value)}
+                        className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 focus:outline-none"
+                      />
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => { setAddingDate(false); setNewDateTypeKey(''); setNewDateStart(''); setNewDateEnd(''); setHasEndDate(false) }}
+                        className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleAddTaskDate}
+                        disabled={!newDateTypeKey || !newDateStart}
+                        className="text-xs font-medium bg-green-600 text-white rounded-md px-3 py-1 hover:bg-green-700 disabled:opacity-40 transition-colors"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setAddingDate(true)}
+                    className="mt-1.5 flex w-full items-center gap-1.5 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 px-3 py-2 text-xs text-gray-500 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                  >
+                    <Plus size={12} />
+                    Add date
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Divider */}
             <div className="border-t border-gray-100 dark:border-gray-800" />
 
@@ -691,6 +890,15 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
       </div>
     </div>
   )
+}
+
+// Icon helper for date types
+const ICON_MAP: Record<string, LucideIcon> = {
+  Hammer, Truck, Wrench, Star, Calendar,
+}
+
+function getDateTypeIcon(iconName: string): LucideIcon {
+  return ICON_MAP[iconName] ?? Calendar
 }
 
 function PropRow({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
