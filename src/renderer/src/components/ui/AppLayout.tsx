@@ -16,6 +16,7 @@ import { subscribeToBoards, updateBoard, deleteBoard } from '../../lib/firestore
 import { getBoardColor, getInitials, getInitialsColor } from '../../utils/colorUtils'
 import ConnectionStatus from './ConnectionStatus'
 import NewBoardModal from './NewBoardModal'
+import WhatsNewModal from './WhatsNewModal'
 import NotificationBell from '../notifications/NotificationBell'
 import GlobalSearch from '../search/GlobalSearch'
 import { useNotifications } from '../../hooks/useNotifications'
@@ -396,6 +397,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
 
       {showNewBoard && <NewBoardModal onClose={() => setShowNewBoard(false)} />}
       {showSearch && <GlobalSearch onClose={() => setShowSearch(false)} />}
+      <WhatsNewModal />
 
       {/* Board context menu — rendered via portal to escape sidebar overflow */}
       {menuBoardId && menuPos && createPortal(

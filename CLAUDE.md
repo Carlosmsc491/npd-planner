@@ -563,11 +563,13 @@ Update these as you complete each feature. Add [x] when done.
 - [x] Empty states for all board views
 
 ### Phase 4 — Sync & Offline
-- [x] Firebase Persistence (enableMultiTabIndexedDbPersistence)
+- [x] Firebase Persistence (persistentLocalCache + persistentMultipleTabManager)
 - [x] Connection status indicator (bottom corner)
 - [x] Offline mode: queue writes, sync on reconnect
 - [x] Simultaneous edit merge with conflict resolution dialog
 - [x] Undo toast (5 seconds) for task deletion
+- [x] **Optimistic updates** — task changes reflect instantly in UI, Firestore sync in background
+- [x] **Board properties sync** — add/delete properties in Settings reflects immediately app-wide
 
 ### Phase 5 — Calendar
 - [x] FullCalendar installed and configured
@@ -604,6 +606,7 @@ Update these as you complete each feature. Add [x] when done.
 - [x] Search across tasks, clients, comments
 - [x] Keyboard shortcuts configurable per user in Settings
 - [x] Dark mode / Light mode toggle per user
+- [x] **What's New modal** — shown once per version on update, highlights new features
 
 ### Phase 8 — Analytics & Build
 - [ ] Analytics dashboard (admin only): tasks/week, load by person, top clients
