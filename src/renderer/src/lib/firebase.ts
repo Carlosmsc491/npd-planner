@@ -10,8 +10,10 @@ import {
   Auth
 } from 'firebase/auth'
 import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   getFirestore,
-  enableMultiTabIndexedDbPersistence,
   Firestore
 } from 'firebase/firestore'
 
@@ -57,17 +59,21 @@ setPersistence(auth, browserLocalPersistence).catch((err) => {
   console.error('Failed to set auth persistence:', err)
 })
 
-// Firestore with offline persistence (works without internet)
-export const db: Firestore = getFirestore(app)
+// Firestore with offline persistence using the Firebase 11 API.
+// enableMultiTabIndexedDbPersistence is deprecated and causes
+// "INTERNAL ASSERTION FAILED: Unexpected state" errors in Firebase 11.
+let db: Firestore
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager(),
+    }),
+  })
+} catch {
+  // initializeFirestore throws if the instance was already created (hot reload).
+  // Fall back to getFirestore which returns the existing instance.
+  db = getFirestore(app)
+}
 
-enableMultiTabIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    // Multiple tabs open — only first tab gets persistence
-    console.warn('Firestore persistence unavailable: multiple tabs open')
-  } else if (err.code === 'unimplemented') {
-    // Browser doesn't support IndexedDB
-    console.warn('Firestore persistence not supported in this environment')
-  }
-})
-
+export { db }
 export default app
