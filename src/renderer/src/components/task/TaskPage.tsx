@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { onSnapshot, doc } from 'firebase/firestore'
 import {
   User, Calendar, CircleDot, Zap, Users, Tag,
-  Layers, Maximize2, ChevronDown, Plus, X, Hammer, Truck, Wrench, Star,
+  Layers, Maximize2, ChevronDown, Plus, X, Hammer, Truck, Wrench, Star, Edit2,
   type LucideIcon,
 } from 'lucide-react'
 import { nanoid } from 'nanoid'
@@ -13,6 +13,7 @@ import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { STATUS_STYLES, getBoardColor, BOARD_BUCKETS, getInitials, getInitialsColor } from '../../utils/colorUtils'
+import { DynamicIcon } from '../../utils/propertyUtils'
 import { timestampToDateInput, dateStringToTimestamp, toLocalDateString } from '../../utils/dateUtils'
 import { useDateTypeStore } from '../../store/dateTypeStore'
 import type { TaskDate } from '../../types'
@@ -24,7 +25,7 @@ import { CustomFieldInput } from '../settings/BoardTemplateEditor'
 import { OrderStatusSection } from './OrderStatusSection'
 import { useAwbLookup } from '../../hooks/useAwbLookup'
 import { useDivisions } from '../../hooks/useDivisions'
-import type { Task, AppUser, Board, TaskStatus, TaskPriority, AwbEntry } from '../../types'
+import type { Task, AppUser, Board, TaskStatus, AwbEntry } from '../../types'
 
 interface Props {
   task: Task
@@ -71,6 +72,13 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   const [newDateStart, setNewDateStart] = useState('')
   const [newDateEnd, setNewDateEnd] = useState('')
   const [hasEndDate, setHasEndDate] = useState(false)
+  const [dateError, setDateError] = useState<string>('')
+  
+  // Editing existing taskDate
+  const [editingDateId, setEditingDateId] = useState<string | null>(null)
+  const [editDateStart, setEditDateStart] = useState('')
+  const [editDateEnd, setEditDateEnd] = useState('')
+  const [editHasEndDate, setEditHasEndDate] = useState(false)
 
   // ── Order Status (AWB + PO) state ────────────────────────────────────────
   const [localAwbs, setLocalAwbs] = useState<AwbEntry[]>(task.awbs ?? [])
@@ -131,10 +139,15 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   const extraBucket = task.bucket && !bucketOptions.find((o) => o.label === task.bucket) ? task.bucket : null
   const selectedBucket = bucketOptions.find((o) => o.label === task.bucket)
 
-  // Last-write-wins: just save, no conflict dialog
-  async function save(field: string, value: unknown, old?: unknown) {
+  // Optimistic update: show change immediately, persist in background
+  function save(field: string, value: unknown, old?: unknown) {
     if (!user) return
-    await updateTaskField(task.id, field, value, user.uid, user.name, old, board?.type)
+    // Update local state instantly (like an Instagram "like")
+    setTask((prev) => ({ ...prev, [field]: value }))
+    // Persist to Firestore in background — onSnapshot will reconcile
+    updateTaskField(task.id, field, value, user.uid, user.name, old, board?.type).catch(
+      (err) => console.error(`Failed to save ${field}:`, err)
+    )
   }
 
   async function saveTitle() {
@@ -215,10 +228,12 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     await save('customFields', { ...current, [propId]: value }, current)
   }
 
-  async function saveDescription(html: string) {
+  function saveDescription(html: string) {
     if (!user) return
-    // Description: last write wins, no old value passed — no conflict detection
-    await updateTaskField(task.id, 'description', html, user.uid, user.name, undefined, board?.type)
+    setTask((prev) => ({ ...prev, description: html }))
+    updateTaskField(task.id, 'description', html, user.uid, user.name, undefined, board?.type).catch(
+      (err) => console.error('Failed to save description:', err)
+    )
   }
 
   async function handleAwbsChange(updated: AwbEntry[]) {
@@ -257,19 +272,45 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     }
   }
 
-  async function handleAddTaskDate() {
-    if (!newDateTypeKey || !newDateStart || !user) return
-
+  function validateDateRange(): string | null {
     const bounds = getTaskBounds()
-    if (bounds.min && newDateStart < bounds.min) return
-    if (bounds.max && newDateStart > bounds.max) return
-    if (hasEndDate && newDateEnd) {
-      if (newDateEnd < newDateStart) return
-      if (bounds.max && newDateEnd > bounds.max) return
+    
+    if (!newDateTypeKey) return 'Please select a date type'
+    if (!newDateStart) return 'Please select a start date'
+    
+    if (bounds.min && newDateStart < bounds.min) {
+      return `Start date must be on or after ${bounds.min}`
     }
+    if (bounds.max && newDateStart > bounds.max) {
+      return `Start date must be on or before ${bounds.max}`
+    }
+    
+    if (hasEndDate && newDateEnd) {
+      if (newDateEnd < newDateStart) {
+        return 'End date must be on or after start date'
+      }
+      if (bounds.max && newDateEnd > bounds.max) {
+        return `End date must be on or before ${bounds.max}`
+      }
+    }
+    
+    return null
+  }
+
+  async function handleAddTaskDate() {
+    if (!user) return
+
+    const error = validateDateRange()
+    if (error) {
+      setDateError(error)
+      return
+    }
+
+    setDateError('')
+
     const { Timestamp: Ts } = await import('firebase/firestore')
 
-    const startDate = new Date(newDateStart + 'T12:00:00')  // noon para evitar drift
+    const startDate = new Date(newDateStart + 'T12:00:00')  // noon to avoid drift
     const endDate = hasEndDate && newDateEnd
       ? new Date(newDateEnd + 'T12:00:00')
       : null
@@ -282,19 +323,87 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     }
 
     const updated = [...(task.taskDates ?? []), newEntry]
-    await save('taskDates', updated, task.taskDates)
+    save('taskDates', updated, task.taskDates)
 
-    // Reset form
+    // Reset form immediately (optimistic)
     setAddingDate(false)
     setNewDateTypeKey('')
     setNewDateStart('')
     setNewDateEnd('')
     setHasEndDate(false)
+    setDateError('')
   }
 
-  async function handleRemoveTaskDate(id: string) {
-    const updated = (task.taskDates ?? []).filter((td) => td.id !== id)
-    await save('taskDates', updated, task.taskDates)
+  function handleRemoveTaskDate(id: string) {
+    if (!user) return
+    const currentDates = task.taskDates ?? []
+    const updated = currentDates.filter((td) => td.id !== id)
+    if (updated.length === currentDates.length) return
+    save('taskDates', updated, task.taskDates)
+  }
+
+  function startEditingDate(td: TaskDate) {
+    setEditingDateId(td.id)
+    setEditDateStart(toLocalDateString(td.dateStart.toDate()))
+    setEditDateEnd(td.dateEnd ? toLocalDateString(td.dateEnd.toDate()) : '')
+    setEditHasEndDate(!!td.dateEnd)
+    setDateError('')
+  }
+
+  function cancelEditingDate() {
+    setEditingDateId(null)
+    setEditDateStart('')
+    setEditDateEnd('')
+    setEditHasEndDate(false)
+    setDateError('')
+  }
+
+  async function handleSaveEditDate(tdId: string) {
+    if (!user) return
+    
+    const currentDate = (task.taskDates ?? []).find(d => d.id === tdId)
+    if (!currentDate) return
+
+    // Validate
+    const bounds = getTaskBounds()
+    if (bounds.min && editDateStart < bounds.min) {
+      setDateError(`Start date must be on or after ${bounds.min}`)
+      return
+    }
+    if (bounds.max && editDateStart > bounds.max) {
+      setDateError(`Start date must be on or before ${bounds.max}`)
+      return
+    }
+    if (editHasEndDate && editDateEnd) {
+      if (editDateEnd < editDateStart) {
+        setDateError('End date must be on or after start date')
+        return
+      }
+      if (bounds.max && editDateEnd > bounds.max) {
+        setDateError(`End date must be on or before ${bounds.max}`)
+        return
+      }
+    }
+
+    const { Timestamp: Ts } = await import('firebase/firestore')
+
+    const startDate = new Date(editDateStart + 'T12:00:00')
+    const endDate = editHasEndDate && editDateEnd
+      ? new Date(editDateEnd + 'T12:00:00')
+      : null
+
+    const updated = (task.taskDates ?? []).map((td) =>
+      td.id === tdId
+        ? {
+            ...td,
+            dateStart: Ts.fromDate(startDate),
+            dateEnd: endDate ? Ts.fromDate(endDate) : null,
+          }
+        : td
+    )
+
+    save('taskDates', updated, task.taskDates)
+    cancelEditingDate()
   }
 
   return (
@@ -484,27 +593,277 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                     )
 
                   case 'builtin-priority':
+                    const priorityOptions = prop.options || [{ id: 'normal', label: 'Normal', color: '#888780', icon: 'Minus' }, { id: 'high', label: '! High', color: '#E24B4A', icon: 'AlertCircle' }]
                     return (
                       <PropRow key={prop.id} icon={<Zap size={14} />} label={prop.name}>
-                        <div className="flex gap-2">
-                          {(['normal', 'high'] as TaskPriority[]).map((p) => (
-                            <button key={p} onClick={() => save('priority', p, task.priority)}
-                              className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${task.priority === p ? (p === 'high' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300') : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                            >{p === 'high' ? '! High' : 'Normal'}</button>
-                          ))}
+                        <div className="flex flex-wrap gap-2">
+                          {priorityOptions.map((opt) => {
+                            const isSelected = task.priority === opt.id
+                            const iconName = opt.icon || (opt.label.toLowerCase().includes('high') ? 'AlertCircle' : 'Minus')
+                            return (
+                              <button key={opt.id} onClick={() => save('priority', opt.id, task.priority)}
+                                className="rounded-full px-3 py-1 text-xs font-medium transition-colors flex items-center gap-1.5"
+                                style={{
+                                  backgroundColor: isSelected ? opt.color : 'transparent',
+                                  color: isSelected ? '#fff' : '#9CA3AF',
+                                  border: `1px solid ${isSelected ? opt.color : '#E5E7EB'}`
+                                }}
+                              >
+                                <DynamicIcon name={iconName} size={12} />
+                                {opt.label}
+                              </button>
+                            )
+                          })}
                         </div>
                       </PropRow>
                     )
 
                   case 'builtin-date':
                     return (
-                      <PropRow key={prop.id} icon={<Calendar size={14} />} label={prop.name}>
-                        <div className="flex items-center gap-2 flex-1">
-                          <DateInput value={timestampToDateInput(task.dateStart)} onChange={(value) => handleDateChange('dateStart', value)} />
-                          <span className="text-gray-400 text-xs">→</span>
-                          <DateInput value={timestampToDateInput(task.dateEnd)} onChange={(value) => handleDateChange('dateEnd', value)} />
-                        </div>
-                      </PropRow>
+                      <>
+                        {/* Main Date field */}
+                        <PropRow key={prop.id} icon={<Calendar size={14} />} label={prop.name}>
+                          <div className="flex items-center gap-2 flex-1">
+                            <DateInput value={timestampToDateInput(task.dateStart)} onChange={(value) => handleDateChange('dateStart', value)} />
+                            <span className="text-gray-400 text-xs">→</span>
+                            <DateInput value={timestampToDateInput(task.dateEnd)} onChange={(value) => handleDateChange('dateEnd', value)} />
+                          </div>
+                        </PropRow>
+                        
+                        {/* Event Dates - right after Date */}
+                        {dateTypes.length > 0 && (
+                          <div className="mt-2" key="event-dates-section">
+                            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                              Event Dates
+                            </p>
+
+                            {/* Lista de taskDates existentes */}
+                            <div className="space-y-1.5">
+                              {(task.taskDates ?? []).map((td) => {
+                                const dt = dateTypes.find((x) => x.key === td.typeKey)
+                                if (!dt) return null
+                                const Icon = getDateTypeIcon(dt.icon)
+                                const isOutOfBounds =
+                                  (task.dateStart && td.dateStart.toMillis() < task.dateStart.toMillis()) ||
+                                  (task.dateEnd && td.dateEnd && td.dateEnd.toMillis() > task.dateEnd.toMillis())
+
+                                const isEditing = editingDateId === td.id
+
+                                if (isEditing) {
+                                  const bounds = getTaskBounds()
+                                  return (
+                                    <div
+                                      key={td.id}
+                                      className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3 space-y-2"
+                                    >
+                                      {/* Error message */}
+                                      {dateError && (
+                                        <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-2 py-1.5 rounded">
+                                          {dateError}
+                                        </div>
+                                      )}
+                                      
+                                      {/* Type label (read-only) */}
+                                      <div className="flex items-center gap-2">
+                                        <div
+                                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+                                          style={{ backgroundColor: dt.color + '20', color: dt.color }}
+                                        >
+                                          <Icon size={12} />
+                                        </div>
+                                        <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{dt.label}</span>
+                                      </div>
+
+                                      {/* Start date */}
+                                      <input
+                                        type="date"
+                                        value={editDateStart}
+                                        min={bounds.min || undefined}
+                                        max={bounds.max || undefined}
+                                        onChange={(e) => { setEditDateStart(e.target.value); setDateError('') }}
+                                        className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 focus:outline-none"
+                                      />
+
+                                      {/* Toggle end date */}
+                                      <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer select-none">
+                                        <input
+                                          type="checkbox"
+                                          checked={editHasEndDate}
+                                          onChange={(e) => { setEditHasEndDate(e.target.checked); setDateError('') }}
+                                          className="rounded"
+                                        />
+                                        Has end date
+                                      </label>
+
+                                      {editHasEndDate && (
+                                        <input
+                                          type="date"
+                                          value={editDateEnd}
+                                          min={editDateStart || bounds.min || undefined}
+                                          max={bounds.max || undefined}
+                                          onChange={(e) => { setEditDateEnd(e.target.value); setDateError('') }}
+                                          className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 focus:outline-none"
+                                        />
+                                      )}
+
+                                      {/* Actions */}
+                                      <div className="flex gap-2 justify-end">
+                                        <button
+                                          onClick={cancelEditingDate}
+                                          className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1"
+                                        >
+                                          Cancel
+                                        </button>
+                                        <button
+                                          onClick={() => handleSaveEditDate(td.id)}
+                                          disabled={!editDateStart}
+                                          className="text-xs font-medium bg-green-600 text-white rounded-md px-3 py-1 hover:bg-green-700 disabled:opacity-40 transition-colors"
+                                        >
+                                          Save
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )
+                                }
+
+                                // View mode
+                                const startStr = toLocalDateString(td.dateStart.toDate())
+                                const endStr = td.dateEnd ? toLocalDateString(td.dateEnd.toDate()) : null
+
+                                return (
+                                  <div
+                                    key={td.id}
+                                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                                      isOutOfBounds
+                                        ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20'
+                                        : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
+                                    }`}
+                                  >
+                                    <div
+                                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+                                      style={{ backgroundColor: dt.color + '20', color: dt.color }}
+                                    >
+                                      <Icon size={14} />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{dt.label}</p>
+                                      {endStr ? (
+                                        <div className="flex items-center gap-1 text-xs font-medium text-gray-800 dark:text-gray-200">
+                                          <span>{startStr}</span>
+                                          <span className="text-gray-400">────</span>
+                                          <span>{endStr}</span>
+                                        </div>
+                                      ) : (
+                                        <p className="text-xs font-medium text-gray-800 dark:text-gray-200">{startStr}</p>
+                                      )}
+                                    </div>
+                                    {isOutOfBounds && (
+                                      <span className="text-xs text-amber-600 dark:text-amber-400 font-medium shrink-0">⚠</span>
+                                    )}
+                                    <button
+                                      onClick={() => startEditingDate(td)}
+                                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1"
+                                      title="Edit date"
+                                    >
+                                      <Edit2 size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleRemoveTaskDate(td.id)}
+                                      className="text-gray-400 hover:text-red-500 p-1"
+                                      title="Remove date"
+                                    >
+                                      <X size={14} />
+                                    </button>
+                                  </div>
+                                )
+                              })}
+
+                              {/* Add new date button */}
+                              {!addingDate ? (
+                                <button
+                                  onClick={() => setAddingDate(true)}
+                                  className="flex items-center gap-1.5 w-full rounded-lg border border-dashed border-gray-300 dark:border-gray-600 px-3 py-2 text-xs text-gray-500 hover:text-green-600 hover:border-green-500 transition-colors"
+                                >
+                                  <Plus size={14} />
+                                  Add date
+                                </button>
+                              ) : (
+                                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3 space-y-2">
+                                  {/* Error message */}
+                                  {dateError && (
+                                    <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-2 py-1.5 rounded">
+                                      {dateError}
+                                    </div>
+                                  )}
+                                  
+                                  {/* Date type selector */}
+                                  <select
+                                    value={newDateTypeKey}
+                                    onChange={(e) => { setNewDateTypeKey(e.target.value); setDateError('') }}
+                                    className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 focus:outline-none"
+                                  >
+                                    <option value="">— Select date type —</option>
+                                    {dateTypes
+                                      .filter((dt) => !(task.taskDates ?? []).some((td) => td.typeKey === dt.key))
+                                      .map((dt) => (
+                                        <option key={dt.key} value={dt.key}>{dt.label}</option>
+                                      ))}
+                                  </select>
+
+                                  {/* Start date */}
+                                  <input
+                                    type="date"
+                                    value={newDateStart}
+                                    min={getTaskBounds().min || undefined}
+                                    max={getTaskBounds().max || undefined}
+                                    onChange={(e) => { setNewDateStart(e.target.value); setDateError('') }}
+                                    className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 focus:outline-none"
+                                  />
+
+                                  {/* Toggle end date */}
+                                  <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={hasEndDate}
+                                      onChange={(e) => { setHasEndDate(e.target.checked); setDateError('') }}
+                                      className="rounded"
+                                    />
+                                    Has end date
+                                  </label>
+
+                                  {hasEndDate && (
+                                    <input
+                                      type="date"
+                                      value={newDateEnd}
+                                      min={newDateStart || getTaskBounds().min || undefined}
+                                      max={getTaskBounds().max || undefined}
+                                      onChange={(e) => { setNewDateEnd(e.target.value); setDateError('') }}
+                                      className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 focus:outline-none"
+                                    />
+                                  )}
+
+                                  {/* Actions */}
+                                  <div className="flex gap-2 justify-end">
+                                    <button
+                                      onClick={() => { setAddingDate(false); setDateError(''); setNewDateTypeKey(''); setNewDateStart(''); setNewDateEnd(''); setHasEndDate(false) }}
+                                      className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      onClick={handleAddTaskDate}
+                                      disabled={!newDateTypeKey || !newDateStart}
+                                      className="text-xs font-medium bg-green-600 text-white rounded-md px-3 py-1 hover:bg-green-700 disabled:opacity-40 transition-colors"
+                                    >
+                                      Add
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )
 
                   case 'builtin-assignees':
@@ -720,145 +1079,6 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                 }
               })
             }
-
-            {/* ── Event Dates ────────────────────────────────── */}
-            {dateTypes.length > 0 && (
-              <div className="mt-2">
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-                  Event Dates
-                </p>
-
-                {/* Lista de taskDates existentes */}
-                <div className="space-y-1.5">
-                  {(task.taskDates ?? []).map((td) => {
-                    const dt = dateTypes.find((x) => x.key === td.typeKey)
-                    if (!dt) return null
-                    const Icon = getDateTypeIcon(dt.icon)
-                    const startStr = toLocalDateString(td.dateStart.toDate())
-                    const endStr = td.dateEnd ? toLocalDateString(td.dateEnd.toDate()) : null
-                    const isOutOfBounds =
-                      (task.dateStart && td.dateStart.toMillis() < task.dateStart.toMillis()) ||
-                      (task.dateEnd && td.dateEnd && td.dateEnd.toMillis() > task.dateEnd.toMillis())
-
-                    return (
-                      <div
-                        key={td.id}
-                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
-                          isOutOfBounds
-                            ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20'
-                            : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
-                        }`}
-                      >
-                        <div
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
-                          style={{ backgroundColor: dt.color + '20', color: dt.color }}
-                        >
-                          <Icon size={14} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{dt.label}</p>
-                          {endStr ? (
-                            <div className="flex items-center gap-1 text-xs font-medium text-gray-800 dark:text-gray-200">
-                              <span>{startStr}</span>
-                              <span className="text-gray-400">────</span>
-                              <span>{endStr}</span>
-                            </div>
-                          ) : (
-                            <p className="text-xs font-medium text-gray-800 dark:text-gray-200">{startStr}</p>
-                          )}
-                        </div>
-                        {isOutOfBounds && (
-                          <span className="text-xs text-amber-600 dark:text-amber-400 font-medium shrink-0">⚠</span>
-                        )}
-                        <button
-                          onClick={() => handleRemoveTaskDate(td.id)}
-                          className="text-gray-400 hover:text-red-500 transition-colors"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* Form inline para agregar */}
-                {addingDate ? (
-                  <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3 space-y-2">
-                    {/* Selector de tipo */}
-                    <select
-                      value={newDateTypeKey}
-                      onChange={(e) => setNewDateTypeKey(e.target.value)}
-                      className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 focus:outline-none"
-                    >
-                      <option value="">Select type...</option>
-                      {dateTypes.map((dt) => (
-                        <option key={dt.key} value={dt.key}>{dt.label}</option>
-                      ))}
-                    </select>
-
-                    {/* Start date */}
-                    <input
-                      type="date"
-                      value={newDateStart}
-                      min={getTaskBounds().min || undefined}
-                      max={getTaskBounds().max || undefined}
-                      onChange={(e) => {
-                        setNewDateStart(e.target.value)
-                        if (newDateEnd && e.target.value > newDateEnd) setNewDateEnd('')
-                      }}
-                      className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 focus:outline-none"
-                    />
-
-                    {/* Toggle end date */}
-                    <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={hasEndDate}
-                        onChange={(e) => setHasEndDate(e.target.checked)}
-                        className="rounded"
-                      />
-                      Add end date
-                    </label>
-
-                    {hasEndDate && (
-                      <input
-                        type="date"
-                        value={newDateEnd}
-                        min={newDateStart || getTaskBounds().min || undefined}
-                        max={getTaskBounds().max || undefined}
-                        onChange={(e) => setNewDateEnd(e.target.value)}
-                        className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 focus:outline-none"
-                      />
-                    )}
-
-                    {/* Actions */}
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={() => { setAddingDate(false); setNewDateTypeKey(''); setNewDateStart(''); setNewDateEnd(''); setHasEndDate(false) }}
-                        className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleAddTaskDate}
-                        disabled={!newDateTypeKey || !newDateStart}
-                        className="text-xs font-medium bg-green-600 text-white rounded-md px-3 py-1 hover:bg-green-700 disabled:opacity-40 transition-colors"
-                      >
-                        Save
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setAddingDate(true)}
-                    className="mt-1.5 flex w-full items-center gap-1.5 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 px-3 py-2 text-xs text-gray-500 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                  >
-                    <Plus size={12} />
-                    Add date
-                  </button>
-                )}
-              </div>
-            )}
 
             {/* Divider */}
             <div className="border-t border-gray-100 dark:border-gray-800" />

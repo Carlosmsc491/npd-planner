@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
-import { ArrowLeft, Trash2, GripVertical, Plus, Settings, X, Star } from 'lucide-react'
-import { updateBoard, updateBoardProperties, subscribeToClients, subscribeToLabels } from '../../lib/firestore'
+import { ArrowLeft, Trash2, GripVertical, Plus, Star, X } from 'lucide-react'
+import { updateBoard, updateBoardProperties } from '../../lib/firestore'
 import { useTaskStore } from '../../store/taskStore'
 import { useAuthStore } from '../../store/authStore'
 import { DynamicIcon, PROPERTY_TYPE_LABELS, OPTION_COLORS } from '../../utils/propertyUtils'
 import { BOARD_BUCKETS } from '../../utils/colorUtils'
 import IconPickerPopover from './IconPickerPopover'
 import AddPropertyModal from './AddPropertyModal'
-import type { Board, BoardProperty, PropertyType, SelectOption, Client, Label } from '../../types'
+import type { Board, BoardProperty, PropertyType, SelectOption } from '../../types'
 
 const PRESET_COLORS = [
   '#1D9E75', '#378ADD', '#D4537E', '#F59E0B',
@@ -27,14 +27,30 @@ const STATUS_OPTIONS: SelectOption[] = [
 ]
 
 const PRIORITY_OPTIONS: SelectOption[] = [
-  { id: 'priority-normal', label: 'Normal', color: '#9CA3AF' },
-  { id: 'priority-high',   label: 'High',   color: '#EF4444' },
+  { id: 'priority-normal', label: 'Normal', color: '#9CA3AF', icon: 'Minus' },
+  { id: 'priority-high',   label: 'High',   color: '#EF4444', icon: 'AlertCircle' },
 ]
+
+// Suggest an icon based on option label/name
+function getSuggestedIcon(label: string): string {
+  const lower = label.toLowerCase()
+  if (lower.includes('high') || lower.includes('urgent') || lower.includes('critical') || lower.includes('important')) return 'AlertCircle'
+  if (lower.includes('medium') || lower.includes('normal') || lower.includes('standard')) return 'Minus'
+  if (lower.includes('low') || lower.includes('minor') || lower.includes('trivial')) return 'ArrowDown'
+  if (lower.includes('block') || lower.includes('stop')) return 'Octagon'
+  if (lower.includes('warning') || lower.includes('caution')) return 'AlertTriangle'
+  if (lower.includes('info') || lower.includes('note')) return 'Info'
+  if (lower.includes('done') || lower.includes('complete') || lower.includes('success')) return 'CheckCircle'
+  if (lower.includes('progress') || lower.includes('doing')) return 'Loader'
+  if (lower.includes('todo') || lower.includes('pending')) return 'Circle'
+  if (lower.includes('review')) return 'Eye'
+  return 'CircleDot'
+}
 
 // Patch any builtin select property that is missing its default options
 function patchBuiltinOptions(props: BoardProperty[], boardType: string): BoardProperty[] {
   const buckets = BOARD_BUCKETS[boardType] ?? []
-  return props.map((p) => {
+  const patched = props.map((p) => {
     if (p.id === 'builtin-status' && (!p.options || p.options.length === 0))
       return { ...p, options: STATUS_OPTIONS }
     if (p.id === 'builtin-priority' && (!p.options || p.options.length === 0))
@@ -43,25 +59,40 @@ function patchBuiltinOptions(props: BoardProperty[], boardType: string): BoardPr
       return { ...p, options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })) }
     return p
   })
+  return patched
+}
+
+// Add missing default properties that don't exist yet
+function addMissingProperties(props: BoardProperty[]): BoardProperty[] {
+  const existingIds = new Set(props.map((p) => p.id))
+  const defaults = getDefaultProperties('planner')
+  const missing = defaults.filter((p) => !existingIds.has(p.id))
+  
+  if (missing.length === 0) return props
+  
+  // Add missing properties at the end, preserving their relative order
+  const maxOrder = props.reduce((max, p) => Math.max(max, p.order), -1)
+  const withMissing = [...props, ...missing.map((p, i) => ({ ...p, order: maxOrder + 1 + i }))]
+  
+  // Sort by order
+  return withMissing.sort((a, b) => a.order - b.order)
 }
 
 // Default properties seeded when a board has none yet
 function getDefaultProperties(boardType: string): BoardProperty[] {
   const buckets = BOARD_BUCKETS[boardType] ?? []
   return [
-    { id: 'builtin-client',    name: 'Client',      icon: 'User',          type: 'text',      order: 0 },
-    { id: 'builtin-status',    name: 'Status',      icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
-    { id: 'builtin-priority',  name: 'Priority',    icon: 'Zap',           type: 'select',    order: 2, options: PRIORITY_OPTIONS },
-    { id: 'builtin-date',      name: 'Date',        icon: 'CalendarRange', type: 'daterange', order: 3 },
-    { id: 'builtin-assignees', name: 'Assigned To', icon: 'Users',         type: 'person',    order: 4 },
-    { id: 'builtin-labels',    name: 'Labels',      icon: 'Tag',           type: 'tags',      order: 5 },
+    { id: 'builtin-client',      name: 'Client',      icon: 'User',          type: 'text',      order: 0 },
+    { id: 'builtin-status',      name: 'Status',      icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
+    { id: 'builtin-priority',    name: 'Priority',    icon: 'Zap',           type: 'select',    order: 2, options: PRIORITY_OPTIONS },
+    { id: 'builtin-date',        name: 'Date',        icon: 'CalendarRange', type: 'daterange', order: 3 },
+    { id: 'builtin-assignees',   name: 'Assigned To', icon: 'Users',         type: 'person',    order: 4 },
     {
-      id: 'builtin-bucket', name: 'Bucket', icon: 'Layers', type: 'select', order: 6,
+      id: 'builtin-bucket', name: 'Bucket', icon: 'Layers', type: 'select', order: 5,
       options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })),
     },
-    { id: 'builtin-awb',       name: 'AWB',         icon: 'Plane',         type: 'text',      order: 7 },
-    { id: 'builtin-po',        name: 'P.O. Number', icon: 'Hash',          type: 'text',      order: 8 },
-    { id: 'builtin-notes',     name: 'Notes',       icon: 'StickyNote',    type: 'text',      order: 9 },
+    { id: 'builtin-awb',         name: 'AWB',         icon: 'Plane',         type: 'text',      order: 6 },
+    { id: 'builtin-po',          name: 'P.O. Number', icon: 'Hash',          type: 'text',      order: 7 },
   ]
 }
 
@@ -75,30 +106,27 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   const setToast = useTaskStore((s) => s.setToast)
   const { user } = useAuthStore()
   const isOwner = user?.role === 'owner'
-  const [clients, setClients] = useState<Client[]>([])
-  const [labels, setLabels] = useState<Label[]>([])
-
-  useEffect(() => {
-    const unsubClients = subscribeToClients(setClients)
-    const unsubLabels = subscribeToLabels(setLabels)
-    return () => {
-      unsubClients()
-      unsubLabels()
-    }
-  }, [])
+  // Note: Clients and labels subscriptions removed - they are managed elsewhere
   const [properties, setProperties] = useState<BoardProperty[]>(() => {
     const existing = board.customProperties ?? []
     if (existing.length === 0) return getDefaultProperties(board.type)
-    return patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type)
+    let props = patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type)
+    // Add missing default properties on initial load
+    props = addMissingProperties(props)
+    return props
   })
 
   // Sync local properties state when board.customProperties changes from Firestore
+  // Also add missing default properties if needed
   useEffect(() => {
     const existing = board.customProperties ?? []
     if (existing.length === 0) {
       setProperties(getDefaultProperties(board.type))
     } else {
-      setProperties(patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type))
+      let props = patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type)
+      // Add missing default properties
+      props = addMissingProperties(props)
+      setProperties(props)
     }
   }, [board.customProperties, board.type])
   const [showAddModal, setShowAddModal]       = useState(false)
@@ -107,8 +135,7 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   const [deletingId, setDeletingId]           = useState<string | null>(null)
   const [iconPickerId, setIconPickerId]       = useState<string | null>(null)
   const [typePickerId, setTypePickerId]       = useState<string | null>(null)
-  const [settingsOpenId, setSettingsOpenId]   = useState<string | null>(null)
-  const [colorPickerKey, setColorPickerKey]   = useState<string | null>(null) // "propId:optionId"
+  const [colorPickerKey, setColorPickerKey]   = useState<string | null>(null) // "propId:optionId" or "icon:propId:optionId"
   const [editingName, setEditingName]         = useState(false)
   const [boardNameVal, setBoardNameVal]       = useState(board.name)
   const [localBoard, setLocalBoard]           = useState(board)
@@ -119,14 +146,31 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   useEffect(() => {
     const existing = board.customProperties ?? []
     if (existing.length === 0) {
-      updateBoardProperties(board.id, getDefaultProperties(board.type)).catch(console.error)
+      const defaults = getDefaultProperties(board.type)
+      setProperties(defaults)
+      updateBoardProperties(board.id, defaults).catch(console.error)
     } else {
-      const needsPatch = existing.some((p) =>
+      let updated = [...existing]
+      
+      // Patch missing options for existing properties
+      const needsOptionsPatch = existing.some((p) =>
         (['builtin-status', 'builtin-priority', 'builtin-bucket'].includes(p.id)) &&
         (!p.options || p.options.length === 0)
       )
-      if (needsPatch) {
-        updateBoardProperties(board.id, patchBuiltinOptions(existing, board.type)).catch(console.error)
+      if (needsOptionsPatch) {
+        updated = patchBuiltinOptions(updated, board.type)
+      }
+      
+      // Add missing default properties (like eventdates, description)
+      const withMissing = addMissingProperties(updated)
+      if (withMissing.length !== updated.length) {
+        updated = withMissing
+      }
+      
+      // Save if any changes were made
+      if (JSON.stringify(updated) !== JSON.stringify(existing)) {
+        setProperties(updated)
+        updateBoardProperties(board.id, updated).catch(console.error)
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,7 +178,12 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
 
   async function saveProperties(updated: BoardProperty[]) {
     setProperties(updated)
-    await updateBoardProperties(localBoard.id, updated)
+    // Optimistically push to Zustand store so the whole app sees it immediately
+    const updatedBoard = { ...localBoard, customProperties: updated }
+    setLocalBoard(updatedBoard)
+    onBoardUpdate(updatedBoard)
+    // Then persist to Firestore in the background
+    updateBoardProperties(localBoard.id, updated).catch(console.error)
   }
 
   async function handleAddProperty(data: Omit<BoardProperty, 'id' | 'order'>) {
@@ -151,8 +200,7 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   }
 
   const handleDeleteProperty = (propertyId: string) => {
-    // Solo el owner puede eliminar propiedades del sistema
-    const SYSTEM_PROPERTIES = ['builtin-client', 'builtin-status', 'builtin-priority', 'builtin-date', 'builtin-assignees', 'builtin-labels', 'builtin-bucket', 'builtin-awb', 'builtin-po', 'builtin-notes']
+    const SYSTEM_PROPERTIES = ['builtin-client', 'builtin-status', 'builtin-priority', 'builtin-date', 'builtin-assignees', 'builtin-bucket', 'builtin-awb', 'builtin-po']
     if (SYSTEM_PROPERTIES.includes(propertyId) && !isOwner) {
       setToast({ id: crypto.randomUUID(), type: 'error', message: 'Only owners can delete system properties' })
       return
@@ -279,187 +327,193 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
         </div>
       )}
 
-      {/* Properties */}
-      <div>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
-          Properties
-        </h3>
-
-        {properties.length > 0 && (
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-3">
-            {properties.map((prop, i) => {
-              const isSettingsOpen = settingsOpenId === prop.id
-              const isOptionType = ['select', 'multiselect', 'tags'].includes(prop.type)
-              const isBuiltin = prop.id.startsWith('builtin-')
-              return (
-                <div key={prop.id}>
-                  {/* Main row */}
-                  <div
+      {/* Properties - TaskPage Style */}
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
+            Properties
+          </h3>
+          
+          {properties.length > 0 && (
+            <div className="space-y-4">
+              {properties.map((prop, i) => {
+                const isOptionType = ['select', 'multiselect', 'tags'].includes(prop.type)
+                const isBuiltin = prop.id.startsWith('builtin-')
+                return (
+                  <div 
+                    key={prop.id}
                     draggable
                     onDragStart={() => handleDragStart(i)}
                     onDragOver={(e) => handleDragOver(e, i)}
                     onDrop={(e) => handleDrop(e, i)}
                     onDragEnd={handleDragEnd}
-                    className={`group/prop flex items-center gap-2 px-3 py-2.5 bg-white dark:bg-gray-800 transition-colors ${
-                      dragOverIdx === i ? 'border-t-2 border-green-500' : ''
-                    } ${i < properties.length - 1 || isSettingsOpen ? 'border-b border-gray-100 dark:border-gray-700' : ''}`}
+                    className={`group/prop relative bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 transition-all ${
+                      dragOverIdx === i ? 'border-green-500 border-2' : ''
+                    }`}
                   >
-                    {/* Drag handle */}
-                    <button className="text-gray-300 dark:text-gray-600 hover:text-gray-400 cursor-grab active:cursor-grabbing shrink-0">
-                      <GripVertical size={16} />
-                    </button>
-
-                    {/* Icon */}
-                    <div className="relative shrink-0">
-                      <button
-                        onClick={() => setIconPickerId(iconPickerId === prop.id ? null : prop.id)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                      >
-                        <DynamicIcon name={prop.icon} size={14} />
-                      </button>
-                      {iconPickerId === prop.id && (
-                        <IconPickerPopover
-                          onSelect={(n) => handleIconChange(prop.id, n)}
-                          onClose={() => setIconPickerId(null)}
-                        />
-                      )}
+                    {/* Drag handle - absolute positioned */}
+                    <div className="absolute left-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/prop:opacity-100 transition-opacity cursor-grab active:cursor-grabbing">
+                      <GripVertical size={16} className="text-gray-300 dark:text-gray-600" />
                     </div>
 
-                    {/* Name */}
-                    <div className="flex-1 min-w-0">
-                      {renamingId === prop.id ? (
-                        <input
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onBlur={() => handleRename(prop.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleRename(prop.id)
-                            if (e.key === 'Escape') setRenamingId(null)
-                          }}
-                          className="w-full rounded border border-green-500 bg-white px-1.5 py-0.5 text-sm dark:bg-gray-700 dark:text-white focus:outline-none"
-                        />
-                      ) : (
+                    {/* Main row - Icon + Name + Controls */}
+                    <div className="flex items-center gap-3 pl-4">
+                      {/* Icon picker */}
+                      <div className="relative shrink-0">
                         <button
-                          onClick={() => { setRenamingId(prop.id); setRenameValue(prop.name) }}
-                          className="truncate text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-left w-full"
+                          onClick={() => setIconPickerId(iconPickerId === prop.id ? null : prop.id)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600 hover:border-green-300 transition-all"
                         >
-                          {prop.name}
+                          <DynamicIcon name={prop.icon} size={16} />
                         </button>
-                      )}
-                    </div>
+                        {iconPickerId === prop.id && (
+                          <IconPickerPopover
+                            onSelect={(n) => handleIconChange(prop.id, n)}
+                            onClose={() => setIconPickerId(null)}
+                          />
+                        )}
+                      </div>
 
-                    {/* Type badge */}
-                    <div className="relative shrink-0">
-                      <button
-                        onClick={() => setTypePickerId(typePickerId === prop.id ? null : prop.id)}
-                        className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                      >
-                        {PROPERTY_TYPE_LABELS[prop.type]}
-                      </button>
-                      {typePickerId === prop.id && (
-                        <>
-                          <div className="fixed inset-0 z-10" onClick={() => setTypePickerId(null)} />
-                          <div className="absolute right-0 top-full z-20 mt-1 w-40 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden max-h-56 overflow-y-auto">
-                            {PROPERTY_TYPES.map((t) => (
-                              <button
-                                key={t}
-                                onClick={() => handleTypeChange(prop.id, t)}
-                                className={`w-full px-3 py-1.5 text-left text-xs transition-colors ${
-                                  prop.type === t
-                                    ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400'
-                                    : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'
-                                }`}
-                              >
-                                {PROPERTY_TYPE_LABELS[t]}
-                              </button>
-                            ))}
+                      {/* Property name - editable */}
+                      <div className="w-32 shrink-0">
+                        {renamingId === prop.id ? (
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onBlur={() => handleRename(prop.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleRename(prop.id)
+                              if (e.key === 'Escape') setRenamingId(null)
+                            }}
+                            className="w-full rounded border border-green-500 bg-white px-2 py-1 text-sm dark:bg-gray-700 dark:text-white focus:outline-none"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => { setRenamingId(prop.id); setRenameValue(prop.name) }}
+                            className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-left hover:underline decoration-dotted"
+                          >
+                            {prop.name}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Type selector */}
+                      <div className="relative shrink-0">
+                        <button
+                          onClick={() => setTypePickerId(typePickerId === prop.id ? null : prop.id)}
+                          className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:border-green-300 hover:text-green-600 transition-colors"
+                        >
+                          {PROPERTY_TYPE_LABELS[prop.type]}
+                        </button>
+                        {typePickerId === prop.id && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setTypePickerId(null)} />
+                            <div className="absolute left-0 top-full z-[60] mt-1 w-40 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
+                              {PROPERTY_TYPES.map((t) => (
+                                <button
+                                  key={t}
+                                  onClick={() => handleTypeChange(prop.id, t)}
+                                  className={`w-full px-3 py-2 text-left text-xs transition-colors ${
+                                    prop.type === t
+                                      ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400'
+                                      : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'
+                                  }`}
+                                >
+                                  {PROPERTY_TYPE_LABELS[t]}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Spacer */}
+                      <div className="flex-1" />
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {deletingId === prop.id ? (
+                          <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 rounded-lg px-2 py-1">
+                            <span className="text-xs text-red-600 dark:text-red-400">Delete?</span>
+                            <button onClick={() => handleDelete(prop.id)} className="text-xs font-semibold text-red-600 hover:text-red-700 dark:text-red-400">Yes</button>
+                            <button onClick={() => setDeletingId(null)} className="text-xs text-gray-400 hover:text-gray-600">No</button>
                           </div>
-                        </>
-                      )}
-                    </div>
-
-                    {/* Star (display property) + Settings + Delete */}
-                    <div className="flex items-center gap-1 shrink-0">
-                      {deletingId === prop.id ? (
-                        <>
-                          <span className="text-xs text-red-500">Delete?</span>
-                          <button onClick={() => handleDelete(prop.id)} className="text-xs font-semibold text-red-500 hover:text-red-700">Yes</button>
-                          <button onClick={() => setDeletingId(null)} className="text-xs text-gray-400 hover:text-gray-600">No</button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => handleToggleDisplay(prop.id)}
-                            title={prop.display ? 'Display property (shown on cards)' : 'Set as display property'}
-                            className={`transition-colors ${
-                              prop.display
-                                ? 'text-amber-400'
-                                : 'opacity-0 group-hover/prop:opacity-100 text-gray-300 hover:text-amber-400 dark:text-gray-600'
-                            }`}
-                          >
-                            <Star size={14} fill={prop.display ? 'currentColor' : 'none'} />
-                          </button>
-                          <button
-                            onClick={() => setSettingsOpenId(isSettingsOpen ? null : prop.id)}
-                            className={`transition-opacity ${
-                              isSettingsOpen
-                                ? 'text-green-500'
-                                : 'opacity-0 group-hover/prop:opacity-100 text-gray-300 hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-300'
-                            }`}
-                            title="Property settings"
-                          >
-                            <Settings size={14} />
-                          </button>
-                          {(isOwner || !isBuiltin) && (
+                        ) : (
+                          <>
+                            {/* Star (display on card) */}
                             <button
-                              onClick={() => handleDeleteProperty(prop.id)}
-                              className="flex items-center justify-center w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors"
-                              title={isOwner && isBuiltin ? 'Delete system property (Owner only)' : 'Delete property'}
+                              onClick={() => handleToggleDisplay(prop.id)}
+                              title={prop.display ? 'Shown on task cards' : 'Show on task cards'}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                prop.display
+                                  ? 'text-amber-400 bg-amber-50 dark:bg-amber-900/20'
+                                  : 'text-gray-300 hover:text-amber-400 hover:bg-gray-50 dark:text-gray-600 dark:hover:bg-gray-700'
+                              }`}
                             >
-                              <Trash2 size={14} />
+                              <Star size={16} fill={prop.display ? 'currentColor' : 'none'} />
                             </button>
-                          )}
-                        </>
-                      )}
+                            {/* Delete */}
+                            {(isOwner || !isBuiltin) && (
+                              <button
+                                onClick={() => handleDeleteProperty(prop.id)}
+                                className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 dark:text-gray-600 dark:hover:text-red-400 dark:hover:bg-red-900/20 transition-colors"
+                                title={isOwner && isBuiltin ? 'Delete system property (Owner only)' : 'Delete property'}
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Settings expansion */}
-                  {isSettingsOpen && (
-                    <div className="bg-gray-50 dark:bg-gray-800/60 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-                      {isOptionType ? (
-                        /* Options editor */
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Options</p>
-                          <div className="space-y-1.5 mb-2">
-                            {(prop.options ?? []).map((opt) => {
-                              const pickerKey = `${prop.id}:${opt.id}`
-                              const isPickerOpen = colorPickerKey === pickerKey
-                              return (
-                              <div key={opt.id} className="flex items-center gap-2">
-                                <div className="relative shrink-0">
+                    {/* Options row - for select/multiselect/tags */}
+                    {isOptionType && (
+                      <div className="mt-3 pl-[52px]">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {(prop.options ?? []).map((opt) => {
+                            const pickerKey = `${prop.id}:${opt.id}`
+                            const iconPickerKey = `icon:${prop.id}:${opt.id}`
+                            const isPickerOpen = colorPickerKey === pickerKey
+                            const isIconPickerOpen = colorPickerKey === iconPickerKey
+                            const iconName = opt.icon || getSuggestedIcon(opt.label)
+                            
+                            return (
+                              <div key={opt.id} className="group/opt relative flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all"
+                                style={{ 
+                                  backgroundColor: prop.type === 'select' ? opt.color : 'transparent',
+                                  color: prop.type === 'select' ? '#fff' : opt.color,
+                                  border: `2px solid ${opt.color}`
+                                }}
+                              >
+                                {/* Option icon */}
+                                <div className="relative">
                                   <button
-                                    onClick={() => setColorPickerKey(isPickerOpen ? null : pickerKey)}
-                                    className="h-4 w-4 rounded-full border border-white shadow-sm hover:scale-110 transition-transform"
-                                    style={{ backgroundColor: opt.color }}
-                                    title="Change color"
-                                  />
-                                  {isPickerOpen && (
-                                    <ColorPickerPopover
-                                      color={opt.color}
-                                      onChange={(newColor) => {
-                                        const updatedOptions = (prop.options ?? []).map((o) =>
-                                          o.id === opt.id ? { ...o, color: newColor } : o
-                                        )
-                                        saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
-                                      }}
-                                      onClose={() => setColorPickerKey(null)}
-                                    />
+                                    onClick={() => setColorPickerKey(isIconPickerOpen ? null : iconPickerKey)}
+                                    className="flex items-center justify-center hover:scale-110 transition-transform"
+                                    title="Change icon"
+                                  >
+                                    <DynamicIcon name={iconName} size={12} />
+                                  </button>
+                                  {isIconPickerOpen && (
+                                    <div className="absolute left-0 top-full z-[60] mt-1">
+                                      <IconPickerPopover
+                                        onSelect={(iconName) => {
+                                          const updatedOptions = (prop.options ?? []).map((o) =>
+                                            o.id === opt.id ? { ...o, icon: iconName } : o
+                                          )
+                                          saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
+                                          setColorPickerKey(null)
+                                        }}
+                                        onClose={() => setColorPickerKey(null)}
+                                      />
+                                    </div>
                                   )}
                                 </div>
+                                
+                                {/* Option label - editable */}
                                 <input
-                                  key={opt.id + opt.label}
                                   defaultValue={opt.label}
                                   onBlur={(e) => {
                                     const val = e.target.value.trim()
@@ -470,114 +524,227 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                                     saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
                                   }}
                                   onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                                  className="flex-1 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 px-2 py-0.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:border-green-500"
+                                  className="bg-transparent border-none focus:outline-none focus:ring-0 px-0 py-0 text-xs font-medium min-w-[60px]"
+                                  style={{ 
+                                    color: prop.type === 'select' ? '#fff' : opt.color,
+                                    width: `${opt.label.length + 2}ch`
+                                  }}
                                 />
+                                
+                                {/* Color picker */}
+                                <div className="relative ml-1">
+                                  <button
+                                    onClick={() => setColorPickerKey(isPickerOpen ? null : pickerKey)}
+                                    className="h-3 w-3 rounded-full border border-white/50 hover:scale-125 transition-transform"
+                                    style={{ backgroundColor: opt.color }}
+                                    title="Change color"
+                                  />
+                                  {isPickerOpen && (
+                                    <div className="absolute left-0 top-full z-[60] mt-1">
+                                      <ColorPickerPopover
+                                        color={opt.color}
+                                        onChange={(newColor) => {
+                                          const updatedOptions = (prop.options ?? []).map((o) =>
+                                            o.id === opt.id ? { ...o, color: newColor } : o
+                                          )
+                                          saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
+                                        }}
+                                        onClose={() => setColorPickerKey(null)}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                {/* Delete option */}
                                 <button
                                   onClick={() => {
                                     const updatedOptions = (prop.options ?? []).filter((o) => o.id !== opt.id)
                                     saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
                                   }}
-                                  className="text-gray-300 hover:text-red-500 dark:text-gray-600 dark:hover:text-red-400 transition-colors"
+                                  className="ml-1 opacity-0 group-hover/opt:opacity-100 hover:opacity-100 transition-opacity"
+                                  style={{ color: prop.type === 'select' ? 'rgba(255,255,255,0.7)' : opt.color }}
                                 >
-                                  <X size={13} />
+                                  <X size={12} />
                                 </button>
                               </div>
-                            )})}
-                          </div>
+                            )
+                          })}
+                          
+                          {/* Add option button */}
                           <button
                             onClick={() => {
                               const newOption: SelectOption = {
                                 id: crypto.randomUUID(),
-                                label: 'New option',
+                                label: 'New',
                                 color: OPTION_COLORS[(prop.options ?? []).length % OPTION_COLORS.length],
+                                icon: 'Circle'
                               }
                               const updatedOptions = [...(prop.options ?? []), newOption]
                               saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
                             }}
-                            className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 transition-colors"
+                            className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-green-600 hover:border-green-300 border-2 border-dashed border-gray-200 dark:border-gray-600 transition-colors"
                           >
-                            <Plus size={13} />
-                            Add option
+                            <Plus size={12} />
+                            Add
                           </button>
                         </div>
-                      ) : prop.id === 'builtin-client' ? (
-                        /* Client field - show dynamic clients from store */
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">
-                            Available Clients ({clients.length})
-                          </p>
-                          <div className="space-y-1.5 mb-2 max-h-40 overflow-y-auto">
-                            {clients.length === 0 ? (
-                              <p className="text-xs text-gray-400 italic">No clients found. Create clients from the task modal.</p>
-                            ) : (
-                              clients.map((client) => (
-                                <div key={client.id} className="flex items-center gap-2">
-                                  <div className="h-2 w-2 rounded-full bg-green-500" />
-                                  <span className="text-xs text-gray-700 dark:text-gray-300">{client.name}</span>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                          <p className="text-[10px] text-gray-400 mt-2">
-                            Clients are managed dynamically and appear automatically in task dropdowns.
-                          </p>
-                        </div>
-                      ) : prop.id === 'builtin-labels' ? (
-                        /* Labels field - show available labels */
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">
-                            Available Labels ({labels.length})
-                          </p>
-                          <div className="space-y-1.5 mb-2 max-h-40 overflow-y-auto">
-                            {labels.length === 0 ? (
-                              <p className="text-xs text-gray-400 italic">No labels found. Create labels in Settings → Labels.</p>
-                            ) : (
-                              labels.map((label) => (
-                                <div key={label.id} className="flex items-center gap-2">
-                                  <div className="h-2 w-2 rounded-full" style={{ backgroundColor: label.color }} />
-                                  <span className="text-xs text-gray-700 dark:text-gray-300">{label.name}</span>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                          <p className="text-[10px] text-gray-400 mt-2">
-                            Labels are managed in Settings → Labels and can be applied to tasks across all boards.
-                          </p>
-                        </div>
-                      ) : (
-                        /* Required toggle for non-option types */
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-gray-500 dark:text-gray-400">Required field</span>
-                          <button
-                            onClick={() => saveProperties(properties.map((p) =>
-                              p.id === prop.id ? { ...p, required: !p.required } : p
-                            ))}
-                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                              prop.required ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
-                            }`}
-                          >
-                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
-                              prop.required ? 'translate-x-4' : 'translate-x-1'
-                            }`} />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
+                      </div>
+                    )}
 
-        {/* Add property */}
+                    {/* Required toggle for non-option types */}
+                    {!isOptionType && prop.id !== 'builtin-client' && prop.id !== 'builtin-labels' && (
+                      <div className="mt-3 pl-[52px] flex items-center gap-3">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Required field</span>
+                        <button
+                          onClick={() => saveProperties(properties.map((p) =>
+                            p.id === prop.id ? { ...p, required: !p.required } : p
+                          ))}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                            prop.required ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
+                          }`}
+                        >
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                            prop.required ? 'translate-x-4' : 'translate-x-1'
+                          }`} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Add property button */}
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 dark:border-gray-600 px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hover:border-green-500 hover:text-green-600 dark:hover:border-green-600 dark:hover:text-green-400 transition-colors"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-4 text-sm text-gray-500 dark:text-gray-400 hover:border-green-500 hover:text-green-600 dark:hover:border-green-600 dark:hover:text-green-400 transition-all hover:bg-green-50 dark:hover:bg-green-900/10"
         >
-          <Plus size={16} />
+          <Plus size={18} />
           Add Property
         </button>
+
+        {/* Live Preview */}
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="bg-gray-50 dark:bg-gray-800/60 px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              Preview — How tasks will appear
+            </p>
+            <span className="text-[10px] text-gray-400">
+              {properties.filter(p => p.display).length} displayed
+            </span>
+          </div>
+          <div className="p-5 bg-white dark:bg-gray-800">
+            <div className="space-y-4">
+              {properties.filter(p => p.display).map((prop) => {
+                const opts = prop.options || []
+                const opt = opts[0]
+                return (
+                  <div key={prop.id} className="flex items-start gap-3">
+                    <span className="w-5 flex items-center justify-center shrink-0 text-gray-400 mt-0.5">
+                      <DynamicIcon name={prop.icon} size={14} />
+                    </span>
+                    <span className="w-28 shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">{prop.name}</span>
+                    <span className="flex-1">
+                      {prop.id === 'builtin-title' && (
+                        <span className="font-medium text-gray-900 dark:text-white">Sample Task Title</span>
+                      )}
+                      {prop.id === 'builtin-status' && (
+                        <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: STATUS_OPTIONS[1]?.color, color: '#fff' }}>
+                          {STATUS_OPTIONS[1]?.label || 'In Progress'}
+                        </span>
+                      )}
+                      {prop.id === 'builtin-priority' && (
+                        <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: (prop.options?.[1] ?? PRIORITY_OPTIONS[1])?.color, color: '#fff' }}>
+                          <DynamicIcon name={(prop.options?.[1] ?? PRIORITY_OPTIONS[1])?.icon || getSuggestedIcon((prop.options?.[1] ?? PRIORITY_OPTIONS[1])?.label || '')} size={12} />
+                          {(prop.options?.[1] ?? PRIORITY_OPTIONS[1])?.label || 'High'}
+                        </span>
+                      )}
+                      {prop.id === 'builtin-date' && (
+                        <span className="text-gray-600 dark:text-gray-300 text-xs">
+                          Jan 15, 2026 → Jan 20, 2026
+                        </span>
+                      )}
+                      {prop.id === 'builtin-client' && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-green-500" />
+                          <span className="text-gray-600 dark:text-gray-300">Sample Client</span>
+                        </span>
+                      )}
+                      {prop.id === 'builtin-division' && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-purple-500" />
+                          <span className="text-gray-600 dark:text-gray-300">Sample Division</span>
+                        </span>
+                      )}
+                      {prop.type === 'text' && (
+                        <span className="text-gray-500 dark:text-gray-400 italic">Text value...</span>
+                      )}
+                      {prop.type === 'number' && (
+                        <span className="font-mono text-gray-600 dark:text-gray-300">1,234</span>
+                      )}
+                      {prop.type === 'date' && (
+                        <span className="text-gray-600 dark:text-gray-300">Jan 15, 2026</span>
+                      )}
+                      {prop.type === 'daterange' && (
+                        <span className="text-gray-600 dark:text-gray-300 text-xs">Jan 15 → Jan 20</span>
+                      )}
+                      {prop.type === 'url' && (
+                        <span className="text-green-600 dark:text-green-400 underline">https://example.com</span>
+                      )}
+                      {prop.type === 'email' && (
+                        <span className="text-gray-600 dark:text-gray-300">user@eliteflower.com</span>
+                      )}
+                      {prop.type === 'phone' && (
+                        <span className="text-gray-600 dark:text-gray-300">+1 (555) 123-4567</span>
+                      )}
+                      {prop.type === 'checkbox' && (
+                        <span className="inline-flex items-center gap-1.5 text-gray-500">
+                          <span className="h-4 w-4 rounded border-2 border-green-500 bg-green-500 flex items-center justify-center">
+                            <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                          </span>
+                          Yes
+                        </span>
+                      )}
+                      {prop.type === 'select' && opt && (
+                        <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: opt.color, color: '#fff' }}>
+                          {opt.label}
+                        </span>
+                      )}
+                      {(prop.type === 'multiselect' || prop.type === 'tags') && opt && (
+                        <span className="inline-flex flex-wrap gap-1">
+                          <span className="rounded-full px-2.5 py-0.5 text-xs font-medium border-2" style={{ borderColor: opt.color, color: opt.color }}>
+                            {opt.label}
+                          </span>
+                          {opts[1] && (
+                            <span className="rounded-full px-2.5 py-0.5 text-xs font-medium border-2" style={{ borderColor: opts[1].color, color: opts[1].color }}>
+                              {opts[1].label}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      {prop.type === 'person' && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs border border-green-500 bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">
+                          <span className="h-4 w-4 rounded-full bg-green-500 flex items-center justify-center text-[8px] font-bold text-white">JD</span>
+                          John
+                        </span>
+                      )}
+                      {!['builtin-title','builtin-status','builtin-priority','builtin-date','builtin-client','builtin-division','text','number','date','daterange','url','email','phone','checkbox','select','multiselect','tags','person'].includes(prop.type) && (
+                        <span className="text-gray-400 italic">Preview not available</span>
+                      )}
+                    </span>
+                  </div>
+                )
+              })}
+              {properties.filter(p => p.display).length === 0 && (
+                <p className="text-sm text-gray-400 italic text-center py-4">
+                  No display properties set. Star a property to show it on tasks.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {showAddModal && (
@@ -603,8 +770,8 @@ function ColorPickerPopover({ color, onChange, onClose }: {
   const [hex, setHex] = useState(color)
   return (
     <>
-      <div className="fixed inset-0 z-20" onClick={onClose} />
-      <div className="absolute left-0 top-full z-30 mt-1 w-[168px] rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800 p-3">
+      <div className="fixed inset-0 z-50" onClick={onClose} />
+      <div className="absolute left-0 top-full z-[60] mt-1 w-[168px] rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800 p-3">
         <div className="grid grid-cols-5 gap-1.5 mb-3">
           {COLOR_PICKER_COLORS.map((c) => (
             <button
