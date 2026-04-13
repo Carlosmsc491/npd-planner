@@ -6,14 +6,20 @@ import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import type { EventDropArg, EventClickArg, DayCellContentArg } from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
+import { Hammer, Truck, Wrench, Star, Calendar as CalendarIcon, type LucideIcon } from 'lucide-react'
 import AppLayout from '../components/ui/AppLayout'
 import NewTaskModal from '../components/ui/NewTaskModal'
 import { subscribeToAllTasks, updateTaskField } from '../lib/firestore'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
+import { useDateTypeStore } from '../store/dateTypeStore'
 import { getBoardColor, getBucketColor } from '../utils/colorUtils'
-import { toFirestoreDate } from '../utils/dateUtils'
+import { toFirestoreDate, toLocalDateString, toFCExclusiveEnd, fromFCExclusiveEnd } from '../utils/dateUtils'
 import type { Task, Board } from '../types'
+
+const ICON_MAP: Record<string, LucideIcon> = {
+  Hammer, Truck, Wrench, Star, Calendar: CalendarIcon,
+}
 
 const LS_KEY = 'npd:calendar_hidden_boards'
 
@@ -28,6 +34,7 @@ function loadHidden(): Set<string> {
 export default function CalendarPage() {
   const { user } = useAuthStore()
   const { boards } = useBoardStore()
+  const { dateTypes } = useDateTypeStore()
   const [tasks, setTasks] = useState<Task[]>([])
   const [hiddenBoards, setHiddenBoards] = useState<Set<string>>(loadHidden)
   const calendarRef = useRef<FullCalendar>(null)
@@ -45,15 +52,16 @@ export default function CalendarPage() {
     return unsub
   }, [boards])
 
-  const events = tasks
+  // Main task events
+  const mainEvents = tasks
     .filter((t) => !t.completed && (t.dateStart || t.dateEnd))
     .filter((t) => !hiddenBoards.has(t.boardId))
     .map((t) => {
       const board = boards.find((b) => b.id === t.boardId)
       const boardColor = board ? (getBoardColor(board)) : '#888'
       const eventColor = getBucketColor(t.bucket, board) ?? boardColor
-      const start = (t.dateStart ?? t.dateEnd)!.toDate()
-      const end = t.dateEnd ? t.dateEnd.toDate() : undefined
+      const start = toLocalDateString((t.dateStart ?? t.dateEnd)!.toDate())
+      const end = t.dateEnd ? toFCExclusiveEnd(t.dateEnd.toDate()) : undefined
       return {
         id: t.id,
         title: t.title,
@@ -67,6 +75,38 @@ export default function CalendarPage() {
       }
     })
 
+  // Task date events (from taskDates array)
+  const taskDateEvents = tasks
+    .filter((t) => !hiddenBoards.has(t.boardId))
+    .flatMap((t) =>
+      (t.taskDates ?? []).flatMap((td) => {
+        const dt = dateTypes.find((x) => x.key === td.typeKey)
+        if (!dt) return []
+        const board = boards.find((b) => b.id === t.boardId)
+        return [{
+          id: `${t.id}-td-${td.id}`,
+          title: t.title,
+          start: toLocalDateString(td.dateStart.toDate()),
+          end: td.dateEnd ? toFCExclusiveEnd(td.dateEnd.toDate()) : undefined,
+          allDay: true,
+          backgroundColor: dt.color + 'CC',
+          borderColor: dt.color,
+          textColor: '#ffffff',
+          editable: false, // Task date events are not draggable
+          extendedProps: {
+            task: t,
+            board,
+            isTaskDate: true,
+            dateTypeKey: td.typeKey,
+            dateTypeIcon: dt.icon,
+            dateTypeLabel: dt.label,
+          },
+        }]
+      })
+    )
+
+  const events = [...mainEvents, ...taskDateEvents]
+
   function toggleBoard(id: string) {
     setHiddenBoards((prev) => {
       const next = new Set(prev)
@@ -79,10 +119,13 @@ export default function CalendarPage() {
 
   async function handleEventDrop({ event }: EventDropArg) {
     if (!user || !event.start) return
+    // Skip task date events - they are not draggable
+    if (event.extendedProps.isTaskDate) return
     const task = event.extendedProps.task as Task
     const board = event.extendedProps.board as Board | undefined
     const newStart = toFirestoreDate(event.start)
-    const newEnd = event.end ? toFirestoreDate(event.end) : null
+    // FullCalendar end is exclusive — subtract 1 day to get the actual last day
+    const newEnd = event.end ? toFirestoreDate(fromFCExclusiveEnd(event.end)) : null
     await updateTaskField(task.id, 'dateStart', newStart, user.uid, user.name, task.dateStart, board?.type)
     if (newEnd) await updateTaskField(task.id, 'dateEnd', newEnd, user.uid, user.name, task.dateEnd, board?.type)
   }
@@ -92,7 +135,8 @@ export default function CalendarPage() {
     const task = event.extendedProps.task as Task
     const board = event.extendedProps.board as Board | undefined
     if (event.start) await updateTaskField(task.id, 'dateStart', toFirestoreDate(event.start), user.uid, user.name, task.dateStart, board?.type)
-    if (event.end)   await updateTaskField(task.id, 'dateEnd',   toFirestoreDate(event.end),   user.uid, user.name, task.dateEnd, board?.type)
+    // FullCalendar end is exclusive — subtract 1 day
+    if (event.end)   await updateTaskField(task.id, 'dateEnd', toFirestoreDate(fromFCExclusiveEnd(event.end)), user.uid, user.name, task.dateEnd, board?.type)
   }
 
   const navigate = useNavigate()
@@ -177,11 +221,16 @@ export default function CalendarPage() {
             eventDrop={handleEventDrop}
             eventResize={handleEventResize}
             eventClick={handleEventClick}
-            eventContent={(arg) => (
-              <div className="flex items-center gap-1 px-1 overflow-hidden w-full">
-                <span className="truncate text-xs font-medium">{arg.event.title}</span>
-              </div>
-            )}
+            eventContent={(arg) => {
+              const { isTaskDate, dateTypeIcon } = arg.event.extendedProps
+              const Icon = isTaskDate ? (ICON_MAP[dateTypeIcon] ?? CalendarIcon) : null
+              return (
+                <div className="flex items-center gap-1 px-1 overflow-hidden w-full">
+                  {Icon && <Icon size={10} className="shrink-0 opacity-90" />}
+                  <span className="truncate text-xs font-medium">{arg.event.title}</span>
+                </div>
+              )
+            }}
             dayCellContent={(arg: DayCellContentArg) => (
               <div className="group/day relative flex items-center justify-between w-full px-1">
                 <span className="text-sm">{arg.dayNumberText}</span>

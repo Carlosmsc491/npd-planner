@@ -5,6 +5,7 @@ import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import type { EventClickArg, EventInput } from '@fullcalendar/core'
 import { getBoardColor } from '../../utils/colorUtils'
+import { toLocalDateString, toFCExclusiveEnd } from '../../utils/dateUtils'
 import type { Task, PersonalTask, Board } from '../../types'
 
 interface Props {
@@ -42,8 +43,8 @@ export default function PersonalCalendar({
       .map((task) => {
         const board = boardMap.get(task.boardId)
         const color = board ? getBoardColor(board) : '#888'
-        const start = task.dateStart?.toDate() ?? task.dateEnd?.toDate()
-        const end = task.dateEnd?.toDate()
+        const start = toLocalDateString((task.dateStart ?? task.dateEnd)!.toDate())
+        const end = task.dateEnd ? toFCExclusiveEnd(task.dateEnd.toDate()) : undefined
 
         return {
           id: `board-${task.id}`,
@@ -66,7 +67,7 @@ export default function PersonalCalendar({
         return {
           id: `personal-${task.id}`,
           title: task.title,
-          start: dueDate,
+          start: toLocalDateString(dueDate),
           allDay: true,
           backgroundColor: PERSONAL_TASK_COLOR,
           borderColor: PERSONAL_TASK_COLOR,

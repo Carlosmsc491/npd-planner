@@ -78,12 +78,31 @@ export function isWithinDNDHours(dndStart: string, dndEnd: string): boolean {
 
 /**
  * Converts a Firestore Date to a YYYY-MM-DD string for FullCalendar all-day events.
- * Uses UTC methods because Firestore stores all-day dates as UTC midnight (T00:00:00Z).
- * Using local getDate() in UTC-5 would shift Jan 28 00:00 UTC → Jan 27 19:00 local → shows 27.
+ * Uses UTC methods because Firestore stores all-day dates as UTC midnight or UTC noon.
  */
 export function toLocalDateString(date: Date): string {
   const y = date.getUTCFullYear()
   const m = String(date.getUTCMonth() + 1).padStart(2, '0')
   const d = String(date.getUTCDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
+}
+
+/**
+ * Converts a Firestore end-date Timestamp to a FullCalendar exclusive end string.
+ * FullCalendar all-day events use exclusive end dates:
+ *   event visible Jan 25–28 → pass end: "2025-01-29"
+ * So we add 1 UTC day before formatting.
+ */
+export function toFCExclusiveEnd(date: Date): string {
+  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1))
+  return toLocalDateString(next)
+}
+
+/**
+ * Converts a FullCalendar exclusive end Date back to the inclusive end date for Firestore.
+ * FullCalendar passes end = day-after-last-visible, so we subtract 1 day.
+ * Uses local getDate() because FullCalendar all-day callbacks give local midnight dates.
+ */
+export function fromFCExclusiveEnd(date: Date): Date {
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate() - 1, 12, 0, 0))
 }
