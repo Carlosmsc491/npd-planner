@@ -75,3 +75,15 @@ export function isWithinDNDHours(dndStart: string, dndEnd: string): boolean {
   }
   return currentMinutes >= startMinutes && currentMinutes < endMinutes
 }
+
+/**
+ * Converts a Firestore Date to a YYYY-MM-DD string for FullCalendar all-day events.
+ * Uses UTC methods because Firestore stores all-day dates as UTC midnight (T00:00:00Z).
+ * Using local getDate() in UTC-5 would shift Jan 28 00:00 UTC → Jan 27 19:00 local → shows 27.
+ */
+export function toLocalDateString(date: Date): string {
+  const y = date.getUTCFullYear()
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const d = String(date.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
