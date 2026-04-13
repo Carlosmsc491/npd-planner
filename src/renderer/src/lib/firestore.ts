@@ -13,7 +13,7 @@ import type {
   TaskHistoryEntry, AppNotification, AnnualSummary,
   GlobalSettings, HistoryAction, ConflictData,
   PersonalNote, PersonalTask, QuickLink, TrashQueueItem, TrashItemStatus,
-  AttachmentStatus, AreaPermissions
+  AttachmentStatus, AreaPermissions, DateType
 } from '../types'
 
 // ─────────────────────────────────────────
@@ -26,6 +26,7 @@ export const COLLECTIONS = {
   CLIENTS:           'clients',
   DIVISIONS:         'divisions',
   LABELS:            'labels',
+  DATE_TYPES:        'dateTypes',
   COMMENTS:          'comments',
   HISTORY:           'taskHistory',
   NOTIFICATIONS:     'notifications',
@@ -1752,4 +1753,101 @@ export async function deleteImportBatch(batchId: string): Promise<void> {
   } catch (err) {
     throw new Error(`Failed to delete import batch: ${err}`)
   }
+}
+
+// ─────────────────────────────────────────
+// DATE TYPES
+// ─────────────────────────────────────────
+
+const DEFAULT_DATE_TYPES: Omit<DateType, 'id' | 'createdAt'>[] = [
+  { key: 'preparation', label: 'Preparation', icon: 'Hammer',  color: '#639922', order: 0 },
+  { key: 'ship',        label: 'Ship date',   icon: 'Truck',   color: '#185FA5', order: 1 },
+  { key: 'set_up',      label: 'Set up',      icon: 'Wrench',  color: '#534AB7', order: 2 },
+  { key: 'show_day',    label: 'Show day',    icon: 'Star',    color: '#BA7517', order: 3 },
+]
+
+export async function seedDefaultDateTypes(): Promise<void> {
+  try {
+    const col = collection(db, COLLECTIONS.DATE_TYPES)
+    const snap = await getDocs(col)
+    if (!snap.empty) return   // already seeded
+    const batch = writeBatch(db)
+    for (const dt of DEFAULT_DATE_TYPES) {
+      const ref = doc(col)
+      batch.set(ref, { ...dt, createdAt: serverTimestamp() })
+    }
+    await batch.commit()
+  } catch (err) {
+    console.error('seedDefaultDateTypes failed:', err)
+    // Don't throw - this is non-critical
+  }
+}
+
+export function subscribeToDateTypes(
+  callback: (types: DateType[]) => void
+): Unsubscribe {
+  const col = collection(db, COLLECTIONS.DATE_TYPES)
+  const q = query(col, orderBy('order', 'asc'))
+  
+  let unsubscribeCalled = false
+  let unsub: Unsubscribe | undefined
+  
+  // Delay subscription slightly to avoid race conditions during rapid mount/unmount
+  const timeoutId = setTimeout(() => {
+    if (unsubscribeCalled) return
+    
+    try {
+      unsub = onSnapshot(q, (snap) => {
+        if (unsubscribeCalled) return
+        try {
+          const types = snap.docs.map((d) => ({ id: d.id, ...d.data() } as DateType))
+          callback(types)
+        } catch (err) {
+          console.error('subscribeToDateTypes callback error:', err)
+        }
+      }, (err) => {
+        // Silently ignore internal Firestore errors during unmount
+        if (err.message?.includes('INTERNAL ASSERTION FAILED')) return
+        console.error('subscribeToDateTypes error:', err)
+      })
+    } catch (err) {
+      console.error('Failed to create dateTypes subscription:', err)
+    }
+  }, 10)
+  
+  return () => {
+    unsubscribeCalled = true
+    clearTimeout(timeoutId)
+    // Delay unsubscribe to avoid Firestore internal error
+    setTimeout(() => {
+      if (unsub) {
+        try {
+          unsub()
+        } catch (err) {
+          // Ignore errors during unsubscribe
+        }
+      }
+    }, 50)
+  }
+}
+
+export async function createDateType(
+  data: Omit<DateType, 'id' | 'createdAt'>
+): Promise<string> {
+  const ref = await addDoc(collection(db, COLLECTIONS.DATE_TYPES), {
+    ...data,
+    createdAt: serverTimestamp(),
+  })
+  return ref.id
+}
+
+export async function updateDateType(
+  id: string,
+  data: Partial<Pick<DateType, 'label' | 'icon' | 'color' | 'order'>>
+): Promise<void> {
+  await updateDoc(doc(db, COLLECTIONS.DATE_TYPES, id), data)
+}
+
+export async function deleteDateType(id: string): Promise<void> {
+  await deleteDoc(doc(db, COLLECTIONS.DATE_TYPES, id))
 }

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   User, Users, Palette, Bell, Keyboard,
   LayoutDashboard, Building2, Tag, FolderOpen, Truck, Trash2, Archive,
-  Grid2X2, CalendarDays, DollarSign, Settings2, History, Layers,
+  Grid2X2, CalendarDays, DollarSign, Settings2, History, Layers, CalendarClock,
   type LucideIcon,
 } from 'lucide-react'
 import AppLayout from '../components/ui/AppLayout'
@@ -15,6 +15,7 @@ import RecipeSettingsTab from '../components/recipes/settings/RecipeSettingsTab'
 import ClientManager from '../components/settings/ClientManager'
 import DivisionManager from '../components/settings/DivisionManager'
 import LabelManager from '../components/settings/LabelManager'
+import DateTypeManager from '../components/settings/DateTypeManager'
 import TrashPanel from '../components/settings/TrashPanel'
 import ImportHistoryPanel from '../components/settings/ImportHistoryPanel'
 import { useAuthStore } from '../store/authStore'
@@ -27,7 +28,7 @@ import { DEFAULT_SHORTCUTS, SHORTCUT_ACTION_LABELS } from '../types'
 
 type SettingsTab =
   | 'profile' | 'members' | 'appearance' | 'notifications' | 'shortcuts'
-  | 'boards' | 'clients' | 'divisions' | 'labels' | 'files' | 'traze' | 'archive' | 'trash' | 'import-history'
+  | 'boards' | 'clients' | 'divisions' | 'labels' | 'dateTypes' | 'files' | 'traze' | 'archive' | 'trash' | 'import-history'
   | 'recipe-cells' | 'recipe-holidays' | 'recipe-sleeve' | 'recipe-general'
 
 interface TabDef {
@@ -60,6 +61,7 @@ const SETTINGS_SECTIONS: SectionDef[] = [
       { id: 'clients',        label: 'Clients',       icon: Building2,       adminOnly: true },
       { id: 'divisions',      label: 'Divisions',     icon: Layers,          adminOnly: true },
       { id: 'labels',         label: 'Labels',        icon: Tag,             adminOnly: true },
+      { id: 'dateTypes',      label: 'Date Types',    icon: CalendarClock,   adminOnly: true },
       { id: 'files',          label: 'Files',         icon: FolderOpen },
       { id: 'traze',          label: 'Traze',         icon: Truck },
       { id: 'archive',        label: 'Archive',       icon: Archive,         adminOnly: true },
@@ -223,6 +225,16 @@ export default function SettingsPage() {
                   Create and manage labels to categorize tasks across all boards.
                 </p>
                 <LabelManager />
+              </div>
+            )}
+
+            {activeTab === 'dateTypes' && isAdmin && (
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">Date Types</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+                  Configure the types of dates that can be added to tasks. Only admins can manage these.
+                </p>
+                <DateTypeManager />
               </div>
             )}
 

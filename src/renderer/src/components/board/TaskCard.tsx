@@ -3,6 +3,7 @@ import { formatDate, isOverdue } from '../../utils/dateUtils'
 import { getInitials, getInitialsColor, getBucketColor } from '../../utils/colorUtils'
 import { generateAndSaveTaskReport } from '../../utils/taskReportSaver'
 import { useTaskStore } from '../../store/taskStore'
+import { DynamicIcon } from '../../utils/propertyUtils'
 import type { Task, Client, Label, AppUser, Board } from '../../types'
 
 interface Props {
@@ -193,9 +194,17 @@ export default function TaskCard({
           )}
 
           {/* Priority */}
-          {task.priority === 'high' && (
-            <span className="text-[10px] font-bold text-red-500">!</span>
-          )}
+          {(() => {
+            const priorityProp = board?.customProperties?.find(p => p.id === 'builtin-priority')
+            const priorityOpt = priorityProp?.options?.find(o => o.id === task.priority || o.id.endsWith(`-${task.priority}`))
+            if (!priorityOpt) return task.priority === 'high' ? <span className="text-[10px] font-bold text-red-500">!</span> : null
+            const iconName = priorityOpt.icon || (priorityOpt.label.toLowerCase().includes('high') ? 'AlertCircle' : 'Minus')
+            return (
+              <span className="flex items-center gap-0.5 text-[10px]" style={{ color: priorityOpt.color }}>
+                <DynamicIcon name={iconName} size={12} />
+              </span>
+            )
+          })()}
 
           {/* Attachments */}
           {task.attachments.length > 0 && (

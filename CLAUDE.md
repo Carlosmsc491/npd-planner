@@ -577,6 +577,9 @@ Update these as you complete each feature. Add [x] when done.
 - [x] Master Calendar page: all boards unified
 - [x] Board filter toggles on Master Calendar (persisted to localStorage)
 - [x] Timeline (Gantt) view
+- [x] **Timezone fix** — dates display correctly in all timezones
+- [x] **Multi-date tags** — tasks can have typed dates (Preparation, Ship, Set up, Show day)
+- [x] **Calendar markers** — taskDates shown as positioned markers inside the main event bar (single row per task)
 
 ### Phase 6 — SharePoint & Files
 - [x] First-launch SharePoint path setup wizard

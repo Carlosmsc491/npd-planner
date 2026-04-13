@@ -135,18 +135,18 @@ export default function RecipeHomePage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">NPD Projects</h1>
         <div className="relative" ref={dropdownRef}>
-          <div className="flex items-center">
+          <div className="flex items-stretch">
             <button
               onClick={() => navigate('/recipes/new')}
-              className="flex items-center gap-2 rounded-l-lg bg-green-500 px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 transition-colors"
+              className="flex items-center gap-2 rounded-l-lg bg-green-500 px-4 text-sm font-semibold text-white hover:bg-green-600 transition-colors h-9"
             >
               <Plus size={15} />
               New Project
             </button>
-            <div className="w-px bg-green-400" style={{ minHeight: '36px' }} />
+            <div className="w-px bg-green-400 self-stretch" />
             <button
               onClick={() => setDropdownOpen((prev) => !prev)}
-              className="flex items-center px-2 py-2 rounded-r-lg bg-green-500 hover:bg-green-600 text-white transition-colors"
+              className="flex items-center px-2 rounded-r-lg bg-green-500 hover:bg-green-600 text-white transition-colors h-9"
             >
               <ChevronDown size={15} />
             </button>

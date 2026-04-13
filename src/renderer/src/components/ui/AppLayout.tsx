@@ -81,18 +81,50 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
 
   // Subscribe to dateTypes when user is authenticated
   useEffect(() => {
-    if (!user) return
+    if (!user?.uid) return
 
-    // Only admins/owners can write — seed only if current user has that role
-    if (isAdmin) {
-      seedDefaultDateTypes().catch((err) => {
-        console.error('Failed to seed default date types:', err)
-      })
+    let unsub: (() => void) | undefined
+    let mounted = true
+    let subscribed = false
+
+    // Small delay to avoid race condition with Firestore initialization
+    const timeoutId = setTimeout(() => {
+      if (!mounted || !user?.uid || subscribed) return
+      subscribed = true
+
+      // Only admins/owners can write — seed only if current user has that role
+      if (isAdmin) {
+        seedDefaultDateTypes().catch((err) => {
+          console.error('Failed to seed default date types:', err)
+        })
+      }
+
+      try {
+        unsub = subscribeToDateTypes((types) => {
+          if (mounted) {
+            useDateTypeStore.getState().setDateTypes(types)
+          }
+        })
+      } catch (err) {
+        console.error('Failed to subscribe to date types:', err)
+      }
+    }, 100)
+
+    return () => {
+      mounted = false
+      clearTimeout(timeoutId)
+      // Longer delay to avoid Firestore internal error during rapid unmount/remount
+      setTimeout(() => {
+        if (unsub) {
+          try {
+            unsub()
+          } catch (err) {
+            // Ignore errors during unsubscribe
+          }
+        }
+      }, 50)
     }
-
-    const unsub = subscribeToDateTypes(useDateTypeStore.getState().setDateTypes)
-    return () => unsub()
-  }, [user, isAdmin])
+  }, [user?.uid, isAdmin])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

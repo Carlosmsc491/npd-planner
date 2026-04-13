@@ -5,7 +5,12 @@ import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import type { EventDropArg, EventClickArg } from '@fullcalendar/core'
 import type { EventResizeDoneArg, DateClickArg } from '@fullcalendar/interaction'
-import { Hammer, Truck, Wrench, Star, Calendar as CalendarIcon, type LucideIcon } from 'lucide-react'
+import {
+  Hammer, Truck, Wrench, Star,
+  Calendar as CalendarIcon,
+  Package, MapPin, Flag, Clock, Zap,
+  type LucideIcon,
+} from 'lucide-react'
 import { updateTaskField } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useDateTypeStore } from '../../store/dateTypeStore'
@@ -15,6 +20,7 @@ import type { Task, Board } from '../../types'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   Hammer, Truck, Wrench, Star, Calendar: CalendarIcon,
+  Package, MapPin, Flag, Clock, Zap,
 }
 
 interface Props {
@@ -24,16 +30,23 @@ interface Props {
   onDateClick: (date: Date) => void
 }
 
+// Calculate marker position as percentage within task range
+function markerLeftPct(taskStart: Date, taskEnd: Date, markerDate: Date): number {
+  const totalMs = taskEnd.getTime() - taskStart.getTime()
+  if (totalMs <= 0) return 50
+  const offsetMs = markerDate.getTime() - taskStart.getTime()
+  return Math.max(2, Math.min(95, (offsetMs / totalMs) * 100))
+}
+
 export default function BoardCalendar({ tasks, board, onOpenTask, onDateClick }: Props) {
   const { user } = useAuthStore()
   const { dateTypes } = useDateTypeStore()
   const calRef = useRef<FullCalendar>(null)
   const color = getBoardColor(board)
 
-  // Main task events — only for tasks WITHOUT taskDates
-  const mainEvents = tasks
+  // Single event per task — markers rendered inside eventContent
+  const events = tasks
     .filter((t) => !t.completed && (t.dateStart || t.dateEnd))
-    .filter((t) => !t.taskDates || t.taskDates.length === 0)
     .map((t) => {
       const eventColor = getBucketColor(t.bucket, board) ?? color
       return {
@@ -42,47 +55,15 @@ export default function BoardCalendar({ tasks, board, onOpenTask, onDateClick }:
         start: toLocalDateString((t.dateStart ?? t.dateEnd)!.toDate()),
         end: t.dateEnd ? toFCExclusiveEnd(t.dateEnd.toDate()) : undefined,
         allDay: true,
-        backgroundColor: eventColor + 'DD',
-        borderColor: eventColor,
+        backgroundColor: eventColor + '55',   // softer background
+        borderColor: eventColor + 'BB',
         textColor: '#ffffff',
-        extendedProps: { task: t, isTaskDate: false },
+        extendedProps: { task: t },
       }
     })
 
-  // Task date events — replace main event for tasks WITH taskDates
-  const taskDateEvents = tasks
-    .filter((t) => !t.completed && t.taskDates && t.taskDates.length > 0)
-    .flatMap((t) =>
-      (t.taskDates ?? []).flatMap((td) => {
-        const dt = dateTypes.find((x) => x.key === td.typeKey)
-        if (!dt) return []
-        return [{
-          id: `${t.id}-td-${td.id}`,
-          title: t.title,
-          start: toLocalDateString(td.dateStart.toDate()),
-          end: td.dateEnd ? toFCExclusiveEnd(td.dateEnd.toDate()) : undefined,
-          allDay: true,
-          backgroundColor: dt.color + 'CC',
-          borderColor: dt.color,
-          textColor: '#ffffff',
-          editable: false,
-          extendedProps: {
-            task: t,
-            isTaskDate: true,
-            dateTypeKey: td.typeKey,
-            dateTypeIcon: dt.icon,
-            dateTypeLabel: dt.label,
-          },
-        }]
-      })
-    )
-
-  const events = [...mainEvents, ...taskDateEvents]
-
   async function handleEventDrop({ event }: EventDropArg) {
     if (!user || !event.start) return
-    // Skip task date events - they are not draggable
-    if (event.extendedProps.isTaskDate) return
     const task = event.extendedProps.task as Task
     const newStart = toFirestoreDate(event.start)
     // FullCalendar end is exclusive — subtract 1 day to get the actual last day
@@ -144,59 +125,230 @@ export default function BoardCalendar({ tasks, board, onOpenTask, onDateClick }:
         eventDisplay="block"
         eventTimeFormat={{ hour: 'numeric', minute: '2-digit', meridiem: 'short' }}
         eventContent={(arg) => {
-          const { isTaskDate, dateTypeIcon } = arg.event.extendedProps as {
-            isTaskDate?: boolean
-            dateTypeIcon?: string
-          }
+          const task = arg.event.extendedProps.task as Task
+          const taskDates = task.taskDates ?? []
 
-          if (!isTaskDate) {
+          // No taskDates, or continuation segment (not isStart): show normal bar
+          if (taskDates.length === 0 || !arg.isStart) {
             return (
-              <div className="flex items-center gap-1 px-1 py-0.5 overflow-hidden w-full">
-                <span className="truncate text-xs font-medium leading-tight">{arg.event.title}</span>
-              </div>
-            )
-          }
-
-          const Icon = ICON_MAP[dateTypeIcon ?? ''] ?? CalendarIcon
-          const eventStart = arg.event.start
-          const eventEnd = arg.event.end
-          const hasRange = eventStart && eventEnd &&
-            (eventEnd.getTime() - eventStart.getTime()) > 86400000
-
-          if (!hasRange) {
-            return (
-              <div className="flex items-center gap-1 px-1 py-0.5 overflow-hidden w-full">
-                <Icon size={10} className="shrink-0 opacity-90" />
-                <span className="truncate text-xs font-medium leading-tight">{arg.event.title}</span>
+              <div className="flex items-center gap-1 px-1 py-0.5 overflow-hidden w-full h-full">
+                <span className="truncate text-xs font-medium leading-tight" style={{ opacity: 1 }}>
+                  {arg.event.title}
+                </span>
               </div>
             )
           }
 
-          if (arg.isStart && arg.isEnd) {
-            return (
-              <div className="flex items-center w-full px-1 py-0.5 gap-1 overflow-hidden">
-                <Icon size={10} className="shrink-0" />
-                <span className="flex-1 truncate text-xs font-medium leading-tight">{arg.event.title}</span>
-                <Icon size={10} className="shrink-0" />
-              </div>
-            )
-          }
-          if (arg.isStart) {
-            return (
-              <div className="flex items-center gap-1 px-1 py-0.5 overflow-hidden w-full">
-                <Icon size={10} className="shrink-0" />
-                <span className="truncate text-xs font-medium leading-tight">{arg.event.title}</span>
-              </div>
-            )
-          }
-          if (arg.isEnd) {
-            return (
-              <div className="flex items-center justify-end px-1 py-0.5 w-full">
-                <Icon size={10} className="shrink-0" />
-              </div>
-            )
-          }
-          return <div className="w-full h-full" />
+          // isStart segment with taskDates: bar with positioned markers
+          const taskStart = arg.event.start!
+          const taskEnd = arg.event.end ?? new Date(taskStart.getTime() + 86400000)
+          
+          // Calculate marker positions for the timeline line
+          const firstMarkerPct = taskDates.length > 0 ? (() => {
+            const td = taskDates[0]
+            const dt = dateTypes.find((x) => x.key === td.typeKey)
+            if (!dt) return null
+            const d = td.dateStart.toDate()
+            if (d >= taskStart && d <= taskEnd) return markerLeftPct(taskStart, taskEnd, d)
+            return null
+          })() : null
+          
+          const lastMarkerPct = taskDates.length > 0 ? (() => {
+            const td = taskDates[taskDates.length - 1]
+            const dt = dateTypes.find((x) => x.key === td.typeKey)
+            if (!dt) return null
+            if (td.dateEnd) {
+              const d = td.dateEnd.toDate()
+              if (d >= taskStart && d <= taskEnd) return markerLeftPct(taskStart, taskEnd, d)
+            }
+            const d = td.dateStart.toDate()
+            if (d >= taskStart && d <= taskEnd) return markerLeftPct(taskStart, taskEnd, d)
+            return null
+          })() : null
+
+          return (
+            <div
+              className="relative flex items-center px-2 overflow-hidden w-full h-full"
+              style={{ minHeight: '20px' }}
+            >
+              {/* Task title */}
+              <span
+                className="text-xs font-medium leading-tight shrink-0 z-10"
+                style={{ maxWidth: '35%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 1 }}
+              >
+                {arg.event.title}
+              </span>
+
+              {/* Horizontal timeline line connecting markers */}
+              {firstMarkerPct !== null && lastMarkerPct !== null && firstMarkerPct !== lastMarkerPct && (
+                <div
+                  className="absolute h-0.5 bg-white/50"
+                  style={{
+                    left: `${Math.min(firstMarkerPct, lastMarkerPct)}%`,
+                    width: `${Math.abs(lastMarkerPct - firstMarkerPct)}%`,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    zIndex: 1,
+                  }}
+                />
+              )}
+
+              {/* Vertical tick marks at each marker position */}
+              {(() => {
+                const ticks: Array<{ pct: number; color: string }> = []
+                taskDates.forEach((td) => {
+                  const dt = dateTypes.find((x) => x.key === td.typeKey)
+                  if (!dt) return
+                  
+                  const startDate = td.dateStart.toDate()
+                  if (startDate >= taskStart && startDate <= taskEnd) {
+                    ticks.push({
+                      pct: markerLeftPct(taskStart, taskEnd, startDate),
+                      color: dt.color,
+                    })
+                  }
+                  
+                  if (td.dateEnd) {
+                    const endDate = td.dateEnd.toDate()
+                    const isSameDay = startDate.toDateString() === endDate.toDateString()
+                    if (!isSameDay && endDate >= taskStart && endDate <= taskEnd) {
+                      ticks.push({
+                        pct: markerLeftPct(taskStart, taskEnd, endDate),
+                        color: dt.color,
+                      })
+                    }
+                  }
+                })
+                
+                // Remove duplicates (same position)
+                const uniqueTicks = ticks.filter((t, i, arr) => 
+                  arr.findIndex((other) => Math.abs(other.pct - t.pct) < 1) === i
+                )
+                
+                return uniqueTicks.map((t, i) => (
+                  <div
+                    key={`tick-${i}`}
+                    className="absolute w-px bg-white/60"
+                    style={{
+                      left: `${t.pct}%`,
+                      top: '15%',
+                      height: '70%',
+                      transform: 'translateX(-50%)',
+                      zIndex: 1,
+                    }}
+                  />
+                ))
+              })()}
+
+              {/* Markers for each taskDate */}
+              {(() => {
+                // Build list of all marker positions first
+                type MarkerInfo = {
+                  key: string
+                  date: Date
+                  pct: number
+                  type: 'start' | 'end'
+                  td: typeof taskDates[0]
+                  dt: typeof dateTypes[0]
+                }
+                
+                const markersInfo: MarkerInfo[] = []
+                
+                taskDates.forEach((td) => {
+                  const dt = dateTypes.find((x) => x.key === td.typeKey)
+                  if (!dt) return
+                  
+                  const startDate = td.dateStart.toDate()
+                  
+                  // Start marker
+                  if (startDate >= taskStart && startDate <= taskEnd) {
+                    markersInfo.push({
+                      key: `${td.id}-start`,
+                      date: startDate,
+                      pct: markerLeftPct(taskStart, taskEnd, startDate),
+                      type: 'start',
+                      td,
+                      dt,
+                    })
+                  }
+                  
+                  // End marker (if exists and different from start)
+                  if (td.dateEnd) {
+                    const endDate = td.dateEnd.toDate()
+                    const isSameDay = startDate.toDateString() === endDate.toDateString()
+                    
+                    if (!isSameDay && endDate >= taskStart && endDate <= taskEnd) {
+                      markersInfo.push({
+                        key: `${td.id}-end`,
+                        date: endDate,
+                        pct: markerLeftPct(taskStart, taskEnd, endDate),
+                        type: 'end',
+                        td,
+                        dt,
+                      })
+                    }
+                  }
+                })
+                
+                // Group markers by position (within 3% of each other)
+                const grouped: MarkerInfo[][] = []
+                const used = new Set<number>()
+                
+                markersInfo.forEach((m, i) => {
+                  if (used.has(i)) return
+                  const group: MarkerInfo[] = [m]
+                  used.add(i)
+                  
+                  markersInfo.forEach((other, j) => {
+                    if (i === j || used.has(j)) return
+                    if (Math.abs(m.pct - other.pct) < 3) {
+                      group.push(other)
+                      used.add(j)
+                    }
+                  })
+                  
+                  grouped.push(group)
+                })
+                
+                // Render markers with offset for overlapping ones
+                return grouped.flatMap((group) => {
+                  const groupSize = group.length
+                  const markerWidth = 16 // px
+                  const spacing = 4 // px
+                  
+                  return group.map((m, idx) => {
+                    const Icon = ICON_MAP[m.dt.icon] ?? CalendarIcon
+                    const isEnd = m.type === 'end'
+                    
+                    // Calculate horizontal offset for overlapping markers
+                    const totalWidth = groupSize * markerWidth + (groupSize - 1) * spacing
+                    const offset = (idx * (markerWidth + spacing)) - (totalWidth / 2) + (markerWidth / 2)
+                    
+                    return (
+                      <div
+                        key={m.key}
+                        title={`${m.dt.label} ${m.type}s: ${toLocalDateString(m.date)}`}
+                        className="absolute flex items-center justify-center rounded-full"
+                        style={{
+                          left: `calc(${m.pct}% + ${offset}px)`,
+                          top: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          width: '16px',
+                          height: '16px',
+                          backgroundColor: m.dt.color,
+                          opacity: isEnd ? 0.7 : 1,
+                          zIndex: 2,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Icon size={9} color="#fff" />
+                      </div>
+                    )
+                  })
+                })
+              })()}
+            </div>
+          )
         }}
         dayCellContent={(arg) => (
           <div className="group/day relative flex items-center justify-between w-full px-1">

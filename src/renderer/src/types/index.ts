@@ -55,6 +55,7 @@ export interface SelectOption {
   id: string
   label: string
   color: string
+  icon?: string
 }
 
 export interface BoardProperty {
@@ -143,6 +144,23 @@ export interface RecurringConfig {
   nextDate: Timestamp | null
 }
 
+export interface DateType {
+  id: string
+  key: string       // e.g. 'ship', 'show_day', 'preparation', 'set_up'
+  label: string     // e.g. 'Ship date'
+  icon: string      // Lucide icon name e.g. 'Truck'
+  color: string     // hex e.g. '#185FA5'
+  order: number
+  createdAt: Timestamp
+}
+
+export interface TaskDate {
+  id: string           // nanoid() — generated client-side
+  typeKey: string      // references DateType.key
+  dateStart: Timestamp
+  dateEnd: Timestamp | null
+}
+
 export interface Task {
   id: string
   boardId: string
@@ -156,6 +174,7 @@ export interface Task {
   bucket: string            // column/group name
   dateStart: Timestamp | null
   dateEnd: Timestamp | null
+  taskDates?: TaskDate[]    // typed date tags (preparation, ship, set_up, show_day)
   description: string   // rich text HTML
   notes: string
   poNumber: string

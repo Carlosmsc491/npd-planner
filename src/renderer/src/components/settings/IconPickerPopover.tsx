@@ -46,7 +46,7 @@ export default function IconPickerPopover({ onSelect, onClose }: Props) {
   return (
     <div
       ref={ref}
-      className="absolute z-50 left-0 top-full mt-1 w-72 rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800 overflow-hidden"
+      className="absolute z-[60] left-0 top-full mt-1 w-72 rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800 overflow-hidden"
     >
       {/* Search */}
       <div className="p-2 border-b border-gray-100 dark:border-gray-700">
