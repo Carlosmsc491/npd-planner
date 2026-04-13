@@ -270,6 +270,15 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────
+    // DATE TYPES (calendar event type definitions)
+    // ─────────────────────────────────────────
+
+    match /dateTypes/{dateTypeId} {
+      allow read: if isActiveUser();
+      allow write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────
     // DENY ALL OTHER PATHS
     // ─────────────────────────────────────────
 

@@ -21,6 +21,8 @@ import GlobalSearch from '../search/GlobalSearch'
 import { useNotifications } from '../../hooks/useNotifications'
 import { useClients } from '../../hooks/useClients'
 import { useLabels } from '../../hooks/useLabels'
+import { subscribeToDateTypes, seedDefaultDateTypes } from '../../lib/firestore'
+import { useDateTypeStore } from '../../store/dateTypeStore'
 import { getAreaPermission } from '../../hooks/useAreaPermission'
 import type { Board, BoardType } from '../../types'
 
@@ -72,10 +74,25 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
 
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
 
-  // Always subscribe so labels/clients are available on any page
+  // Always subscribe so labels/clients/dateTypes are available on any page
   useClients()
   useLabels()
   useNotifications()
+
+  // Subscribe to dateTypes when user is authenticated
+  useEffect(() => {
+    if (!user) return
+
+    // Only admins/owners can write — seed only if current user has that role
+    if (isAdmin) {
+      seedDefaultDateTypes().catch((err) => {
+        console.error('Failed to seed default date types:', err)
+      })
+    }
+
+    const unsub = subscribeToDateTypes(useDateTypeStore.getState().setDateTypes)
+    return () => unsub()
+  }, [user, isAdmin])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
