@@ -543,6 +543,14 @@ Update these as you complete each feature. Add [x] when done.
 - [x] Suspended user → sees access revoked screen
 - [ ] Firebase Auth Rules deployed
 - [x] Members panel (Settings) — list, approve, reject, change role, suspend
+- [x] Role-based access control (owner / admin / member) with full hierarchy
+- [x] areaPermissions per user (none / view / edit per board and module)
+- [x] ApprovalModal with real-time queue — auto-opens for admin/owner on new registration
+- [x] pendingApprovals Firestore collection — created on register, deleted on approve/reject
+- [x] AreaPermissionsEditor — inline collapsible widget in MembersPanel
+- [x] canChangeRole / canSuspendUser / canDeleteUser permission helpers (permissions.ts)
+- [x] Settings route and sidebar link hidden from non-admin users
+- [x] Board view read-only mode for view-only area permission (no create/edit/delete)
 - [x] Emergency access (/emergency route + SHA-256 key check)
 - [x] Auto-update configured (electron-updater)
 
