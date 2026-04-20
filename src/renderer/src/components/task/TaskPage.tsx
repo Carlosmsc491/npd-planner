@@ -475,7 +475,9 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                     {[
                       { label: 'Duplicate', action: () => { onDuplicate(task); setMenuOpen(false) } },
                       { label: 'Make Recurring', action: () => { onRecurring(task); setMenuOpen(false) } },
-                      { label: 'Delete', danger: true, action: () => { onDelete(task); setMenuOpen(false); setSelectedTask(null) } },
+                      ...((user?.role === 'admin' || user?.role === 'owner' || task.createdBy === user?.uid)
+                        ? [{ label: 'Delete', danger: true, action: () => { onDelete(task); setMenuOpen(false); setSelectedTask(null) } }]
+                        : []),
                     ].map((item) => (
                       <button key={item.label} onClick={item.action}
                         className={`w-full px-3 py-2 text-left text-sm first:rounded-t-xl last:rounded-b-xl transition-colors ${item.danger ? 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'}`}

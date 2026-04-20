@@ -105,6 +105,8 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
 
   const remove = useCallback(async (task: Task) => {
     if (!user) return
+    const isAdmin = user.role === 'admin' || user.role === 'owner'
+    if (!isAdmin && task.createdBy !== user.uid) return  // silently block — UI should already hide Delete
 
     const retentionDays = user.preferences?.trashRetentionDays ?? 30
     const year = task.createdAt?.toDate?.()?.getFullYear?.() ?? new Date().getFullYear()

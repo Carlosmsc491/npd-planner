@@ -3,6 +3,7 @@ import { formatDate, isOverdue } from '../../utils/dateUtils'
 import { getInitials, getInitialsColor, getBucketColor } from '../../utils/colorUtils'
 import { generateAndSaveTaskReport } from '../../utils/taskReportSaver'
 import { useTaskStore } from '../../store/taskStore'
+import { useAuthStore } from '../../store/authStore'
 import { DynamicIcon } from '../../utils/propertyUtils'
 import type { Task, Client, Label, AppUser, Board } from '../../types'
 
@@ -26,6 +27,9 @@ export default function TaskCard({
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const { setToast } = useTaskStore()
+  const { user } = useAuthStore()
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner'
+  const canDelete = isAdmin || task.createdBy === user?.uid
 
   async function handleGenerateReport() {
     setMenuOpen(false)
@@ -131,7 +135,7 @@ export default function TaskCard({
                 { label: 'Duplicate', action: () => { onDuplicate(task); setMenuOpen(false) } },
                 { label: 'Make Recurring', action: () => { onRecurring(task); setMenuOpen(false) } },
                 { label: 'Generate Report', action: handleGenerateReport },
-                { label: 'Delete', danger: true, action: () => { onDelete(task); setMenuOpen(false) } },
+                ...(canDelete ? [{ label: 'Delete', danger: true, action: () => { onDelete(task); setMenuOpen(false) } }] : []),
               ].map((item) => (
                 <button
                   key={item.label}
