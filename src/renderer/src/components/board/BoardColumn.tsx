@@ -14,12 +14,12 @@ interface Props {
   users: AppUser[]
   board?: Board | null
   bucketColor?: string
-  onComplete: (task: Task) => void
+  onComplete?: (task: Task) => void
   onOpen: (task: Task) => void
-  onDuplicate: (task: Task) => void
-  onRecurring: (task: Task) => void
-  onDelete: (task: Task) => void
-  onAddTask: (bucket: string) => void
+  onDuplicate?: (task: Task) => void
+  onRecurring?: (task: Task) => void
+  onDelete?: (task: Task) => void
+  onAddTask?: (bucket: string) => void
   isDraggable?: boolean
   // Cross-column drag
   onTaskDragStart?: (task: Task, fromBucket: string) => void
@@ -133,15 +133,17 @@ export default function BoardColumn({
             {active.length}
           </span>
         </div>
-        <button
-          onClick={() => onAddTask(groupKey)}
-          className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200 transition-colors"
-          title="Add task"
-        >
-          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-        </button>
+        {onAddTask && (
+          <button
+            onClick={() => onAddTask(groupKey)}
+            className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200 transition-colors"
+            title="Add task"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Task cards */}
@@ -172,7 +174,7 @@ export default function BoardColumn({
           // the drop is handled at BoardView level via onDrop on the column wrapper
         }}
       >
-        {visible.length === 0 && (
+        {visible.length === 0 && onAddTask && (
           <button
             onClick={() => onAddTask(groupKey)}
             className="rounded-xl border-2 border-dashed border-gray-200 py-4 text-xs text-gray-400 hover:border-gray-300 hover:text-gray-500 dark:border-gray-700 dark:hover:border-gray-600 transition-colors"

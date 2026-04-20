@@ -344,16 +344,18 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
             </>
           )}
 
-          <Link
-            to="/settings"
-            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mt-4 transition-colors ${
-              location.pathname === '/settings'
-                ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
-            }`}
-          >
-            Settings
-          </Link>
+          {isAdmin && (
+            <Link
+              to="/settings"
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mt-4 transition-colors ${
+                location.pathname === '/settings'
+                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+              }`}
+            >
+              Settings
+            </Link>
+          )}
 
           {getAreaPermission('analytics') !== 'none' && (
             <Link

@@ -15,12 +15,12 @@ interface Props {
   groupBy: GroupByField
   boardType?: BoardType
   board?: Board | null
-  onComplete: (task: Task) => void
+  onComplete?: (task: Task) => void
   onOpen: (task: Task) => void
-  onDuplicate: (task: Task) => void
-  onRecurring: (task: Task) => void
-  onDelete: (task: Task) => void
-  onAddTask: (bucket: string) => void
+  onDuplicate?: (task: Task) => void
+  onRecurring?: (task: Task) => void
+  onDelete?: (task: Task) => void
+  onAddTask?: (bucket: string) => void
 }
 
 function groupTasks(

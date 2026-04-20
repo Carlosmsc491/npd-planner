@@ -131,7 +131,9 @@ export default function App() {
         </Route>
         <Route path="/board/:boardId" element={<BoardRoute />} />
         <Route path="/task/:taskId" element={<TaskFullPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route element={<ProtectedRoute requireAdmin />}>
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/login" replace />} />

@@ -1,12 +1,14 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import { useAreaPermission } from '../../hooks/useAreaPermission'
+import { isPrivileged } from '../../lib/permissions'
 
 interface ProtectedRouteProps {
   areaId?: string
+  requireAdmin?: boolean
 }
 
-export default function ProtectedRoute({ areaId }: ProtectedRouteProps) {
+export default function ProtectedRoute({ areaId, requireAdmin }: ProtectedRouteProps) {
   const { user, isLoading } = useAuthStore()
   const permission = useAreaPermission(areaId ?? '')
 
@@ -21,6 +23,11 @@ export default function ProtectedRoute({ areaId }: ProtectedRouteProps) {
   if (!user) return <Navigate to="/login" replace />
   if (user.status === 'awaiting') return <Navigate to="/awaiting-approval" replace />
   if (user.status === 'suspended') return <Navigate to="/login" replace />
+
+  // Admin-only gate (settings, admin-only pages)
+  if (requireAdmin && !isPrivileged(user)) {
+    return <Navigate to="/dashboard" replace />
+  }
 
   // Area-level access check (only enforced when areaId is provided)
   if (areaId && permission === 'none') {

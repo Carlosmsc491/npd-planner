@@ -13,11 +13,11 @@ interface Props {
   labels: Label[]
   users: AppUser[]
   board?: Board | null
-  onComplete: (task: Task) => void
+  onComplete?: (task: Task) => void
   onOpen: (task: Task) => void
-  onDuplicate: (task: Task) => void
-  onRecurring: (task: Task) => void
-  onDelete: (task: Task) => void
+  onDuplicate?: (task: Task) => void
+  onRecurring?: (task: Task) => void
+  onDelete?: (task: Task) => void
 }
 
 export default function TaskCard({
@@ -93,12 +93,13 @@ export default function TaskCard({
       <div className="flex items-start gap-2">
         {/* Checkbox */}
         <button
-          onClick={(e) => { e.stopPropagation(); onComplete(task) }}
+          onClick={(e) => { e.stopPropagation(); onComplete?.(task) }}
+          disabled={!onComplete}
           className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
             task.completed
               ? 'border-green-500 bg-green-500'
               : 'border-gray-300 hover:border-green-400 dark:border-gray-500'
-          }`}
+          } ${!onComplete ? 'opacity-40 cursor-default' : ''}`}
         >
           {task.completed && (
             <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -132,10 +133,10 @@ export default function TaskCard({
           {menuOpen && (
             <div className="absolute right-0 z-30 mt-1 w-40 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
               {[
-                { label: 'Duplicate', action: () => { onDuplicate(task); setMenuOpen(false) } },
-                { label: 'Make Recurring', action: () => { onRecurring(task); setMenuOpen(false) } },
+                ...(onDuplicate ? [{ label: 'Duplicate', action: () => { onDuplicate(task); setMenuOpen(false) } }] : []),
+                ...(onRecurring ? [{ label: 'Make Recurring', action: () => { onRecurring(task); setMenuOpen(false) } }] : []),
                 { label: 'Generate Report', action: handleGenerateReport },
-                ...(canDelete ? [{ label: 'Delete', danger: true, action: () => { onDelete(task); setMenuOpen(false) } }] : []),
+                ...(canDelete && onDelete ? [{ label: 'Delete', danger: true, action: () => { onDelete(task); setMenuOpen(false) } }] : []),
               ].map((item) => (
                 <button
                   key={item.label}
