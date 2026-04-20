@@ -12,7 +12,7 @@ import {
 } from 'firebase/auth'
 import { Eye, EyeOff, Loader2, Check } from 'lucide-react'
 import { auth } from '../lib/firebase'
-import { createUser, hasAnyAdmin, markAppInitialized, notifyAdminsOfPendingUser } from '../lib/firestore'
+import { createUser, hasAnyAdmin, markAppInitialized, notifyAdminsOfPendingUser, createPendingApproval } from '../lib/firestore'
 import { useAuthStore } from '../store/authStore'
 // Logo placeholder - will use a div with text instead
 import type { UserPreferences } from '../types'
@@ -248,9 +248,12 @@ export default function LoginPage() {
         await markAppInitialized()
       }
 
-      // If awaiting approval, notify admins
+      // If awaiting approval, create pendingApproval doc + notify admins
       if (status === 'awaiting') {
-        await notifyAdminsOfPendingUser(appUser)
+        await Promise.all([
+          createPendingApproval(firebaseUser.uid, fullName, signupEmail.toLowerCase()),
+          notifyAdminsOfPendingUser(appUser),
+        ])
       }
 
       // Set user and redirect
