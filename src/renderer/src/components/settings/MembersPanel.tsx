@@ -6,13 +6,17 @@ import { Plus, Eye, EyeOff, Loader2, X, Shield } from 'lucide-react'
 import {
   subscribeToUsers,
   updateUserStatus,
-  updateUserRole
+  updateUserRole,
+  approveUser,
+  rejectUser,
 } from '../../lib/firestore'
 import { getInitials, getInitialsColor } from '../../utils/colorUtils'
 import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useBoardStore } from '../../store/boardStore'
 import AccessPermissionsModal from './AccessPermissionsModal'
+import { canChangeRole, canSuspendUser } from '../../lib/permissions'
+import { DEFAULT_AREA_PERMISSIONS } from '../../types'
 import type { AppUser, UserStatus, UserRole } from '../../types'
 import type { Timestamp } from 'firebase/firestore'
 import {
@@ -42,14 +46,19 @@ export default function MembersPanel() {
   const isOwner = currentUser?.role === 'owner'
 
   async function approve(uid: string) {
-    await updateUserStatus(uid, 'active' as UserStatus)
+    // Quick approve from MembersPanel — uses role=member and default permissions.
+    // For full role + permission configuration, use the ApprovalModal (auto-shown when logged in).
+    await approveUser(uid, 'member', DEFAULT_AREA_PERMISSIONS)
   }
 
   async function reject(uid: string) {
-    await updateUserStatus(uid, 'suspended' as UserStatus)
+    await rejectUser(uid)
   }
 
   async function suspend(uid: string) {
+    if (!currentUser) return
+    const target = users.find((u) => u.uid === uid)
+    if (!target || !canSuspendUser(currentUser, target)) return
     await updateUserRole(uid, 'member' as UserRole)
     await updateUserStatus(uid, 'suspended' as UserStatus)
   }
@@ -147,14 +156,8 @@ export default function MembersPanel() {
           )}
           {active.map((u) => {
             const isSelf = u.uid === currentUser?.uid
-            // Can act on this user?
-            // - Owner can act on anyone except themselves (for role/suspend)
-            // - Admin can only act on members (not owners, not other admins)
-            const canAct = !isSelf && (
-              isOwner
-                ? u.role !== 'owner'           // owner can manage admins + members
-                : u.role === 'member'           // admin can only manage members
-            )
+            // Use canChangeRole from permissions.ts for consistent enforcement
+            const canAct = !!currentUser && canChangeRole(currentUser, u)
             return (
               <MemberRow key={u.uid} user={u} isSelf={isSelf}>
                 {canAct && u.role === 'member' && (
@@ -167,10 +170,10 @@ export default function MembersPanel() {
                     Access
                   </button>
                 )}
-                {canAct && (
+                {canAct && currentUser && (
                   <RoleDropdown
                     user={u}
-                    isOwner={isOwner}
+                    currentUser={currentUser}
                     onRoleChange={setRole}
                     onSuspend={suspend}
                     onResetPassword={resetPassword}
@@ -563,18 +566,22 @@ function RoleBadge({ role }: { role: UserRole }) {
 
 function RoleDropdown({
   user,
-  isOwner,
+  currentUser,
   onRoleChange,
   onSuspend,
   onResetPassword,
 }: {
   user: AppUser
-  isOwner: boolean
+  currentUser: AppUser
   onRoleChange: (uid: string, role: UserRole) => void
   onSuspend: (uid: string) => void
   onResetPassword: (email: string) => void
 }) {
   const [open, setOpen] = useState(false)
+
+  const canPromoteToAdmin = canChangeRole(currentUser, user) && user.role !== 'admin'
+  const canDemoteToMember = canChangeRole(currentUser, user) && user.role !== 'member'
+  const canSuspend = canSuspendUser(currentUser, user)
 
   return (
     <div className="relative">
@@ -588,14 +595,13 @@ function RoleDropdown({
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
-            {/* Owner can promote/demote admin; admin cannot */}
-            {isOwner && user.role !== 'admin' && (
+            {canPromoteToAdmin && (
               <DropdownItem
                 label="Make Admin"
                 onClick={() => { onRoleChange(user.uid, 'admin'); setOpen(false) }}
               />
             )}
-            {user.role !== 'member' && (
+            {canDemoteToMember && (
               <DropdownItem
                 label="Make Member"
                 onClick={() => { onRoleChange(user.uid, 'member'); setOpen(false) }}
@@ -605,11 +611,13 @@ function RoleDropdown({
               label="Reset Password"
               onClick={() => { onResetPassword(user.email); setOpen(false) }}
             />
-            <DropdownItem
-              label="Suspend"
-              danger
-              onClick={() => { onSuspend(user.uid); setOpen(false) }}
-            />
+            {canSuspend && (
+              <DropdownItem
+                label="Suspend"
+                danger
+                onClick={() => { onSuspend(user.uid); setOpen(false) }}
+              />
+            )}
           </div>
         </>
       )}

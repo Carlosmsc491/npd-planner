@@ -25,6 +25,9 @@ import { useLabels } from '../../hooks/useLabels'
 import { subscribeToDateTypes, seedDefaultDateTypes } from '../../lib/firestore'
 import { useDateTypeStore } from '../../store/dateTypeStore'
 import { getAreaPermission } from '../../hooks/useAreaPermission'
+import { usePendingApprovals } from '../../hooks/usePendingApprovals'
+import { isPrivileged } from '../../lib/permissions'
+import { ApprovalModal } from '../auth/ApprovalModal'
 import type { Board, BoardType } from '../../types'
 
 type IconComponent = LucideIcon
@@ -72,8 +75,19 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [showNewBoard, setShowNewBoard] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  const [showApprovalModal, setShowApprovalModal] = useState(false)
 
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
+
+  // Pending approvals — only active for admin/owner
+  const pendingApprovals = usePendingApprovals(user ?? null)
+
+  // Auto-open approval modal when new users are waiting
+  useEffect(() => {
+    if (pendingApprovals.length > 0 && user && isPrivileged(user)) {
+      setShowApprovalModal(true)
+    }
+  }, [pendingApprovals.length, user])
 
   // Always subscribe so labels/clients/dateTypes are available on any page
   useClients()
@@ -355,6 +369,19 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
           )}
         </nav>
 
+        {/* Pending approvals reopen button */}
+        {sidebarOpen && user && isPrivileged(user) && pendingApprovals.length > 0 && (
+          <div className="px-3 pb-1">
+            <button
+              onClick={() => setShowApprovalModal(true)}
+              className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800 dark:hover:bg-amber-900/30 transition-colors"
+            >
+              <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0 animate-pulse" />
+              {pendingApprovals.length} pending approval{pendingApprovals.length !== 1 ? 's' : ''}
+            </button>
+          </div>
+        )}
+
         {/* Notifications bell */}
         {sidebarOpen && (
           <div className="px-2 pb-1">
@@ -398,6 +425,16 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
       {showNewBoard && <NewBoardModal onClose={() => setShowNewBoard(false)} />}
       {showSearch && <GlobalSearch onClose={() => setShowSearch(false)} />}
       <WhatsNewModal />
+
+      {/* Approval modal — auto-opens for admin/owner when new users register */}
+      {showApprovalModal && user && isPrivileged(user) && pendingApprovals.length > 0 && (
+        <ApprovalModal
+          pending={pendingApprovals}
+          currentUser={user}
+          boards={boards}
+          onClose={() => setShowApprovalModal(false)}
+        />
+      )}
 
       {/* Board context menu — rendered via portal to escape sidebar overflow */}
       {menuBoardId && menuPos && createPortal(
