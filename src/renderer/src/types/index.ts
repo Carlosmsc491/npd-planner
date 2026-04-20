@@ -13,7 +13,24 @@ export type UserStatus = 'active' | 'awaiting' | 'suspended'
 export type Theme = 'light' | 'dark' | 'system'
 
 export type AreaPermission = 'none' | 'view' | 'edit'
+export type AccessLevel = 'none' | 'view' | 'edit'
 export type AreaPermissions = Record<string, AreaPermission>
+
+export const DEFAULT_AREA_PERMISSIONS: AreaPermissions = {
+  projects:  'view',
+  recipes:   'none',
+  analytics: 'none',
+  settings:  'none',
+  // board_{boardId} keys are added individually when assigning boards
+}
+
+export interface PendingApproval {
+  uid:          string
+  displayName:  string
+  email:        string
+  registeredAt: Timestamp
+  reviewingBy:  string | null
+}
 
 export interface UserPreferences {
   theme: Theme

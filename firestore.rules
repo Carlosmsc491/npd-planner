@@ -282,6 +282,21 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────
+    // PENDING APPROVALS (new user queue)
+    // ─────────────────────────────────────────
+
+    match /pendingApprovals/{uid} {
+      // Only admins/owners can read the approval queue
+      allow read:   if isAdmin();
+      // A newly registered user (not yet active) can create their own pending doc
+      allow create: if isAuthenticated() && request.auth.uid == uid;
+      // Admins can update reviewingBy lock and process approvals
+      allow update: if isAdmin();
+      // Admins can delete after approving or rejecting
+      allow delete: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────
     // DENY ALL OTHER PATHS
     // ─────────────────────────────────────────
 

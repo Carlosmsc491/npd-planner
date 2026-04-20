@@ -13,29 +13,30 @@ import type {
   TaskHistoryEntry, AppNotification, AnnualSummary,
   GlobalSettings, HistoryAction, ConflictData,
   PersonalNote, PersonalTask, QuickLink, TrashQueueItem, TrashItemStatus,
-  AttachmentStatus, AreaPermissions, DateType
+  AttachmentStatus, AreaPermissions, DateType, PendingApproval
 } from '../types'
 
 // ─────────────────────────────────────────
 // COLLECTION NAMES (single source of truth)
 // ─────────────────────────────────────────
 export const COLLECTIONS = {
-  USERS:             'users',
-  BOARDS:            'boards',
-  TASKS:             'tasks',
-  CLIENTS:           'clients',
-  DIVISIONS:         'divisions',
-  LABELS:            'labels',
-  DATE_TYPES:        'dateTypes',
-  COMMENTS:          'comments',
-  HISTORY:           'taskHistory',
-  NOTIFICATIONS:     'notifications',
-  ARCHIVE:           'archive',
-  SETTINGS:          'settings',
-  USER_PRIVATE:      'userPrivate',
-  TRASH:             'trashQueue',
-  HISTORICAL_TASKS:  'historicalTasks',
-  IMPORT_BATCHES:    'importBatches',
+  USERS:              'users',
+  BOARDS:             'boards',
+  TASKS:              'tasks',
+  CLIENTS:            'clients',
+  DIVISIONS:          'divisions',
+  LABELS:             'labels',
+  DATE_TYPES:         'dateTypes',
+  COMMENTS:           'comments',
+  HISTORY:            'taskHistory',
+  NOTIFICATIONS:      'notifications',
+  ARCHIVE:            'archive',
+  SETTINGS:           'settings',
+  USER_PRIVATE:       'userPrivate',
+  TRASH:              'trashQueue',
+  HISTORICAL_TASKS:   'historicalTasks',
+  IMPORT_BATCHES:     'importBatches',
+  PENDING_APPROVALS:  'pendingApprovals',
 } as const
 
 // ─────────────────────────────────────────
@@ -1850,4 +1851,75 @@ export async function updateDateType(
 
 export async function deleteDateType(id: string): Promise<void> {
   await deleteDoc(doc(db, COLLECTIONS.DATE_TYPES, id))
+}
+
+// ─────────────────────────────────────────
+// PENDING APPROVALS
+// ─────────────────────────────────────────
+
+export async function createPendingApproval(
+  uid: string,
+  displayName: string,
+  email: string
+): Promise<void> {
+  await setDoc(doc(db, COLLECTIONS.PENDING_APPROVALS, uid), {
+    uid,
+    displayName,
+    email,
+    registeredAt: serverTimestamp(),
+    reviewingBy: null,
+  })
+}
+
+export async function deletePendingApproval(uid: string): Promise<void> {
+  await deleteDoc(doc(db, COLLECTIONS.PENDING_APPROVALS, uid))
+}
+
+export async function setReviewingBy(
+  uid: string,
+  reviewerUid: string | null
+): Promise<void> {
+  await updateDoc(doc(db, COLLECTIONS.PENDING_APPROVALS, uid), { reviewingBy: reviewerUid })
+}
+
+export function subscribePendingApprovals(
+  callback: (approvals: PendingApproval[]) => void
+): Unsubscribe {
+  return onSnapshot(collection(db, COLLECTIONS.PENDING_APPROVALS), (snap) => {
+    const approvals = snap.docs.map((d) => d.data() as PendingApproval)
+    callback(approvals)
+  })
+}
+
+// ─────────────────────────────────────────
+// USER APPROVAL / REJECTION
+// ─────────────────────────────────────────
+
+export async function approveUser(
+  uid: string,
+  role: 'member' | 'admin',
+  areaPermissions: AreaPermissions
+): Promise<void> {
+  await Promise.all([
+    updateDoc(doc(db, COLLECTIONS.USERS, uid), {
+      status: 'active',
+      role,
+      areaPermissions,
+    }),
+    deletePendingApproval(uid),
+  ])
+}
+
+export async function rejectUser(uid: string): Promise<void> {
+  await Promise.all([
+    updateDoc(doc(db, COLLECTIONS.USERS, uid), { status: 'rejected' }),
+    deletePendingApproval(uid),
+  ])
+}
+
+export async function updateAreaPermissions(
+  uid: string,
+  areaPermissions: AreaPermissions
+): Promise<void> {
+  await updateDoc(doc(db, COLLECTIONS.USERS, uid), { areaPermissions })
 }
