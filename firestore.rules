@@ -97,7 +97,10 @@ service cloud.firestore {
     // ─────────────────────────────────────────
 
     match /tasks/{taskId} {
-      allow read, create, update, delete: if isActiveUser();
+      allow read, create, update: if isActiveUser();
+      // Only the task creator or an admin can permanently delete a task
+      allow delete: if isActiveUser() &&
+                       (resource.data.createdBy == request.auth.uid || isAdmin());
     }
 
     // ─────────────────────────────────────────

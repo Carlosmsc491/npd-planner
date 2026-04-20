@@ -13,18 +13,37 @@ import type {
   IpcSharePointVerifyResponse,
 } from '../../renderer/src/types'
 
+/**
+ * Safely joins path segments and verifies the result stays within `root`.
+ * Prevents path-traversal attacks (e.g. segments containing "../../etc/passwd").
+ * Returns the resolved path, or throws if the result would escape `root`.
+ */
+function safeJoin(root: string, segments: string[]): string {
+  const resolved = path.resolve(path.join(root, ...segments))
+  const normalRoot = path.resolve(root)
+  if (!resolved.startsWith(normalRoot + path.sep) && resolved !== normalRoot) {
+    throw new Error(`Path traversal detected: "${resolved}" is outside "${normalRoot}"`)
+  }
+  return resolved
+}
+
 export function registerFileHandlers(ipcMain: IpcMain): void {
 
-  // Copy file to SharePoint local folder
+  // Copy file to SharePoint local folder.
+  // destPath is ||| delimited where the FIRST segment is the SharePoint root.
+  // All subsequent segments are joined and validated to stay inside that root.
   ipcMain.handle(IPC.FILE_COPY, async (_event, req: IpcFileRequest): Promise<IpcFileResponse> => {
     try {
-      // The destPath uses ||| as delimiter — split and use path.join for cross-OS compatibility
       const segments = req.destPath.split('|||')
-      const destPath = path.join(...segments)
+      if (segments.length < 2) {
+        return { success: false, error: 'Invalid destination path format.' }
+      }
+      // segments[0] is the SharePoint root; the rest are relative sub-paths
+      const root = segments[0]
+      const destPath = safeJoin(root, segments.slice(1))
 
       if (req.createDirs) {
-        const destDir = path.dirname(destPath)
-        fs.mkdirSync(destDir, { recursive: true })
+        fs.mkdirSync(path.dirname(destPath), { recursive: true })
       }
 
       fs.copyFileSync(req.sourcePath, destPath)
@@ -133,9 +152,16 @@ export function registerFileHandlers(ipcMain: IpcMain): void {
     }
   })
 
-  // Open URL in external browser
+  // Open URL in external browser — only https:// and http:// are allowed.
+  // Blocks file://, javascript:, data: and any other scheme that could be used
+  // to execute code or access the local filesystem.
   ipcMain.handle(IPC.OPEN_EXTERNAL, async (_event, url: string): Promise<{ success: boolean; error?: string }> => {
     try {
+      const parsed = new URL(url)
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        console.warn(`[openExternal] Blocked non-http(s) scheme: ${parsed.protocol}`)
+        return { success: false, error: 'Only http(s) URLs are allowed.' }
+      }
       await shell.openExternal(url)
       return { success: true }
     } catch (err) {
@@ -145,17 +171,17 @@ export function registerFileHandlers(ipcMain: IpcMain): void {
   })
 
   // Save text content to file (used for Trip/Vacation HTML templates)
-  // destPath uses ||| delimiter like FILE_COPY
+  // destPath uses ||| delimiter — first segment is the root, rest are sub-paths.
   ipcMain.handle('file:save-text', async (_event, destPath: string, content: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const segments = destPath.split('|||')
-      const fullPath = path.join(...segments)
-      
-      // Create directories if needed
-      const destDir = path.dirname(fullPath)
-      fs.mkdirSync(destDir, { recursive: true })
-      
-      // Write file
+      if (segments.length < 2) {
+        return { success: false, error: 'Invalid destination path format.' }
+      }
+      const root = segments[0]
+      const fullPath = safeJoin(root, segments.slice(1))
+
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true })
       fs.writeFileSync(fullPath, content, 'utf-8')
       return { success: true }
     } catch (err) {
