@@ -4,6 +4,7 @@ import {
   User, Users, Palette, Bell, Keyboard,
   LayoutDashboard, Building2, Tag, FolderOpen, Truck, Trash2, Archive,
   Grid2X2, CalendarDays, DollarSign, Settings2, History, Layers, CalendarClock,
+  CameraIcon, CheckCircle2, XCircle, Loader2, AlertCircle,
   type LucideIcon,
 } from 'lucide-react'
 import AppLayout from '../components/ui/AppLayout'
@@ -21,15 +22,16 @@ import ImportHistoryPanel from '../components/settings/ImportHistoryPanel'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
 import { useTaskStore } from '../store/taskStore'
-import { updateUserName, updateUserPreferences, getDefaultPermissions, saveDefaultPermissions } from '../lib/firestore'
+import { updateUserName, updateUserPreferences, getDefaultPermissions, saveDefaultPermissions, getGlobalSettings, updateGlobalSettings } from '../lib/firestore'
 import { getBoardColor } from '../utils/colorUtils'
-import type { AppUser, Board, Theme, ShortcutAction, AreaPermission, AreaPermissions } from '../types'
+import type { AppUser, Board, Theme, ShortcutAction, AreaPermission, AreaPermissions, GlobalSettings } from '../types'
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTION_LABELS } from '../types'
 
 type SettingsTab =
   | 'profile' | 'members' | 'appearance' | 'notifications' | 'shortcuts'
   | 'boards' | 'clients' | 'divisions' | 'labels' | 'dateTypes' | 'files' | 'traze' | 'archive' | 'trash' | 'import-history'
   | 'recipe-cells' | 'recipe-holidays' | 'recipe-sleeve' | 'recipe-general'
+  | 'photography'
 
 interface TabDef {
   id: SettingsTab
@@ -76,6 +78,12 @@ const SETTINGS_SECTIONS: SectionDef[] = [
       { id: 'recipe-holidays', label: 'Holidays',       icon: CalendarDays },
       { id: 'recipe-sleeve',   label: 'Sleeve Pricing', icon: DollarSign },
       { id: 'recipe-general',  label: 'General',        icon: Settings2 },
+    ],
+  },
+  {
+    label: 'Photography',
+    tabs: [
+      { id: 'photography', label: 'SSD Storage', icon: CameraIcon, adminOnly: true },
     ],
   },
 ]
@@ -298,6 +306,10 @@ export default function SettingsPage() {
             )}
             {activeTab === 'recipe-general' && user && (
               <RecipeSettingsTab section="general" userId={user.uid} />
+            )}
+
+            {activeTab === 'photography' && isAdmin && (
+              <PhotographyPanel />
             )}
 
           </div>
@@ -793,7 +805,6 @@ function NotificationsPanel({ user, onUpdate }: { user: AppUser; onUpdate: (u: A
 
 // ─── Archive Panel ─────────────────────────────────────────────────────────
 
-import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getOldTasksToArchive, archiveOldTasks } from '../lib/firestore'
 
 function ArchivePanel() {
@@ -1074,6 +1085,147 @@ function DefaultPermissionsPanel() {
         >
           {saving ? 'Saving…' : 'Save Default Template'}
         </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Photography Panel ────────────────────────────────────────────────────────
+
+type SsdStatus = 'idle' | 'testing' | 'ok' | 'error'
+
+function PhotographyPanel() {
+  const [ssdPath, setSsdPath]     = useState('')
+  const [savedPath, setSavedPath] = useState<string | null>(null)
+  const [status, setStatus]       = useState<SsdStatus>('idle')
+  const [statusMsg, setStatusMsg] = useState('')
+  const [loading, setLoading]     = useState(true)
+  const [saving, setSaving]       = useState(false)
+
+  // Load current setting from Firestore
+  useEffect(() => {
+    getGlobalSettings().then((gs) => {
+      const path = gs?.ssdPhotoPath ?? ''
+      setSsdPath(path)
+      setSavedPath(path)
+    }).finally(() => setLoading(false))
+  }, [])
+
+  // Auto-check status when path changes (debounced)
+  useEffect(() => {
+    if (!ssdPath) { setStatus('idle'); setStatusMsg(''); return }
+    const timer = setTimeout(() => runTest(ssdPath), 600)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ssdPath])
+
+  async function runTest(path: string) {
+    if (!path) return
+    setStatus('testing')
+    setStatusMsg('')
+    const result = await window.electronAPI.testWriteAccess(path)
+    if (result.success) {
+      setStatus('ok')
+      setStatusMsg('Accessible — write test passed')
+    } else {
+      setStatus('error')
+      setStatusMsg(result.error ?? 'Cannot write to this path')
+    }
+  }
+
+  async function handleBrowse() {
+    const selected = await window.electronAPI.selectFolder()
+    if (selected) setSsdPath(selected)
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await updateGlobalSettings({ ssdPhotoPath: ssdPath || null } as Partial<GlobalSettings>)
+      setSavedPath(ssdPath)
+    } catch {
+      // error handled in firestore.ts
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const isDirty = ssdPath !== savedPath
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-6 text-gray-500 dark:text-gray-400 text-sm">
+        <Loader2 size={14} className="animate-spin" /> Loading…
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-w-lg">
+      <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-1">Photography</h2>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+        Configure an external SSD or network path where captured photos will be backed up.
+        Photos are always saved to the project's SharePoint folder as primary storage.
+      </p>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+            SSD Photo Path
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={ssdPath}
+              onChange={(e) => setSsdPath(e.target.value)}
+              placeholder="/Volumes/MyDrive/Photos"
+              className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500/50"
+            />
+            <button
+              onClick={handleBrowse}
+              className="shrink-0 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              Browse
+            </button>
+          </div>
+        </div>
+
+        {ssdPath && (
+          <div className={`flex items-center gap-2 text-sm ${
+            status === 'ok'      ? 'text-green-600 dark:text-green-400' :
+            status === 'error'   ? 'text-red-500 dark:text-red-400' :
+            'text-gray-400 dark:text-gray-500'
+          }`}>
+            {status === 'testing' && <Loader2 size={13} className="animate-spin" />}
+            {status === 'ok'      && <CheckCircle2 size={13} />}
+            {status === 'error'   && <XCircle size={13} />}
+            <span>
+              {status === 'testing' && 'Checking…'}
+              {status === 'ok'      && statusMsg}
+              {status === 'error'   && statusMsg}
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            onClick={() => runTest(ssdPath)}
+            disabled={!ssdPath || status === 'testing'}
+            className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+          >
+            Test Connection
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          {!isDirty && savedPath !== null && (
+            <span className="text-xs text-gray-400 dark:text-gray-500">Saved</span>
+          )}
+        </div>
       </div>
     </div>
   )

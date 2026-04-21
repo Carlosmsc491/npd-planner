@@ -1033,6 +1033,21 @@ export async function getGlobalSettings(): Promise<GlobalSettings | null> {
   }
 }
 
+export async function updateGlobalSettings(
+  changes: Partial<GlobalSettings>
+): Promise<void> {
+  try {
+    await setDoc(
+      doc(db, COLLECTIONS.SETTINGS, 'global'),
+      changes,
+      { merge: true }
+    )
+  } catch (err) {
+    console.error('Failed to update global settings:', err)
+    throw err
+  }
+}
+
 // ─────────────────────────────────────────
 // USER PREFERENCES
 // ─────────────────────────────────────────
