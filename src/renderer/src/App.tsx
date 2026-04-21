@@ -21,6 +21,7 @@ import GlobalSearch from './components/search/GlobalSearch'
 import RecipeHomePage from './components/recipes/RecipeHomePage'
 import RecipeProjectPage from './components/recipes/RecipeProjectPage'
 import NewRecipeProjectWizard from './components/recipes/wizard/NewRecipeProjectWizard'
+import CapturePage from './pages/CapturePage'
 import { useKeyboardShortcuts, useGlobalSearchState } from './hooks/useKeyboardShortcuts'
 import WelcomeWizard from './components/ui/WelcomeWizard'
 
@@ -128,6 +129,7 @@ export default function App() {
           <Route path="/recipes" element={<RecipeHomePage />} />
           <Route path="/recipes/new" element={<NewRecipeProjectWizard />} />
           <Route path="/recipes/:projectId" element={<RecipeProjectPage />} />
+          <Route path="/capture/:recipeId" element={<CapturePage />} />
         </Route>
         <Route path="/board/:boardId" element={<BoardRoute />} />
         <Route path="/task/:taskId" element={<TaskFullPage />} />

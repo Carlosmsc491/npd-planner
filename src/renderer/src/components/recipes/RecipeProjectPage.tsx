@@ -32,7 +32,7 @@ import DeadlineWidget from './DeadlineWidget'
 import RecipeFileManagerDialog from './RecipeFileManagerDialog'
 import RecipeSettingsTab from './settings/RecipeSettingsTab'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification } from '../../types'
-import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Download, Settings, Archive, CheckSquare, X } from 'lucide-react'
+import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Download, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
 
 export default function RecipeProjectPage() {
@@ -54,6 +54,21 @@ export default function RecipeProjectPage() {
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false)
+
+  // Explorer navigation & view
+  const [currentFolder, setCurrentFolder] = useState<string | null>(null)
+  const [fileViewMode, setFileViewModeState] = useState<'grid' | 'list'>(() =>
+    (localStorage.getItem('recipe-project-view') as 'grid' | 'list') ?? 'grid'
+  )
+  const [fileGridSize, setFileGridSizeState] = useState<'sm' | 'md' | 'lg'>(() =>
+    (localStorage.getItem('recipe-project-grid-size') as 'sm' | 'md' | 'lg') ?? 'md'
+  )
+  function applyFileView(v: 'grid' | 'list') {
+    setFileViewModeState(v); localStorage.setItem('recipe-project-view', v)
+  }
+  function applyFileGridSize(s: 'sm' | 'md' | 'lg') {
+    setFileGridSizeState(s); localStorage.setItem('recipe-project-grid-size', s)
+  }
 
   // Search and filter states
   const [searchQuery, setSearchQuery] = useState('')
@@ -365,6 +380,13 @@ export default function RecipeProjectPage() {
     return grouped
   }, [filteredFiles])
 
+  // Auto-exit folder view when the active folder disappears from filter results
+  useEffect(() => {
+    if (currentFolder !== null && !filteredFilesByFolder[currentFolder]) {
+      setCurrentFolder(null)
+    }
+  }, [filteredFilesByFolder, currentFolder])
+
   // ── CSV export (after filteredFiles is declared) ────────────────────────
   const handleExportCSV = useCallback(() => {
     const rows = filteredFiles.map(f => [
@@ -629,6 +651,49 @@ export default function RecipeProjectPage() {
                   Clear
                 </button>
               )}
+
+              {/* View controls */}
+              <div className="ml-auto flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => applyFileView('list')}
+                  title="List view"
+                  className={`p-1.5 rounded transition-colors ${
+                    fileViewMode === 'list'
+                      ? 'bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-white'
+                      : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <List size={14} />
+                </button>
+                <button
+                  onClick={() => applyFileView('grid')}
+                  title="Grid view"
+                  className={`p-1.5 rounded transition-colors ${
+                    fileViewMode === 'grid'
+                      ? 'bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-white'
+                      : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <LayoutGrid size={14} />
+                </button>
+                {fileViewMode === 'grid' && (
+                  <div className="flex items-center ml-1 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    {(['sm', 'md', 'lg'] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => applyFileGridSize(s)}
+                        className={`px-2 py-1 text-[10px] font-medium uppercase transition-colors ${
+                          fileGridSize === s
+                            ? 'bg-green-500 text-white'
+                            : 'bg-white dark:bg-gray-800 text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Bulk action bar */}
@@ -706,6 +771,24 @@ export default function RecipeProjectPage() {
               </div>
             )}
 
+            {/* Breadcrumb / back button when inside a folder */}
+            {currentFolder !== null && (
+              <div className="flex items-center gap-2 mb-2 py-1">
+                <button
+                  onClick={() => setCurrentFolder(null)}
+                  className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                >
+                  <ChevronLeft size={14} />
+                  All folders
+                </button>
+                <span className="text-gray-300 dark:text-gray-600 text-xs">/</span>
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{currentFolder}</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500 ml-0.5">
+                  ({(filteredFilesByFolder[currentFolder] ?? []).length})
+                </span>
+              </div>
+            )}
+
             {/* Mensaje si no hay resultados */}
             {filteredFiles.length === 0 && (searchQuery || statusFilter !== 'all') && (
               <div className="text-center py-8 text-sm text-gray-400 dark:text-gray-500">
@@ -753,23 +836,83 @@ export default function RecipeProjectPage() {
                   Check that the project folder contains .xlsx files
                 </p>
               </div>
+            ) : currentFolder === null ? (
+              /* ── Folder grid ── */
+              fileViewMode === 'list' ? (
+                Object.entries(filteredFilesByFolder)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([folder, folderFiles]) => (
+                    <RecipeFolderSection
+                      key={folder}
+                      folderName={folder}
+                      files={folderFiles}
+                      selectedFileId={selectedFile?.id ?? null}
+                      currentUserName={user?.name ?? ''}
+                      currentUserUid={user?.uid}
+                      userRole={user?.role}
+                      selectedFileIds={selectedFileIds}
+                      onSelectFile={setSelectedFile}
+                      onOpenInExcel={handleOpenInExcelForFile}
+                      onCheckToggle={toggleCheck}
+                    />
+                  ))
+              ) : (
+                <div
+                  className="grid gap-2"
+                  style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${FOLDER_GRID_MIN[fileGridSize]}, 1fr))` }}
+                >
+                  {Object.entries(filteredFilesByFolder)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([folder, folderFiles]) => {
+                      const allFiles = filesByFolder[folder] ?? folderFiles
+                      const doneInFolder = allFiles.filter((f) => f.status === 'done').length
+                      return (
+                        <FolderExplorerCard
+                          key={folder}
+                          folderName={folder}
+                          done={doneInFolder}
+                          total={allFiles.length}
+                          size={fileGridSize}
+                          onDoubleClick={() => setCurrentFolder(folder)}
+                        />
+                      )
+                    })}
+                </div>
+              )
+            ) : fileViewMode === 'list' ? (
+              /* ── File list inside folder ── */
+              <RecipeFolderSection
+                folderName={currentFolder}
+                files={filteredFilesByFolder[currentFolder] ?? []}
+                selectedFileId={selectedFile?.id ?? null}
+                currentUserName={user?.name ?? ''}
+                currentUserUid={user?.uid}
+                userRole={user?.role}
+                selectedFileIds={selectedFileIds}
+                onSelectFile={setSelectedFile}
+                onOpenInExcel={handleOpenInExcelForFile}
+                onCheckToggle={toggleCheck}
+              />
             ) : (
-              Object.entries(filteredFilesByFolder)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([folder, folderFiles]) => (
-                  <RecipeFolderSection
-                    key={folder}
-                    folderName={folder}
-                    files={folderFiles}
-                    selectedFileId={selectedFile?.id ?? null}
-                    currentUserName={user?.name ?? ''}
+              /* ── File grid inside folder ── */
+              <div
+                className="grid gap-2"
+                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${FILE_GRID_MIN[fileGridSize]}, 1fr))` }}
+              >
+                {(filteredFilesByFolder[currentFolder] ?? []).map((file) => (
+                  <FileExplorerCard
+                    key={file.id}
+                    file={file}
+                    size={fileGridSize}
+                    selected={selectedFile?.id === file.id}
+                    checked={selectedFileIds.has(file.id)}
                     currentUserUid={user?.uid}
-                    selectedFileIds={selectedFileIds}
-                    onSelectFile={setSelectedFile}
-                    onOpenInExcel={handleOpenInExcelForFile}
-                    onCheckToggle={toggleCheck}
+                    onSelect={() => setSelectedFile(file)}
+                    onCheckToggle={() => toggleCheck(file.id)}
+                    onDoubleClick={() => handleOpenInExcelForFile(file)}
                   />
-                ))
+                ))}
+              </div>
             )}
           </div>
 
@@ -838,6 +981,171 @@ export default function RecipeProjectPage() {
       />
     </div>
     </AppLayout>
+  )
+}
+
+// ── Explorer constants ──────────────────────────────────────────────────────
+
+const FOLDER_GRID_MIN: Record<'sm' | 'md' | 'lg', string> = {
+  sm: '100px',
+  md: '140px',
+  lg: '190px',
+}
+
+const FILE_GRID_MIN: Record<'sm' | 'md' | 'lg', string> = {
+  sm: '88px',
+  md: '120px',
+  lg: '160px',
+}
+
+// ── FolderExplorerSVG ────────────────────────────────────────────────────────
+function FolderExplorerSVG({ color, size = 56 }: { color: string; size?: number }) {
+  const h = Math.round(size * 0.75)
+  return (
+    <svg width={size} height={h} viewBox="0 0 80 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="16" width="78" height="43" rx="5" fill={color} opacity="0.2" />
+      <path d="M4 16 L4 12 C4 10 6 9 8 9 L28 9 L34 16 Z" fill={color} opacity="0.65" />
+      <rect x="1" y="16" width="78" height="43" rx="5" fill={color} opacity="0.8" />
+      <rect x="1" y="16" width="78" height="8" rx="0" fill="white" opacity="0.15" />
+      <rect x="1" y="16" width="78" height="43" rx="5" stroke={color} strokeWidth="1" strokeOpacity="0.4" />
+    </svg>
+  )
+}
+
+// ── FolderExplorerCard ───────────────────────────────────────────────────────
+function FolderExplorerCard({
+  folderName, done, total, size, onDoubleClick,
+}: {
+  folderName: string
+  done: number
+  total: number
+  size: 'sm' | 'md' | 'lg'
+  onDoubleClick: () => void
+}) {
+  const complete = total > 0 && done === total
+  const color = complete ? '#1D9E75' : done > 0 ? '#F59E0B' : '#9CA3AF'
+  const isSm = size === 'sm'
+
+  return (
+    <div
+      onDoubleClick={onDoubleClick}
+      className="group flex flex-col items-center rounded-xl p-2 cursor-pointer select-none transition-all hover:bg-gray-100 dark:hover:bg-gray-700/60 active:scale-95"
+      title={`${folderName} — double-click to open`}
+    >
+      <FolderExplorerSVG color={color} size={isSm ? 44 : size === 'md' ? 56 : 72} />
+
+      <p
+        className={`mt-1.5 font-medium text-center text-gray-800 dark:text-gray-200 leading-tight w-full ${isSm ? 'text-[10px]' : 'text-xs'}`}
+        style={{ wordBreak: 'break-word' }}
+      >
+        {folderName}
+      </p>
+
+      {!isSm && (
+        <p className={`text-[10px] mt-0.5 ${complete ? 'text-green-500' : 'text-gray-400 dark:text-gray-500'}`}>
+          {done}/{total} done
+        </p>
+      )}
+
+      {size === 'lg' && total > 0 && (
+        <div className="w-full mt-1.5 bg-gray-200 dark:bg-gray-700 rounded-full h-1 overflow-hidden">
+          <div
+            className="h-1 rounded-full transition-all"
+            style={{ width: `${Math.round((done / total) * 100)}%`, backgroundColor: color }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── FileExplorerCard ─────────────────────────────────────────────────────────
+function FileExplorerCard({
+  file, size, selected, checked, onSelect, onCheckToggle, onDoubleClick,
+}: {
+  file: import('../../types').RecipeFile
+  size: 'sm' | 'md' | 'lg'
+  selected: boolean
+  checked: boolean
+  currentUserUid: string | undefined
+  onSelect: () => void
+  onCheckToggle: () => void
+  onDoubleClick: () => void
+}) {
+  const isSm = size === 'sm'
+
+  const statusColor: Record<string, string> = {
+    pending:      'text-gray-400 dark:text-gray-500',
+    in_progress:  'text-amber-500',
+    lock_expired: 'text-orange-500',
+    done:         'text-green-500',
+  }
+  const statusDot: Record<string, string> = {
+    pending:      'bg-gray-300 dark:bg-gray-600',
+    in_progress:  'bg-amber-400',
+    lock_expired: 'bg-orange-400',
+    done:         'bg-green-500',
+  }
+
+  return (
+    <div
+      onClick={onSelect}
+      onDoubleClick={onDoubleClick}
+      className={`group relative flex flex-col items-center rounded-xl p-2 cursor-pointer select-none transition-all
+        ${selected
+          ? 'bg-green-50 dark:bg-green-900/20 ring-2 ring-green-400'
+          : 'hover:bg-gray-100 dark:hover:bg-gray-700/60'
+        }
+        ${file.status === 'done' ? 'opacity-60' : ''}
+      `}
+    >
+      {/* Checkbox top-left */}
+      <div
+        className={`absolute top-1.5 left-1.5 transition-opacity z-10 ${checked ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+        onClick={(e) => { e.stopPropagation(); onCheckToggle() }}
+      >
+        <div className={`h-4 w-4 rounded border-2 flex items-center justify-center text-white text-[9px] transition-colors ${
+          checked ? 'bg-green-500 border-green-500' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'
+        }`}>
+          {checked && '✓'}
+        </div>
+      </div>
+
+      {/* Excel icon */}
+      <div className={`flex items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30 ${
+        isSm ? 'w-9 h-9' : size === 'md' ? 'w-11 h-11' : 'w-14 h-14'
+      }`}>
+        <svg viewBox="0 0 24 24" className={isSm ? 'w-5 h-5' : 'w-6 h-6'} fill="none">
+          <rect x="2" y="2" width="20" height="20" rx="3" fill="#217346" />
+          <path d="M7 8l2.5 4L7 16h2l1.5-2.5L12 16h2l-2.5-4L14 8h-2l-1.5 2.5L9 8H7z" fill="white" />
+          <rect x="13" y="8" width="1" height="8" fill="white" opacity="0.5" />
+          <rect x="14" y="8" width="4" height="8" rx="1" fill="white" opacity="0.2" />
+        </svg>
+      </div>
+
+      {/* Name */}
+      <p
+        className={`mt-1.5 font-medium text-center text-gray-800 dark:text-gray-200 leading-tight w-full ${isSm ? 'text-[9px]' : 'text-[10px]'}`}
+        style={{ wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}
+      >
+        {file.displayName}
+      </p>
+
+      {/* Status — md and lg */}
+      {!isSm && (
+        <div className={`flex items-center gap-1 mt-1 ${statusColor[file.status] ?? 'text-gray-400'}`}>
+          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot[file.status] ?? 'bg-gray-300'}`} />
+          <span className="text-[9px] capitalize leading-none">{file.status.replace('_', ' ')}</span>
+        </div>
+      )}
+
+      {/* Assignee — lg only */}
+      {size === 'lg' && file.assignedToName && (
+        <p className="text-[9px] text-gray-400 dark:text-gray-500 mt-0.5 truncate w-full text-center">
+          {file.assignedToName}
+        </p>
+      )}
+    </div>
   )
 }
 

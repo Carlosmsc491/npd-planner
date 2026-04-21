@@ -1,7 +1,8 @@
 // src/renderer/src/components/recipes/RecipeRowItem.tsx
 // Single recipe file row with state-based visual styling
 
-import { Check, Lock, AlertTriangle, Clock } from 'lucide-react'
+import { Check, Lock, AlertTriangle, Clock, Camera } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import type { RecipeFile } from '../../types'
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
   isChecked?: boolean
   currentUserName: string
   currentUserUid?: string
+  userRole?: string
   onClick: () => void
   onDoubleClick: () => void
   onCheckToggle?: (id: string) => void
@@ -73,11 +75,27 @@ export default function RecipeRowItem({
   isChecked,
   currentUserName,
   currentUserUid,
+  userRole,
   onClick,
   onDoubleClick,
   onCheckToggle,
 }: Props) {
+  const navigate = useNavigate()
   const style = getRowStyle(file, currentUserName)
+
+  const showCameraBtn = userRole === 'owner' || userRole === 'photographer'
+  const photoStatus = file.photoStatus ?? 'pending'
+  const cameraDisabled = photoStatus === 'complete'
+  const cameraBtnClass = cameraDisabled
+    ? 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500 cursor-not-allowed'
+    : photoStatus === 'in_progress'
+      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400'
+      : 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
+  const cameraBtnLabel = cameraDisabled
+    ? 'Ya fotografiada'
+    : photoStatus === 'in_progress'
+      ? 'Continuar Fotos'
+      : 'Tomar Fotos'
 
   // Deterministic color from name
   const colors = [
@@ -152,6 +170,22 @@ export default function RecipeRowItem({
         <span className="text-[10px] text-amber-600 dark:text-amber-400 shrink-0">
           Assigned to {file.assignedToName}
         </span>
+      )}
+
+      {/* Camera / photo capture button */}
+      {showCameraBtn && (
+        <button
+          title={cameraBtnLabel}
+          disabled={cameraDisabled}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (!cameraDisabled) navigate(`/capture/${file.id}`)
+          }}
+          className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${cameraBtnClass}`}
+        >
+          <Camera size={11} />
+          <span className="hidden sm:inline">{cameraBtnLabel}</span>
+        </button>
       )}
     </div>
   )

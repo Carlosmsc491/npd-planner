@@ -12,6 +12,7 @@ interface Props {
   selectedFileId: string | null
   currentUserName: string
   currentUserUid?: string
+  userRole?: string
   selectedFileIds?: Set<string>
   onSelectFile: (file: RecipeFile) => void
   onOpenInExcel: (file: RecipeFile) => void
@@ -24,6 +25,7 @@ export default function RecipeFolderSection({
   selectedFileId,
   currentUserName,
   currentUserUid,
+  userRole,
   selectedFileIds,
   onSelectFile,
   onOpenInExcel,
@@ -104,6 +106,7 @@ export default function RecipeFolderSection({
                 isChecked={selectedFileIds?.has(file.id)}
                 currentUserName={currentUserName}
                 currentUserUid={currentUserUid}
+                userRole={userRole}
                 onClick={() => onSelectFile(file)}
                 onDoubleClick={() => {
                   onSelectFile(file)
