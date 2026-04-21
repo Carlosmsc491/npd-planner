@@ -78,7 +78,8 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
   const [showSearch, setShowSearch] = useState(false)
   const [showApprovalModal, setShowApprovalModal] = useState(false)
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'owner'
+  const isAdmin        = user?.role === 'admin' || user?.role === 'owner'
+  const isPhotographer = user?.role === 'photographer'
 
   // Pending approvals — only active for admin/owner
   const pendingApprovals = usePendingApprovals(user ?? null)
@@ -235,7 +236,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
 
         {/* Nav */}
         <nav className={`flex-1 overflow-y-auto px-2 py-2 ${sidebarOpen ? '' : 'hidden'}`}>
-          {[
+          {!isPhotographer && [
             { path: '/dashboard',      label: 'Dashboard', icon: LayoutGrid, areaId: 'dashboard' },
             { path: '/my-tasks',       label: 'My Tasks', icon: List, areaId: 'my_tasks' },
             { path: '/my-space',       label: 'My Space', icon: User, isPrivate: true, areaId: 'my_space' },
@@ -266,8 +267,8 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
             )
           })}
 
-          {/* Boards section */}
-          {(boards.length > 0 || isAdmin) && (
+          {/* Boards section — hidden for photographer */}
+          {!isPhotographer && (boards.length > 0 || isAdmin) && (
             <>
               <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
                 Boards
@@ -345,7 +346,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
             </>
           )}
 
-          {isAdmin && (
+          {isAdmin && !isPhotographer && (
             <Link
               to="/settings"
               className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mt-4 transition-colors ${
@@ -358,7 +359,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
             </Link>
           )}
 
-          {getAreaPermission('analytics') !== 'none' && (
+          {!isPhotographer && getAreaPermission('analytics') !== 'none' && (
             <Link
               to="/analytics"
               className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mt-0.5 transition-colors ${

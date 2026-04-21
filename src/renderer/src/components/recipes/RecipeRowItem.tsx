@@ -153,6 +153,18 @@ export default function RecipeRowItem({
       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${style.badge}`}>
         {style.badgeLabel}
       </span>
+
+      {/* Photo status badge */}
+      {photoStatus === 'in_progress' && (
+        <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 whitespace-nowrap">
+          📷 En progreso
+        </span>
+      )}
+      {photoStatus === 'complete' && (
+        <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 whitespace-nowrap">
+          📷 Listo
+        </span>
+      )}
       
       {/* Assigned to avatar */}
       {file.assignedTo && file.assignedToName && (

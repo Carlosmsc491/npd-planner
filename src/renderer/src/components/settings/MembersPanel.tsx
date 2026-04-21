@@ -442,9 +442,10 @@ function AddMemberModal({ onClose, onSuccess }: AddMemberModalProps) {
             >
               <option value="member">Member</option>
               <option value="admin">Admin</option>
+              <option value="photographer">Photographer</option>
             </select>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Members can view and edit tasks. Admins can also manage boards, clients, and labels.
+              Members can view and edit tasks. Admins can also manage boards. Photographers only access Recipe Manager and photo capture.
             </p>
           </div>
 
@@ -555,6 +556,8 @@ function RoleBadge({ role }: { role: UserRole }) {
       ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
       : role === 'admin'
       ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+      : role === 'photographer'
+      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
       : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
 
   return (
@@ -579,9 +582,10 @@ function RoleDropdown({
 }) {
   const [open, setOpen] = useState(false)
 
-  const canPromoteToAdmin = canChangeRole(currentUser, user) && user.role !== 'admin'
-  const canDemoteToMember = canChangeRole(currentUser, user) && user.role !== 'member'
-  const canSuspend = canSuspendUser(currentUser, user)
+  const canPromoteToAdmin       = canChangeRole(currentUser, user) && user.role !== 'admin'
+  const canDemoteToMember       = canChangeRole(currentUser, user) && user.role !== 'member'
+  const canMakePhotographer     = canChangeRole(currentUser, user) && user.role !== 'photographer'
+  const canSuspend              = canSuspendUser(currentUser, user)
 
   return (
     <div className="relative">
@@ -594,7 +598,7 @@ function RoleDropdown({
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+          <div className="absolute right-0 z-20 mt-1 w-48 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
             {canPromoteToAdmin && (
               <DropdownItem
                 label="Make Admin"
@@ -605,6 +609,12 @@ function RoleDropdown({
               <DropdownItem
                 label="Make Member"
                 onClick={() => { onRoleChange(user.uid, 'member'); setOpen(false) }}
+              />
+            )}
+            {canMakePhotographer && (
+              <DropdownItem
+                label="Make Photographer"
+                onClick={() => { onRoleChange(user.uid, 'photographer'); setOpen(false) }}
               />
             )}
             <DropdownItem
