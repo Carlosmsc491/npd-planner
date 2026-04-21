@@ -31,6 +31,7 @@
     "@tiptap/pm": "^3.20.4",
     "@tiptap/react": "^3.20.4",
     "@tiptap/starter-kit": "^3.20.4",
+    "chokidar": "^5.0.0",
     "electron-updater": "^6.3.9",
     "exceljs": "^4.4.0",
     "firebase": "^12.12.0",

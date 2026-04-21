@@ -177,12 +177,12 @@ export default function BoardPage() {
                 groupBy={groupBy}
                 boardType={activeBoard.type}
                 board={activeBoard}
-                onComplete={complete}
+                onComplete={boardAccess === 'edit' ? complete : undefined}
                 onOpen={setSelectedTask}
-                onDuplicate={handleDuplicate}
-                onRecurring={(t) => setRecurringTask(t)}
-                onDelete={remove}
-                onAddTask={handleAddTask}
+                onDuplicate={boardAccess === 'edit' ? handleDuplicate : undefined}
+                onRecurring={boardAccess === 'edit' ? (t) => setRecurringTask(t) : undefined}
+                onDelete={boardAccess === 'edit' ? remove : undefined}
+                onAddTask={boardAccess === 'edit' ? handleAddTask : undefined}
               />
             )}
             {view === 'list' && (
