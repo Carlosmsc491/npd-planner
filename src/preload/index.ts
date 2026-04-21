@@ -145,6 +145,38 @@ const electronAPI = {
   recipeValidateProjectFolder: (folderPath: string) =>
     ipcRenderer.invoke('recipe:validateProjectFolder', folderPath),
 
+  // ── Camera / Photo Capture ────────────────────────────────────────────────
+  startCameraTethering: (outputDir: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('camera:start-tethering', outputDir),
+
+  stopCameraTethering: (): Promise<void> =>
+    ipcRenderer.invoke('camera:stop-tethering'),
+
+  checkCameraConnection: (): Promise<{ connected: boolean; model: string | null }> =>
+    ipcRenderer.invoke('camera:check-connection'),
+
+  onCameraStatusChanged: (cb: (data: { connected: boolean; model: string | null }) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { connected: boolean; model: string | null }) => cb(data)
+    ipcRenderer.on('camera:status-changed', listener)
+    return () => ipcRenderer.removeListener('camera:status-changed', listener)
+  },
+
+  onCameraPhotoReceived: (cb: (data: { tempPath: string; filename: string }) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { tempPath: string; filename: string }) => cb(data)
+    ipcRenderer.on('camera:photo-received', listener)
+    return () => ipcRenderer.removeListener('camera:photo-received', listener)
+  },
+
+  // ── App utilities ─────────────────────────────────────────────────────────
+  getUserDataPath: (): Promise<string> =>
+    ipcRenderer.invoke('app:get-user-data-path'),
+
+  readFileAsDataUrl: (filePath: string): Promise<string> =>
+    ipcRenderer.invoke('app:read-file-as-dataurl', filePath),
+
+  testWriteAccess: (dirPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('storage:test-write-access', dirPath),
+
   // ── Generic invoke for Traze / AWB channels ───────────────────────────────
   invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {
     if ((INVOKE_CHANNELS as readonly string[]).includes(channel)) {

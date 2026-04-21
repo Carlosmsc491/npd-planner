@@ -303,6 +303,8 @@ export default function NewRecipeProjectWizard() {
             updatedAt: Timestamp.now(),
             assignedTo: null,
             assignedToName: null,
+            photoStatus: 'pending',
+            capturedPhotos: [],
           })
 
           saved++

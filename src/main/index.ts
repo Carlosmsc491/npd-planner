@@ -1,4 +1,6 @@
 import { app, BrowserWindow, ipcMain, globalShortcut, Menu, MenuItem } from 'electron'
+import * as fs from 'fs'
+import * as path from 'path'
 import { setupAutoUpdater } from './updater'
 import { join } from 'path'
 import { registerFileHandlers } from './ipc/fileHandlers'
@@ -186,6 +188,27 @@ if (!gotLock) {
 app.whenReady().then(() => {
   createSplashWindow()
   splashMinTime = Date.now() + 5500  // Full animation (5s) + 0.5s hold on final frame
+
+  // ── App utility handlers ───────────────────────────────────────────────────
+  ipcMain.handle('app:get-user-data-path', () => app.getPath('userData'))
+
+  ipcMain.handle('app:read-file-as-dataurl', async (_event, filePath: string) => {
+    const buffer = fs.readFileSync(filePath)
+    const ext = path.extname(filePath).toLowerCase().replace('.', '')
+    const mime = (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg' : `image/${ext}`
+    return `data:${mime};base64,${buffer.toString('base64')}`
+  })
+
+  ipcMain.handle('storage:test-write-access', async (_event, dirPath: string) => {
+    try {
+      const testFile = path.join(dirPath, '.npd-test-write')
+      fs.writeFileSync(testFile, 'test')
+      fs.unlinkSync(testFile)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
 
   // Error reporter IPC handlers
   ipcMain.handle('error-report:send', async (_event, report) => {

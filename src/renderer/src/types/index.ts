@@ -8,7 +8,7 @@ import { Timestamp } from 'firebase/firestore'
 // AUTH & USERS
 // ─────────────────────────────────────────
 
-export type UserRole = 'owner' | 'admin' | 'member'
+export type UserRole = 'owner' | 'admin' | 'member' | 'photographer'
 export type UserStatus = 'active' | 'awaiting' | 'suspended'
 export type Theme = 'light' | 'dark' | 'system'
 
@@ -328,6 +328,22 @@ export interface GlobalSettings {
   sharePointVerificationFolder: string  // 'REPORTS (NPD-SECURE)'
   archiveAfterMonths: number            // default: 12
   notificationsEnabled: boolean
+  ssdPhotoPath: string | null           // external SSD path for photo backups (photographer module)
+}
+
+// ─────────────────────────────────────────
+// PHOTO CAPTURE MODULE
+// ─────────────────────────────────────────
+
+export interface CapturedPhoto {
+  sequence: number
+  filename: string          // "Standard Rose - 1.jpg"
+  subfolderName: string     // "Valentines"
+  picturePath: string       // absolute path in Pictures/
+  cameraPath: string        // absolute path in CAMERA/
+  ssdPath: string | null    // path on SSD if available
+  capturedAt: Timestamp
+  capturedBy: string        // uid
 }
 
 export interface EmergencySettings {
@@ -627,6 +643,8 @@ export interface RecipeFile {
   updatedAt: Timestamp
   assignedTo: string | null       // uid del usuario asignado
   assignedToName: string | null   // nombre display (para mostrar sin query)
+  photoStatus: 'pending' | 'in_progress' | 'complete'
+  capturedPhotos: CapturedPhoto[]
 }
 
 export interface RecipePresence {

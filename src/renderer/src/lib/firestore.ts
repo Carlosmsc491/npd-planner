@@ -5,7 +5,7 @@
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, setDoc,
   query, where, orderBy, onSnapshot, runTransaction, serverTimestamp,
-  Unsubscribe, writeBatch, limit, getCountFromServer, Timestamp
+  Unsubscribe, writeBatch, limit, getCountFromServer, Timestamp, arrayUnion
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type {
@@ -13,7 +13,7 @@ import type {
   TaskHistoryEntry, AppNotification, AnnualSummary,
   GlobalSettings, HistoryAction, ConflictData,
   PersonalNote, PersonalTask, QuickLink, TrashQueueItem, TrashItemStatus,
-  AttachmentStatus, AreaPermissions, DateType, PendingApproval
+  AttachmentStatus, AreaPermissions, DateType, PendingApproval, CapturedPhoto
 } from '../types'
 
 // ─────────────────────────────────────────
@@ -1049,6 +1049,47 @@ export async function updateUserPreferences(
     await updateDoc(doc(db, COLLECTIONS.USERS, uid), updates)
   } catch (err) {
     console.error('updateUserPreferences failed:', err)
+  }
+}
+
+// ─────────────────────────────────────────
+// PHOTO CAPTURE MODULE
+// ─────────────────────────────────────────
+
+const RECIPE_PROJECTS = 'recipeProjects'
+const RECIPE_FILES    = 'files'
+
+export async function updateRecipePhotoStatus(
+  recipeId: string,
+  status: 'pending' | 'in_progress' | 'complete'
+): Promise<void> {
+  try {
+    // recipeId is "{projectId}::{relativePath}" — derive projectId and fileId
+    const [projectId] = recipeId.split('::')
+    await updateDoc(doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId), {
+      photoStatus: status,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (err) {
+    console.error('updateRecipePhotoStatus failed:', err)
+    throw err
+  }
+}
+
+export async function addCapturedPhoto(
+  recipeId: string,
+  photo: CapturedPhoto
+): Promise<void> {
+  try {
+    const [projectId] = recipeId.split('::')
+    await updateDoc(doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId), {
+      capturedPhotos: arrayUnion(photo),
+      photoStatus: 'in_progress',
+      updatedAt: serverTimestamp(),
+    })
+  } catch (err) {
+    console.error('addCapturedPhoto failed:', err)
+    throw err
   }
 }
 

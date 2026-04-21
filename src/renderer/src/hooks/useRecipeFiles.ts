@@ -156,6 +156,8 @@ function mergeFilesWithFirestore(
         updatedAt: now,
         assignedTo: null,
         assignedToName: null,
+        photoStatus: 'pending',
+        capturedPhotos: [],
       }
       upsertRecipeFile(projectId, fileId, newFile).catch(console.error)
       result.push(newFile)
