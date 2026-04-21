@@ -166,6 +166,23 @@ function createWindow(): BrowserWindow {
 // Set app user model ID so Windows notifications show "NPD Planner" not "electron.app.NPD Planner"
 app.setAppUserModelId('NPD Planner')
 
+// ── Single-instance lock ──────────────────────────────────────────────────────
+// Prevents multiple windows when the user double/triple-clicks the .exe
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  // Another instance is already running — quit immediately
+  app.quit()
+} else {
+  // If a second instance tries to launch, focus the existing window instead
+  app.on('second-instance', (_event, _argv, _cwd) => {
+    const [existing] = BrowserWindow.getAllWindows()
+    if (existing) {
+      if (existing.isMinimized()) existing.restore()
+      existing.focus()
+    }
+  })
+}
+
 app.whenReady().then(() => {
   createSplashWindow()
   splashMinTime = Date.now() + 5500  // Full animation (5s) + 0.5s hold on final frame

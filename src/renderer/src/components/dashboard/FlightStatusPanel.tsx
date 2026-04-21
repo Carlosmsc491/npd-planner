@@ -131,6 +131,7 @@ export default function FlightStatusPanel({ tasks, onTaskClick }: Props) {
   const rows = useMemo<FlightRow[]>(() => {
     const result: FlightRow[] = []
     for (const task of tasks) {
+      if (task.completed) continue
       if (!task.awbs || task.awbs.length === 0) continue
       for (const awb of task.awbs) {
         // Skip AWBs with no usable dates (empty or 1900 sentinel)
