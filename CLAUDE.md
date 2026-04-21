@@ -32,6 +32,7 @@
 | Search | Fuse.js | Global fuzzy search Ctrl+K |
 | Auto-update | electron-updater | Silent background updates |
 | Path handling | Node path.join() | ALWAYS use path.join — never hardcode / or \ |
+| Photo tethering | gPhoto2 + chokidar | Mac only (Fase 1). gPhoto2 via Homebrew |
 
 ---
 
@@ -615,6 +616,42 @@ Update these as you complete each feature. Add [x] when done.
 - [x] Keyboard shortcuts configurable per user in Settings
 - [x] Dark mode / Light mode toggle per user
 - [x] **What's New modal** — shown once per version on update, highlights new features
+
+### Phase 9 — Photo Capture Module (Fase 1)
+- [x] Types: `CapturedPhoto`, `photoStatus`, `capturedPhotos` fields on `RecipeFile`
+- [x] Role: `photographer` added to `UserRole` — restricted to Recipe Manager + capture
+- [x] `GlobalSettings.ssdPhotoPath` — external SSD backup path
+- [x] IPC channels: `camera:check-connection`, `camera:start-tethering`, `camera:stop-tethering`, `camera:status-changed`, `camera:photo-received`
+- [x] IPC utilities: `app:get-user-data-path`, `app:read-file-as-dataurl`, `storage:test-write-access`
+- [x] `CameraManager` — gPhoto2 process + chokidar watcher (Mac only)
+- [x] `useCameraStatus` hook — real-time camera connect/disconnect events
+- [x] `CameraBadge` — green/gray pill in sidebar for owner + photographer
+- [x] "Tomar Fotos" button on recipe rows (green=pending, amber=in_progress, disabled=complete)
+- [x] Route `/capture/:recipeId` — full tethering page
+- [x] `CapturePage` — preview area, filmstrip, DONE modal, file copy to CAMERA/ + Pictures/ + SSD
+- [x] `firestore.ts`: `updateRecipePhotoStatus`, `addCapturedPhoto`, `updateGlobalSettings`
+- [x] Settings → Photography tab — SSD path input, browse, test write access, save
+- [x] photoStatus badges on recipe rows (📷 En progreso / 📷 Listo)
+- [x] Photographer role restrictions: sidebar filtered, redirected from non-recipe routes
+- [x] MembersPanel: Photographer option in role dropdown + role badge
+
+**System requirement (Mac only):** `brew install gphoto2`
+
+**New routes:** `/capture/:recipeId`
+
+**New IPC channels (camera):**
+- `camera:check-connection` → `{ connected, model }`
+- `camera:start-tethering(outputDir)` → `{ success, error? }`
+- `camera:stop-tethering` → void
+- `camera:status-changed` (push) → `{ connected, model }`
+- `camera:photo-received` (push) → `{ tempPath, filename }`
+
+**Folder structure on disk:**
+```
+{projectFolder}/
+├── CAMERA/{subfolder}/{recipeName} - {n}.jpg   ← raw tethered files
+└── Pictures/{subfolder}/{recipeName} - {n}.jpg ← permanent copies
+```
 
 ### Phase 8 — Analytics & Build
 - [ ] Analytics dashboard (admin only): tasks/week, load by person, top clients
