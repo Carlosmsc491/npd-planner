@@ -10,6 +10,7 @@ import { registerAwbIpcHandlers } from './ipc/awbIpcHandlers'
 import { errorReporter } from './services/errorReporter'
 import { startTrashCleanupService, registerTrashCleanupHandlers } from './services/trashCleanupService'
 import { registerRecipeHandlers } from './ipc/recipeIpcHandlers'
+import { registerCameraHandlers } from './ipc/cameraHandlers'
 import { createSplashWindow, closeSplashWindow } from './splash'
 
 const isDev = process.env.NODE_ENV === 'development' || !!process.env.ELECTRON_RENDERER_URL
@@ -226,6 +227,9 @@ app.whenReady().then(() => {
   errorReporter.log('App started')
 
   const mainWindow = createWindow()
+
+  // Camera / photo capture handlers (Mac only, gphoto2 tethering)
+  registerCameraHandlers(mainWindow)
 
   // Iniciar integración Traze después de que carga el app (5s para Firebase auth)
   mainWindow.webContents.on('did-finish-load', () => {
