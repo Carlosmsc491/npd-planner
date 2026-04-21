@@ -18,6 +18,7 @@ import ConnectionStatus from './ConnectionStatus'
 import NewBoardModal from './NewBoardModal'
 import WhatsNewModal from './WhatsNewModal'
 import NotificationBell from '../notifications/NotificationBell'
+import { CameraBadge } from './CameraBadge'
 import GlobalSearch from '../search/GlobalSearch'
 import { useNotifications } from '../../hooks/useNotifications'
 import { useClients } from '../../hooks/useClients'
@@ -381,6 +382,13 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
               <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0 animate-pulse" />
               {pendingApprovals.length} pending approval{pendingApprovals.length !== 1 ? 's' : ''}
             </button>
+          </div>
+        )}
+
+        {/* Camera badge (owner + photographer) */}
+        {sidebarOpen && (
+          <div className="px-3 pb-1">
+            <CameraBadge />
           </div>
         )}
 

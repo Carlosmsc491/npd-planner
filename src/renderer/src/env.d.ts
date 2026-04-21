@@ -77,6 +77,16 @@ interface IElectronAPI {
     }
     error?: string
   }>
+  // Camera / Photo Capture
+  startCameraTethering: (outputDir: string) => Promise<{ success: boolean; error?: string }>
+  stopCameraTethering: () => Promise<void>
+  checkCameraConnection: () => Promise<{ connected: boolean; model: string | null }>
+  onCameraStatusChanged: (cb: (data: { connected: boolean; model: string | null }) => void) => () => void
+  onCameraPhotoReceived: (cb: (data: { tempPath: string; filename: string }) => void) => () => void
+  // App utilities
+  getUserDataPath: () => Promise<string>
+  readFileAsDataUrl: (filePath: string) => Promise<string>
+  testWriteAccess: (dirPath: string) => Promise<{ success: boolean; error?: string }>
   // Generic Traze / AWB IPC channels
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, listener: (...args: unknown[]) => void) => void
