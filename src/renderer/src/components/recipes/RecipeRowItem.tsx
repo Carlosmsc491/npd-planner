@@ -7,10 +7,12 @@ import type { RecipeFile } from '../../types'
 interface Props {
   file: RecipeFile
   isSelected: boolean
+  isChecked?: boolean
   currentUserName: string
   currentUserUid?: string
   onClick: () => void
   onDoubleClick: () => void
+  onCheckToggle?: (id: string) => void
 }
 
 // ── State config ─────────────────────────────────────────────────────────
@@ -68,13 +70,15 @@ function getRowStyle(file: RecipeFile, currentUserName: string): RowStyle {
 export default function RecipeRowItem({
   file,
   isSelected,
+  isChecked,
   currentUserName,
   currentUserUid,
   onClick,
   onDoubleClick,
+  onCheckToggle,
 }: Props) {
   const style = getRowStyle(file, currentUserName)
-  
+
   // Deterministic color from name
   const colors = [
     'bg-blue-500', 'bg-purple-500', 'bg-rose-500',
@@ -89,9 +93,22 @@ export default function RecipeRowItem({
       className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors border-l-2 ${
         isSelected
           ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-          : `border-transparent ${style.row} hover:brightness-95`
+          : isChecked
+            ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/10'
+            : `border-transparent ${style.row} hover:brightness-95`
       }`}
     >
+      {/* Bulk checkbox */}
+      {onCheckToggle && (
+        <input
+          type="checkbox"
+          checked={isChecked ?? false}
+          onChange={(e) => { e.stopPropagation(); onCheckToggle(file.id) }}
+          onClick={(e) => e.stopPropagation()}
+          className="h-3.5 w-3.5 rounded border-gray-300 text-green-500 shrink-0 cursor-pointer"
+        />
+      )}
+
       {/* State icon */}
       <div className="shrink-0 flex items-center justify-center w-4">{style.icon}</div>
 

@@ -2,14 +2,14 @@
 // Right-side panel showing file details and action buttons with full Mark Done flow
 
 import { useState, useCallback } from 'react'
-import { Loader2, Lock, Check, RotateCcw, ExternalLink, MousePointerClick } from 'lucide-react'
+import { Loader2, Lock, Check, RotateCcw, ExternalLink, MousePointerClick, UserPlus, ChevronDown } from 'lucide-react'
 import { Timestamp } from 'firebase/firestore'
 import { useTaskStore } from '../../store/taskStore'
 import { useAuthStore } from '../../store/authStore'
 import { validateRecipeFile } from '../../utils/recipeValidation'
 import { writeExcelCells, isExcelFileOpen } from '../../lib/recipeExcel'
 import RecipeValidationDialog from './RecipeValidationDialog'
-import type { RecipeFile, RecipeProject, RecipeSettings, ValidationChange } from '../../types'
+import type { RecipeFile, RecipeProject, RecipeSettings, ValidationChange, AppUser } from '../../types'
 import { nanoid } from 'nanoid'
 
 interface Props {
@@ -18,11 +18,14 @@ interface Props {
   settings: RecipeSettings | null
   currentUserName: string
   currentLockToken: string | null
+  users: AppUser[]                                              // for assign dropdown
+  canEdit: boolean                                              // false → read-only member
   onClaim: () => Promise<void>
   onUnclaim: () => Promise<void>
-  onMarkDone: () => Promise<void>   // handles Firestore markRecipeDone + lock release
+  onMarkDone: () => Promise<void>
   onReopen: () => Promise<void>
   onOpenInExcel: () => Promise<void>
+  onAssign: (uid: string | null, name: string | null) => Promise<void>
   onForceUnlock?: () => Promise<void>
 }
 
@@ -32,10 +35,11 @@ type ActionState =
   | 'unclaiming'
   | 'reopening'
   | 'opening'
-  | 'checking'      // step 1 of mark done: isFileOpen
-  | 'validating'    // step 2: running validation rules
-  | 'applying'      // step 3: writing cells
-  | 'finalizing'    // step 4: rename + Firestore
+  | 'assigning'
+  | 'checking'
+  | 'validating'
+  | 'applying'
+  | 'finalizing'
 
 const MARK_DONE_LABEL: Record<string, string> = {
   checking:   'Checking file…',
@@ -50,11 +54,14 @@ export default function RecipeDetailPanel({
   settings,
   currentUserName,
   currentLockToken,
+  users,
+  canEdit,
   onClaim,
   onUnclaim,
   onMarkDone,
   onReopen,
   onOpenInExcel,
+  onAssign,
   onForceUnlock,
 }: Props) {
   const setToast = useTaskStore((s) => s.setToast)
@@ -62,6 +69,8 @@ export default function RecipeDetailPanel({
 
   const [actionState, setActionState] = useState<ActionState>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [confirmReopen, setConfirmReopen] = useState(false)
+  const [assignOpen, setAssignOpen] = useState(false)
 
   // Validation dialog state
   const [validationChanges, setValidationChanges] = useState<ValidationChange[]>([])
@@ -69,8 +78,6 @@ export default function RecipeDetailPanel({
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const busy = actionState !== 'idle'
-
-  // ── Generic action runner ────────────────────────────────────────────────
 
   async function runAction(state: ActionState, fn: () => Promise<void>) {
     setActionState(state)
@@ -92,7 +99,6 @@ export default function RecipeDetailPanel({
     const fullPath = buildFullPath(project.rootPath, file.relativePath)
     setError(null)
 
-    // Step 1 — Check if file is open
     setActionState('checking')
     let fileOpen: boolean
     try {
@@ -108,7 +114,6 @@ export default function RecipeDetailPanel({
       return
     }
 
-    // Step 2 — Validate
     setActionState('validating')
     let changes: ValidationChange[]
     let needsManual: boolean
@@ -141,26 +146,19 @@ export default function RecipeDetailPanel({
     setRequiresManualUpdate(needsManual)
 
     if (changes.length > 0) {
-      // Show dialog for user to review
       setDialogOpen(true)
       setActionState('idle')
     } else {
-      // No changes — proceed directly
       await applyAndFinalize(fullPath, [], file)
     }
   }, [file, project, settings, currentUserName]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Dialog confirm handler ────────────────────────────────────────────────
-
   const handleDialogApply = useCallback(async (acceptedChanges: ValidationChange[]) => {
     if (!file) return
     setDialogOpen(false)
-
     const fullPath = buildFullPath(project.rootPath, file.relativePath)
     await applyAndFinalize(fullPath, acceptedChanges, file)
   }, [file, project]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Core apply + finalize ─────────────────────────────────────────────────
 
   async function applyAndFinalize(
     fullPath: string,
@@ -169,7 +167,6 @@ export default function RecipeDetailPanel({
   ) {
     setError(null)
 
-    // Step 3 — Write cells
     const cellChanges = acceptedChanges
       .filter((c) => c.cell !== '—')
       .map((c) => ({ cell: c.cell, value: c.suggestedValue }))
@@ -185,10 +182,8 @@ export default function RecipeDetailPanel({
       }
     }
 
-    // Step 4 — Rename + Firestore
     setActionState('finalizing')
     try {
-      // Build new file name from the R11 "Final Naming" info change, if accepted
       const namingChange = acceptedChanges.find((c) => c.field === 'Final File Name')
       if (namingChange) {
         const dir = fullPath.substring(0, fullPath.lastIndexOf('\\'))
@@ -217,6 +212,13 @@ export default function RecipeDetailPanel({
     }
   }
 
+  // ── Assign handler ────────────────────────────────────────────────────────
+
+  async function handleAssign(uid: string | null, name: string | null) {
+    setAssignOpen(false)
+    await runAction('assigning', () => onAssign(uid, name))
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (!file) {
@@ -236,6 +238,8 @@ export default function RecipeDetailPanel({
   const isMarkingDone = ['checking', 'validating', 'applying', 'finalizing'].includes(actionState)
   const markDoneLabel = MARK_DONE_LABEL[actionState] ?? 'Mark Done'
 
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'owner'
+
   return (
     <>
       <div className="flex flex-col h-full overflow-hidden">
@@ -254,6 +258,63 @@ export default function RecipeDetailPanel({
             {file.customerOverride && <Row label="Customer">{file.customerOverride}</Row>}
             {file.holidayOverride && <Row label="Holiday">{file.holidayOverride}</Row>}
             <Row label="Wet Pack">{file.wetPackOverride === 'Y' ? 'Yes' : 'No'}</Row>
+            {/* Assigned to */}
+            <div className="flex items-center gap-2">
+              <dt className="text-gray-400 dark:text-gray-500 w-20 shrink-0">Assigned</dt>
+              <dd className="flex items-center gap-1.5 flex-1 min-w-0">
+                {file.assignedToName ? (
+                  <span className="text-gray-700 dark:text-gray-300 font-medium truncate">
+                    {file.assignedToName}
+                  </span>
+                ) : (
+                  <span className="text-gray-400 dark:text-gray-500 italic">Unassigned</span>
+                )}
+                {/* Assign button — admin/owner only */}
+                {isAdmin && (
+                  <div className="relative ml-auto">
+                    <button
+                      onClick={() => setAssignOpen((v) => !v)}
+                      disabled={busy}
+                      title="Assign recipe"
+                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-gray-500 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                    >
+                      <UserPlus size={10} />
+                      {actionState === 'assigning' ? <Loader2 size={10} className="animate-spin" /> : <ChevronDown size={10} />}
+                    </button>
+                    {assignOpen && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setAssignOpen(false)} />
+                        <div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg overflow-hidden">
+                          {file.assignedTo && (
+                            <button
+                              onClick={() => handleAssign(null, null)}
+                              className="w-full px-3 py-2 text-left text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            >
+                              Remove assignment
+                            </button>
+                          )}
+                          <div className="border-t border-gray-100 dark:border-gray-700" />
+                          {users.filter(u => u.status === 'active').map(u => (
+                            <button
+                              key={u.uid}
+                              onClick={() => handleAssign(u.uid, u.name)}
+                              className={`w-full px-3 py-2 text-left text-xs transition-colors ${
+                                file.assignedTo === u.uid
+                                  ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+                                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                              }`}
+                            >
+                              {u.name}
+                              {file.assignedTo === u.uid && ' ✓'}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </dd>
+            </div>
           </dl>
 
           {/* Distribution (read-only) */}
@@ -265,6 +326,13 @@ export default function RecipeDetailPanel({
           </div>
         </div>
 
+        {/* Read-only banner */}
+        {!canEdit && (
+          <div className="mx-4 mt-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            You have view-only access to this project.
+          </div>
+        )}
+
         {/* Action area */}
         <div className="p-4 space-y-2">
           {error && (
@@ -274,7 +342,7 @@ export default function RecipeDetailPanel({
           )}
 
           {/* PENDING → Claim */}
-          {file.status === 'pending' && (
+          {file.status === 'pending' && canEdit && (
             <button
               disabled={busy}
               onClick={() => runAction('claiming', onClaim)}
@@ -286,7 +354,7 @@ export default function RecipeDetailPanel({
           )}
 
           {/* IN PROGRESS — own lock */}
-          {isOwnLock && (
+          {isOwnLock && canEdit && (
             <>
               <button
                 disabled={busy}
@@ -320,6 +388,18 @@ export default function RecipeDetailPanel({
             </>
           )}
 
+          {/* Open in Excel always available (even read-only) when in-progress own lock */}
+          {isOwnLock && !canEdit && (
+            <button
+              disabled={busy}
+              onClick={() => runAction('opening', onOpenInExcel)}
+              className="w-full flex items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            >
+              <ExternalLink size={14} />
+              Open in Excel
+            </button>
+          )}
+
           {/* IN PROGRESS — other user's lock */}
           {file.status === 'in_progress' && !isOwnLock && (
             <div className="flex flex-col gap-1 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2.5">
@@ -329,7 +409,7 @@ export default function RecipeDetailPanel({
                   Locked by {file.lockedBy}
                 </span>
               </div>
-              {currentUser?.role === 'admin' && (
+              {isAdmin && (
                 <button
                   onClick={async () => {
                     if (!onForceUnlock) return
@@ -345,8 +425,7 @@ export default function RecipeDetailPanel({
                     }
                   }}
                   disabled={busy}
-                  className="text-xs text-red-600 dark:text-red-400 underline mt-1
-                            hover:text-red-800 dark:hover:text-red-300 disabled:opacity-50 text-left"
+                  className="text-xs text-red-600 dark:text-red-400 underline mt-1 hover:text-red-800 dark:hover:text-red-300 disabled:opacity-50 text-left"
                 >
                   Force unlock
                 </button>
@@ -355,7 +434,7 @@ export default function RecipeDetailPanel({
           )}
 
           {/* LOCK EXPIRED → Reclaim */}
-          {file.status === 'lock_expired' && (
+          {file.status === 'lock_expired' && canEdit && (
             <button
               disabled={busy}
               onClick={() => runAction('claiming', onClaim)}
@@ -366,7 +445,7 @@ export default function RecipeDetailPanel({
             </button>
           )}
 
-          {/* DONE → Reopen */}
+          {/* DONE → Reopen (with confirmation) */}
           {file.status === 'done' && (
             <>
               <div className="rounded-lg bg-green-50 dark:bg-green-900/20 px-3 py-2 text-xs text-green-700 dark:text-green-400">
@@ -375,22 +454,48 @@ export default function RecipeDetailPanel({
                   <p className="opacity-70 mt-0.5">{formatTimestamp(file.doneAt)}</p>
                 )}
               </div>
-              <button
-                disabled={busy}
-                onClick={() => runAction('reopening', onReopen)}
-                className="w-full flex items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
-              >
-                {actionState === 'reopening'
-                  ? <Loader2 size={14} className="animate-spin" />
-                  : <RotateCcw size={14} />}
-                Reopen
-              </button>
+              {canEdit && !confirmReopen && (
+                <button
+                  disabled={busy}
+                  onClick={() => setConfirmReopen(true)}
+                  className="w-full flex items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                >
+                  <RotateCcw size={14} />
+                  Reopen
+                </button>
+              )}
+              {canEdit && confirmReopen && (
+                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2">
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Reopen this recipe? It will return to Pending state.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setConfirmReopen(false)}
+                      className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={async () => {
+                        setConfirmReopen(false)
+                        await runAction('reopening', onReopen)
+                      }}
+                      className="flex-1 rounded-lg bg-amber-500 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+                    >
+                      {actionState === 'reopening'
+                        ? <Loader2 size={12} className="animate-spin mx-auto" />
+                        : 'Yes, reopen'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
       </div>
 
-      {/* Validation dialog — rendered outside panel so it overlays the whole window */}
       <RecipeValidationDialog
         isOpen={dialogOpen}
         recipeName={file.displayName}
@@ -406,7 +511,6 @@ export default function RecipeDetailPanel({
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function buildFullPath(rootPath: string, relativePath: string): string {
-  // Normalize to backslash (Windows) and join
   const root = rootPath.replace(/\//g, '\\').replace(/\\$/, '')
   const rel  = relativePath.replace(/\//g, '\\').replace(/^\\/, '')
   return `${root}\\${rel}`
