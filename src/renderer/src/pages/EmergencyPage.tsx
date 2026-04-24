@@ -23,8 +23,13 @@ export default function EmergencyPage() {
     }
   }
 
-  async function handleMakeAdmin(uid: string) {
-    await updateUserRole(uid, 'admin')
+  async function handleSetRole(uid: string, role: 'owner' | 'admin') {
+    try {
+      await updateUserRole(uid, role)
+      setUsers(prev => prev.map(u => u.uid === uid ? { ...u, role } : u))
+    } catch (err) {
+      setError(`Role update failed: ${err}`)
+    }
   }
 
   return (
@@ -65,17 +70,28 @@ export default function EmergencyPage() {
                   <p className="text-sm font-medium text-white">{u.name}</p>
                   <p className="text-xs text-gray-400">{u.email} — {u.role} — {u.status}</p>
                 </div>
-                {u.role !== 'admin' && (
-                  <button
-                    onClick={() => handleMakeAdmin(u.uid)}
-                    className="rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700 transition-colors"
-                  >
-                    Make Admin
-                  </button>
-                )}
-                {u.role === 'admin' && (
-                  <span className="rounded bg-green-700/50 px-3 py-1 text-xs text-green-300">Admin</span>
-                )}
+                <div className="flex items-center gap-2">
+                  {u.role === 'owner' ? (
+                    <span className="rounded bg-purple-700/50 px-3 py-1 text-xs text-purple-300">Owner</span>
+                  ) : (
+                    <button
+                      onClick={() => handleSetRole(u.uid, 'owner')}
+                      className="rounded bg-purple-600 px-3 py-1 text-xs text-white hover:bg-purple-700 transition-colors"
+                    >
+                      Make Owner
+                    </button>
+                  )}
+                  {u.role === 'admin' ? (
+                    <span className="rounded bg-green-700/50 px-3 py-1 text-xs text-green-300">Admin</span>
+                  ) : (
+                    <button
+                      onClick={() => handleSetRole(u.uid, 'admin')}
+                      className="rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700 transition-colors"
+                    >
+                      Make Admin
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

@@ -1,15 +1,20 @@
 // src/renderer/src/components/recipes/RecipeDetailPanel.tsx
 // Right-side panel showing file details and action buttons with full Mark Done flow
 
-import { useState, useCallback } from 'react'
-import { Loader2, Lock, Check, RotateCcw, ExternalLink, MousePointerClick, UserPlus, ChevronDown } from 'lucide-react'
+import { useState, useCallback, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Loader2, Lock, Check, RotateCcw, ExternalLink, MousePointerClick, UserPlus, ChevronDown, Camera, Star, ImageOff, Pencil } from 'lucide-react'
 import { Timestamp } from 'firebase/firestore'
 import { useTaskStore } from '../../store/taskStore'
 import { useAuthStore } from '../../store/authStore'
+import { canTakePhotos } from '../../lib/permissions'
 import { validateRecipeFile } from '../../utils/recipeValidation'
 import { writeExcelCells, isExcelFileOpen } from '../../lib/recipeExcel'
 import RecipeValidationDialog from './RecipeValidationDialog'
-import type { RecipeFile, RecipeProject, RecipeSettings, ValidationChange, AppUser } from '../../types'
+import PhotoGalleryPopup from './PhotoGalleryPopup'
+import RenameRecipeModal from './RenameRecipeModal'
+import NotesSection from './NotesSection'
+import type { RecipeFile, RecipeProject, RecipeSettings, ValidationChange, AppUser, CapturedPhoto, RenameWithPhotosResult } from '../../types'
 import { nanoid } from 'nanoid'
 
 interface Props {
@@ -17,7 +22,6 @@ interface Props {
   project: RecipeProject
   settings: RecipeSettings | null
   currentUserName: string
-  currentLockToken: string | null
   users: AppUser[]                                              // for assign dropdown
   canEdit: boolean                                              // false → read-only member
   onClaim: () => Promise<void>
@@ -27,6 +31,8 @@ interface Props {
   onOpenInExcel: () => Promise<void>
   onAssign: (uid: string | null, name: string | null) => Promise<void>
   onForceUnlock?: () => Promise<void>
+  onRename?: (result: RenameWithPhotosResult, newDisplayName: string) => Promise<void>
+  ssdBase?: string | null
 }
 
 type ActionState =
@@ -53,7 +59,6 @@ export default function RecipeDetailPanel({
   project,
   settings,
   currentUserName,
-  currentLockToken,
   users,
   canEdit,
   onClaim,
@@ -63,7 +68,10 @@ export default function RecipeDetailPanel({
   onOpenInExcel,
   onAssign,
   onForceUnlock,
+  onRename,
+  ssdBase,
 }: Props) {
+  const navigate = useNavigate()
   const setToast = useTaskStore((s) => s.setToast)
   const currentUser = useAuthStore((s) => s.user)
 
@@ -71,6 +79,16 @@ export default function RecipeDetailPanel({
   const [error, setError] = useState<string | null>(null)
   const [confirmReopen, setConfirmReopen] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
+
+  // Gallery popup
+  const [galleryOpen, setGalleryOpen] = useState(false)
+  const [galleryIndex, setGalleryIndex] = useState(0)
+
+  // Rename modal
+  const [renameOpen, setRenameOpen] = useState(false)
+
+  const canSeePhotoFeatures = true   // all users can view photos
+  const canActOnPhotos = currentUser ? canTakePhotos(currentUser) : false
 
   // Validation dialog state
   const [validationChanges, setValidationChanges] = useState<ValidationChange[]>([])
@@ -230,10 +248,10 @@ export default function RecipeDetailPanel({
     )
   }
 
+  // Token is in-memory only — lost on restart. Name match is enough to own the lock.
   const isOwnLock =
     file.status === 'in_progress' &&
-    file.lockedBy === currentUserName &&
-    !!currentLockToken
+    file.lockedBy === currentUserName
 
   const isMarkingDone = ['checking', 'validating', 'applying', 'finalizing'].includes(actionState)
   const markDoneLabel = MARK_DONE_LABEL[actionState] ?? 'Mark Done'
@@ -246,9 +264,21 @@ export default function RecipeDetailPanel({
         {/* File info */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-start justify-between gap-2 mb-3">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white leading-tight break-words">
-              {file.displayName}
-            </h3>
+            <div className="flex items-start gap-1.5 min-w-0">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white leading-tight break-words">
+                {file.displayName}
+              </h3>
+              {isAdmin && onRename && file.status !== 'in_progress' && (
+                <button
+                  onClick={() => setRenameOpen(true)}
+                  disabled={busy}
+                  title="Rename recipe"
+                  className="shrink-0 mt-0.5 p-0.5 rounded text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 disabled:opacity-40 transition-colors"
+                >
+                  <Pencil size={12} />
+                </button>
+              )}
+            </div>
             <StatusBadge status={file.status} />
           </div>
 
@@ -493,8 +523,56 @@ export default function RecipeDetailPanel({
               )}
             </>
           )}
+          {/* ── Notes ── */}
+          {currentUser && (
+            <div className="-mx-4 -mb-2">
+              <NotesSection
+                projectId={file.projectId}
+                fileId={file.fileId}
+                currentUser={currentUser}
+              />
+            </div>
+          )}
+
+          {/* ── Photo Timeline + camera button ── */}
+          <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+            <PhotoTimeline photoStatus={file.photoStatus ?? 'pending'} recipeStatus={file.status} />
+            <div className="mt-3">
+              <PhotoCaptureButton
+                photoStatus={file.photoStatus ?? 'pending'}
+                canAct={canActOnPhotos}
+                onNavigate={() => navigate(`/capture/${file.id}`)}
+              />
+            </div>
+          </div>
         </div>
+        {/* ── Photo preview grid ── owner + photographer only */}
+        {canSeePhotoFeatures && (file.capturedPhotos?.length ?? 0) > 0 && (
+          <div className="flex-1 min-h-0 flex flex-col px-4 pb-4 border-t border-gray-100 dark:border-gray-700 pt-3">
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="grid grid-cols-3 gap-1.5">
+                {file.capturedPhotos!.map((photo, idx) => (
+                  <PhotoThumbnail
+                    key={photo.filename}
+                    photo={photo}
+                    onDoubleClick={() => { setGalleryIndex(idx); setGalleryOpen(true) }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Gallery popup */}
+      {galleryOpen && file.capturedPhotos && (
+        <PhotoGalleryPopup
+          photos={file.capturedPhotos}
+          initialIndex={galleryIndex}
+          recipeName={file.recipeName || file.displayName}
+          onClose={() => setGalleryOpen(false)}
+        />
+      )}
 
       <RecipeValidationDialog
         isOpen={dialogOpen}
@@ -504,6 +582,19 @@ export default function RecipeDetailPanel({
         onApply={handleDialogApply}
         onCancel={() => { setDialogOpen(false); setActionState('idle') }}
       />
+
+      {renameOpen && onRename && (
+        <RenameRecipeModal
+          file={file}
+          project={project}
+          ssdBase={ssdBase ?? null}
+          onClose={() => setRenameOpen(false)}
+          onSuccess={async (result, newDisplayName) => {
+            setRenameOpen(false)
+            await onRename(result, newDisplayName)
+          }}
+        />
+      )}
     </>
   )
 }
@@ -578,5 +669,209 @@ function formatTimestamp(ts: Timestamp): string {
     return d.toLocaleString()
   } catch {
     return ''
+  }
+}
+
+// ── Photo thumbnail (preview grid) ────────────────────────────────────────────
+
+function PhotoThumbnail({
+  photo,
+  onDoubleClick,
+}: {
+  photo: CapturedPhoto
+  onDoubleClick: () => void
+}) {
+  const [dataUrl, setDataUrl] = useState<string | null | undefined>(undefined) // undefined=loading, null=error
+
+  useEffect(() => {
+    let cancelled = false
+    window.electronAPI.readFileAsDataUrl(photo.picturePath)
+      .then(url => { if (!cancelled) setDataUrl(url) })
+      .catch(() => { if (!cancelled) setDataUrl(null) })
+    return () => { cancelled = true }
+  }, [photo.picturePath])
+
+  return (
+    <div
+      onDoubleClick={onDoubleClick}
+      className="relative aspect-square rounded overflow-hidden cursor-pointer"
+      style={photo.isSelected ? {
+        border: '2px solid #F59E0B',
+        animation: 'heartbeat 2s ease-in-out infinite',
+      } : { border: '2px solid transparent' }}
+    >
+      {dataUrl === undefined ? (
+        <div className="w-full h-full bg-gray-200 dark:bg-gray-700 animate-pulse" />
+      ) : dataUrl === null ? (
+        <div className="w-full h-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+          <ImageOff size={14} className="text-gray-400" />
+        </div>
+      ) : (
+        <img src={dataUrl} alt={photo.filename} className="w-full h-full object-cover" />
+      )}
+
+      {/* Gold star for selected candidates */}
+      {photo.isSelected && (
+        <div
+          className="absolute bottom-0.5 right-0.5 pointer-events-none"
+          style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
+        >
+          <Star size={14} fill="#F59E0B" className="text-yellow-400" />
+        </div>
+      )}
+
+      <style>{`
+        @keyframes heartbeat {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.4); }
+          50%       { box-shadow: 0 0 0 6px rgba(245,158,11,0); }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ── Photo workflow timeline ─────────────────────────────────────────────────
+
+type PhotoStatus = 'pending' | 'in_progress' | 'complete' | 'selected' | 'ready'
+
+interface TimelineStep {
+  label: string
+  sublabel?: string
+  done: (s: PhotoStatus) => boolean
+  active: (s: PhotoStatus) => boolean
+}
+
+// Timeline steps — each evaluated independently (photos can be taken before recipe is done)
+const PHOTO_STEPS: TimelineStep[] = [
+  {
+    label:  'Recipe Ready',
+    // green when recipe.status === 'done'; evaluated via recipeStatus prop passed separately
+    done:   () => false,   // placeholder — overridden in PhotoTimeline render
+    active: () => false,
+  },
+  {
+    label:  'Photos Taken',
+    done:   (s) => ['in_progress', 'complete', 'selected', 'ready'].includes(s),
+    active: (s) => s === 'in_progress',
+  },
+  {
+    label:  'Candidate Selected',
+    done:   (s) => s === 'selected' || s === 'ready',
+    active: (s) => s === 'complete',
+  },
+  {
+    label:  'Photo Done',
+    done:   (s) => s === 'ready',
+    active: () => false,
+  },
+]
+
+function PhotoTimeline({ photoStatus, recipeStatus }: { photoStatus: PhotoStatus; recipeStatus: RecipeFile['status'] }) {
+  return (
+    <div className="px-1 py-1">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">
+        Progress
+      </p>
+      <div className="flex flex-col gap-0">
+        {PHOTO_STEPS.map((step, idx) => {
+          // Recipe Ready step is special — driven by recipeStatus, not photoStatus
+          const done   = idx === 0 ? recipeStatus === 'done' : step.done(photoStatus)
+          const active = idx === 0 ? false : step.active(photoStatus)
+          const isLast = idx === PHOTO_STEPS.length - 1
+
+          return (
+            <div key={step.label} className="flex items-start gap-2.5">
+              {/* Dot + vertical line */}
+              <div className="flex flex-col items-center shrink-0" style={{ width: 16 }}>
+                <div
+                  className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
+                    done
+                      ? 'bg-green-500 border-green-500'
+                      : active
+                        ? 'bg-white dark:bg-gray-950 border-green-500'
+                        : 'bg-transparent border-gray-300 dark:border-gray-600'
+                  } ${active ? 'ring-2 ring-green-400/40 ring-offset-1 ring-offset-white dark:ring-offset-gray-900' : ''}`}
+                >
+                  {done && <Check size={8} className="text-white" strokeWidth={3} />}
+                  {active && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
+                </div>
+                {!isLast && (
+                  <div
+                    className={`w-0.5 flex-1 min-h-[16px] mt-0.5 ${
+                      done ? 'bg-green-400' : 'bg-gray-200 dark:bg-gray-700'
+                    }`}
+                  />
+                )}
+              </div>
+
+              {/* Label */}
+              <div className={`pb-3 ${isLast ? 'pb-0' : ''}`}>
+                <p className={`text-xs leading-tight ${
+                  done
+                    ? 'text-green-700 dark:text-green-400 font-medium'
+                    : active
+                      ? 'text-gray-900 dark:text-white font-medium'
+                      : 'text-gray-400 dark:text-gray-500'
+                }`}>
+                  {step.label}
+                </p>
+                {step.sublabel && (
+                  <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5">{step.sublabel}</p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function PhotoCaptureButton({
+  photoStatus,
+  canAct,
+  onNavigate,
+}: {
+  photoStatus: PhotoStatus
+  canAct: boolean
+  onNavigate: () => void
+}) {
+  // View-only mode for users without photo-capture permissions
+  if (!canAct) {
+    const hasPhotos = photoStatus !== 'pending'
+    if (!hasPhotos) return null  // nothing to view
+    return (
+      <button onClick={onNavigate} className="w-full flex items-center justify-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+        <Camera size={14} /> View Photos
+      </button>
+    )
+  }
+
+  switch (photoStatus) {
+    case 'in_progress':
+      return (
+        <button onClick={onNavigate} className="w-full flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 transition-colors">
+          <Camera size={14} /> Continue Session
+        </button>
+      )
+    case 'complete':
+      return (
+        <button onClick={onNavigate} className="w-full flex items-center justify-center gap-2 rounded-lg bg-blue-500 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600 transition-colors">
+          <Camera size={14} /> Select Candidate
+        </button>
+      )
+    case 'selected':
+    case 'ready':
+      return (
+        <button onClick={onNavigate} className="w-full flex items-center justify-center gap-2 rounded-lg border border-green-400 dark:border-green-600 px-4 py-2 text-sm font-medium text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors">
+          <Star size={14} className="text-yellow-500" /> Reopen Session
+        </button>
+      )
+    default: // 'pending'
+      return (
+        <button onClick={onNavigate} className="w-full flex items-center justify-center gap-2 rounded-lg bg-green-500 px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 transition-colors">
+          <Camera size={14} /> Take Photos
+        </button>
+      )
   }
 }

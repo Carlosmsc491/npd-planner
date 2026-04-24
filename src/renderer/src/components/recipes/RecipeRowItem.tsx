@@ -1,12 +1,18 @@
 // src/renderer/src/components/recipes/RecipeRowItem.tsx
 // Single recipe file row with state-based visual styling
 
-import { Check, Lock, AlertTriangle, Clock, Camera } from 'lucide-react'
+import { useState } from 'react'
+import { Check, Lock, AlertTriangle, Clock, Camera, Star } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type { RecipeFile } from '../../types'
+import { useRecipeNotes } from '../../hooks/useRecipeNotes'
+import { resolveAllRecipeNotes } from '../../lib/recipeFirestore'
+import { useAuthStore } from '../../store/authStore'
+import CaptureWarningModal from './CaptureWarningModal'
 
 interface Props {
   file: RecipeFile
+  projectId: string
   isSelected: boolean
   isChecked?: boolean
   currentUserName: string
@@ -73,6 +79,7 @@ export default function RecipeRowItem({
   file,
   isSelected,
   isChecked,
+  projectId: _projectId,
   currentUserName,
   currentUserUid,
   userRole,
@@ -81,21 +88,73 @@ export default function RecipeRowItem({
   onCheckToggle,
 }: Props) {
   const navigate = useNavigate()
+  const { user } = useAuthStore()
   const style = getRowStyle(file, currentUserName)
+  const [showWarning, setShowWarning] = useState(false)
 
-  const showCameraBtn = userRole === 'owner' || userRole === 'photographer'
+  const showCameraBtn = !userRole || userRole === 'owner' || userRole === 'photographer' || userRole === 'admin' || userRole === 'member'
   const photoStatus = file.photoStatus ?? 'pending'
-  const cameraDisabled = photoStatus === 'complete'
-  const cameraBtnClass = cameraDisabled
-    ? 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500 cursor-not-allowed'
-    : photoStatus === 'in_progress'
-      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400'
-      : 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
-  const cameraBtnLabel = cameraDisabled
-    ? 'Ya fotografiada'
-    : photoStatus === 'in_progress'
-      ? 'Continuar Fotos'
-      : 'Tomar Fotos'
+
+  // Load active notes for warning interception (only when camera button exists)
+  const { activeNotes } = useRecipeNotes(
+    showCameraBtn ? file.projectId : '',
+    showCameraBtn ? file.fileId : ''
+  )
+
+  function handleCameraClick(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (cameraBtnConfig.disabled) return
+    if (activeNotes.length > 0) {
+      setShowWarning(true)
+    } else {
+      navigate(`/capture/${file.id}`)
+    }
+  }
+
+  async function handleFixNow() {
+    if (!user) return
+    await resolveAllRecipeNotes(file.projectId, file.fileId, user.uid, user.name)
+    setShowWarning(false)
+    navigate(`/capture/${file.id}`)
+  }
+
+  const cameraBtnConfig: {
+    label: string
+    cls: string
+    icon: React.ReactNode
+    disabled: boolean
+  } = (() => {
+    switch (photoStatus) {
+      case 'in_progress':
+        return {
+          label: 'Continue Session',
+          cls: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400',
+          icon: <Camera size={11} />,
+          disabled: false,
+        }
+      case 'complete':
+        return {
+          label: 'Select Candidate',
+          cls: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400',
+          icon: <Camera size={11} />,
+          disabled: false,
+        }
+      case 'selected':
+        return {
+          label: 'Reopen Session',
+          cls: 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-300',
+          icon: <Star size={11} className="text-yellow-500" />,
+          disabled: false,
+        }
+      default: // 'pending'
+        return {
+          label: 'Take Photos',
+          cls: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400',
+          icon: <Camera size={11} />,
+          disabled: false,
+        }
+    }
+  })()
 
   // Deterministic color from name
   const colors = [
@@ -130,9 +189,20 @@ export default function RecipeRowItem({
       {/* State icon */}
       <div className="shrink-0 flex items-center justify-center w-4">{style.icon}</div>
 
-      {/* Recipe name */}
-      <span className="flex-1 text-sm font-medium text-gray-900 dark:text-white truncate" title={file.displayName}>
-        {file.displayName}
+      {/* Recipe name + active notes warning */}
+      <span className="flex-1 flex items-center gap-1.5 min-w-0">
+        <span className="text-sm font-medium text-gray-900 dark:text-white truncate" title={file.displayName}>
+          {file.displayName}
+        </span>
+        {(file.activeNotesCount ?? 0) > 0 && (
+          <span
+            title={`${file.activeNotesCount} active note${file.activeNotesCount !== 1 ? 's' : ''}`}
+            className="shrink-0 flex items-center gap-0.5 rounded-full bg-amber-100 px-1 py-0.5 text-[9px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+          >
+            <AlertTriangle size={8} />
+            {file.activeNotesCount}
+          </span>
+        )}
       </span>
 
       {/* Price */}
@@ -157,12 +227,17 @@ export default function RecipeRowItem({
       {/* Photo status badge */}
       {photoStatus === 'in_progress' && (
         <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 whitespace-nowrap">
-          📷 En progreso
+          📷 In Session
         </span>
       )}
       {photoStatus === 'complete' && (
-        <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 whitespace-nowrap">
-          📷 Listo
+        <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 whitespace-nowrap">
+          📷 Photos Ready
+        </span>
+      )}
+      {photoStatus === 'selected' && (
+        <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 whitespace-nowrap">
+          ★ Candidate Selected
         </span>
       )}
       
@@ -187,17 +262,24 @@ export default function RecipeRowItem({
       {/* Camera / photo capture button */}
       {showCameraBtn && (
         <button
-          title={cameraBtnLabel}
-          disabled={cameraDisabled}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (!cameraDisabled) navigate(`/capture/${file.id}`)
-          }}
-          className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${cameraBtnClass}`}
+          title={cameraBtnConfig.label}
+          disabled={cameraBtnConfig.disabled}
+          onClick={handleCameraClick}
+          className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${cameraBtnConfig.cls}`}
         >
-          <Camera size={11} />
-          <span className="hidden sm:inline">{cameraBtnLabel}</span>
+          {cameraBtnConfig.icon}
+          <span className="hidden sm:inline">{cameraBtnConfig.label}</span>
         </button>
+      )}
+
+      {/* Pre-capture warning modal */}
+      {showWarning && (
+        <CaptureWarningModal
+          recipeName={file.displayName}
+          activeNotes={activeNotes}
+          onFixLater={() => { setShowWarning(false); navigate(`/capture/${file.id}`) }}
+          onFixNow={handleFixNow}
+        />
       )}
     </div>
   )

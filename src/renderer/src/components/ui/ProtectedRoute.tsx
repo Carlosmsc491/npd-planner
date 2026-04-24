@@ -4,7 +4,7 @@ import { useAreaPermission } from '../../hooks/useAreaPermission'
 import { isPrivileged } from '../../lib/permissions'
 
 // Routes a photographer is allowed to visit
-const PHOTOGRAPHER_ALLOWED = ['/recipes', '/capture']
+const PHOTOGRAPHER_ALLOWED = ['/recipes', '/capture', '/emergency']
 
 interface ProtectedRouteProps {
   areaId?: string
@@ -28,8 +28,9 @@ export default function ProtectedRoute({ areaId, requireAdmin }: ProtectedRouteP
   if (user.status === 'awaiting') return <Navigate to="/awaiting-approval" replace />
   if (user.status === 'suspended') return <Navigate to="/login" replace />
 
-  // Photographer role: restrict to recipes + capture pages only
-  if (user.role === 'photographer') {
+  // Standalone photographer role: restrict to recipes + capture pages only
+  // Users who have isPhotographer as an add-on keep full access from their base role
+  if (user.role === 'photographer' && !user.isPhotographer) {
     const allowed = PHOTOGRAPHER_ALLOWED.some((prefix) =>
       location.pathname === prefix || location.pathname.startsWith(prefix + '/')
     )

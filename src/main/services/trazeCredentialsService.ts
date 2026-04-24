@@ -11,7 +11,9 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { app, safeStorage } from 'electron'
 
-const CREDENTIALS_FILE = path.join(app.getPath('userData'), 'traze-credentials.enc.json')
+function getCredentialsFile(): string {
+  return path.join(app.getPath('userData'), 'traze-credentials.enc.json')
+}
 
 interface StoredCredentials {
   email: string
@@ -37,6 +39,7 @@ function canEncrypt(): boolean {
  */
 export function readCredentials(): TrazeCredentials | null {
   try {
+    const CREDENTIALS_FILE = getCredentialsFile()
     if (!fs.existsSync(CREDENTIALS_FILE)) return null
 
     const raw = fs.readFileSync(CREDENTIALS_FILE, 'utf-8')
@@ -66,6 +69,7 @@ export function saveCredentials(email: string, password: string): void {
     throw new Error('Encryption is not available on this platform. Cannot save credentials securely.')
   }
 
+  const CREDENTIALS_FILE = getCredentialsFile()
   const encBuf = safeStorage.encryptString(password.trim())
   const stored: StoredCredentials = {
     email: email.trim(),
@@ -96,6 +100,7 @@ export function hasCredentials(): boolean {
  */
 export function clearCredentials(): void {
   try {
+    const CREDENTIALS_FILE = getCredentialsFile()
     if (fs.existsSync(CREDENTIALS_FILE)) fs.unlinkSync(CREDENTIALS_FILE)
     // Also clean up legacy file just in case
     const legacyFile = path.join(app.getPath('userData'), 'traze-credentials.json')

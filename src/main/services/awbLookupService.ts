@@ -15,7 +15,7 @@ import * as fs   from 'fs';
 import * as path from 'path';
 import { app }   from 'electron';
 
-const CSV_OUTPUT_DIR = path.join(app.getPath('userData'), 'traze-exports');
+function getCsvOutputDir(): string { return path.join(app.getPath('userData'), 'traze-exports'); }
 
 /** How many days to keep CSV files before cleanup */
 const RETENTION_DAYS = 7;
@@ -30,12 +30,12 @@ interface CsvFileInfo {
 
 function getCsvFiles(): CsvFileInfo[] {
   try {
-    if (!fs.existsSync(CSV_OUTPUT_DIR)) return [];
+    if (!fs.existsSync(getCsvOutputDir())) return [];
 
-    return fs.readdirSync(CSV_OUTPUT_DIR)
+    return fs.readdirSync(getCsvOutputDir())
       .filter(f => f.endsWith('.csv'))
       .map(f => {
-        const filePath = path.join(CSV_OUTPUT_DIR, f);
+        const filePath = path.join(getCsvOutputDir(), f);
         return {
           name: f,
           filePath,

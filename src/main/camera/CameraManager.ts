@@ -30,11 +30,14 @@ export interface PhotoReceivedEvent {
 export class CameraManager extends EventEmitter {
   private gphotoProcess: ChildProcess | null = null
   private watcher: FSWatcher | null = null
+  private folderWatcher: FSWatcher | null = null
   /**
-   * Detecta si gphoto2 está instalado en el sistema.
-   * Retorna true si `which gphoto2` encuentra el binario.
+   * Detects whether gphoto2 is installed.
+   * Uses `which` on macOS/Linux, `where` on Windows.
+   * gPhoto2 tethering is macOS-only in Phase 1 — returns false on Windows immediately.
    */
   async isGphoto2Available(): Promise<boolean> {
+    if (process.platform === 'win32') return false
     return new Promise((resolve) => {
       const proc = spawn('which', ['gphoto2'])
       proc.on('close', (code) => resolve(code === 0))
@@ -77,48 +80,132 @@ export class CameraManager extends EventEmitter {
    * Inicia el tethering. Lanza gphoto2 en modo --capture-tethered.
    * Las fotos se guardan en outputDir. chokidar emite 'photo-received' por cada foto.
    */
-  async startTethering(outputDir: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      fs.mkdirSync(outputDir, { recursive: true })
+  /**
+   * macOS auto-loads PTPCamera / imagecaptured when a camera connects,
+   * taking exclusive USB ownership. Kill both and stop the launchd agent
+   * so gPhoto2 can claim the device.
+   */
+  private killMacOSCameraServices(): Promise<void> {
+    const cmds: [string, string[]][] = [
+      ['pkill', ['-9', '-f', 'PTPCamera']],
+      ['pkill', ['-9', '-f', 'ptpcamera']],
+      ['launchctl', ['stop', 'com.apple.imagecaptured']],
+      ['pkill', ['-9', '-f', 'imagecaptured']],
+    ]
+    return cmds.reduce(
+      (chain, [cmd, args]) =>
+        chain.then(
+          () =>
+            new Promise<void>((resolve) => {
+              const proc = spawn(cmd, args)
+              proc.on('close', () => resolve())
+              proc.on('error', () => resolve())
+            })
+        ),
+      Promise.resolve()
+    )
+  }
 
-      // Detener sesión anterior si existe
-      await this.stopTethering()
-
-
-      this.gphotoProcess = spawn('gphoto2', [
+  /** Try to start gphoto2 tethering, retrying once if the USB device is busy. */
+  private spawnGphoto2(outputDir: string): Promise<{ success: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      const proc = spawn('gphoto2', [
         '--capture-tethered',
         '--filename', nodePath.join(outputDir, '%Y%m%d-%H%M%S-%04n.%C'),
         '--force-overwrite',
       ], { cwd: outputDir })
 
-      this.gphotoProcess.stderr?.on('data', (data: Buffer) => {
-        console.error('[gphoto2 stderr]', data.toString())
+      this.gphotoProcess = proc
+      let startupError = ''
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        const msg = data.toString().trim()
+        if (msg) { console.log('[gphoto2 stdout]', msg); this.emit('log', msg) }
       })
 
-      this.gphotoProcess.on('error', (err: Error) => {
+      proc.stderr?.on('data', (data: Buffer) => {
+        const msg = data.toString().trim()
+        if (msg) { console.error('[gphoto2 stderr]', msg); this.emit('log', msg) }
+        if (msg.includes('Could not claim')) startupError = msg
+      })
+
+      proc.on('error', (err: Error) => {
         console.error('[gphoto2 error]', err)
-        this.emit('error', err.message)
+        this.emit('tethering-error', err.message)
+        resolve({ success: false, error: err.message })
       })
 
-      this.gphotoProcess.on('close', (code: number | null) => {
+      proc.on('close', (code: number | null) => {
         console.log('[gphoto2] process closed with code', code)
+        this.gphotoProcess = null
+        if (startupError) {
+          resolve({ success: false, error: startupError })
+        } else if (code !== 0 && code !== null) {
+          this.emit('tethering-error', `gPhoto2 exited with code ${code}`)
+        }
       })
 
+      // If gphoto2 is still running after 2 seconds it started successfully
+      setTimeout(() => {
+        if (proc.exitCode === null) resolve({ success: true })
+      }, 2000)
+    })
+  }
+
+  async startTethering(outputDir: string): Promise<{ success: boolean; error?: string }> {
+    // gPhoto2 tethering is macOS-only (Phase 1).
+    // On Windows, return failure immediately so the caller falls back to Watch Folder mode.
+    if (process.platform === 'win32') {
+      return { success: false, error: 'gPhoto2 tethering is not supported on Windows. Use Watch Folder mode.' }
+    }
+
+    try {
+      fs.mkdirSync(outputDir, { recursive: true })
+
+      // Stop previous session if any
+      await this.stopTethering()
+
+      // macOS: kill PTPCamera / imagecaptured so gPhoto2 can claim the USB device
+      if (process.platform === 'darwin') {
+        await this.killMacOSCameraServices()
+        await new Promise(resolve => setTimeout(resolve, 1200))
+      }
+
+      // Start chokidar BEFORE spawning gphoto2 so no file is missed during startup
+      console.log('[CameraManager] starting chokidar watch on:', outputDir)
       this.watcher = chokidar.watch(outputDir, {
         ignoreInitial: true,
         awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
       })
 
+      this.watcher.on('ready', () => console.log('[chokidar] ready, watching:', outputDir))
+      this.watcher.on('error', (err) => console.error('[chokidar] error:', err))
       this.watcher.on('add', (filePath: string) => {
+        console.log('[chokidar] add detected:', filePath)
         const ext = nodePath.extname(filePath).toLowerCase()
+        console.log('[chokidar] ext:', ext)
         if (['.jpg', '.jpeg', '.cr2', '.cr3', '.nef', '.arw'].includes(ext)) {
-          const event: PhotoReceivedEvent = {
-            tempPath: filePath,
-            filename: nodePath.basename(filePath),
-          }
-          this.emit('photo-received', event)
+          console.log('[chokidar] emitting photo-received')
+          this.emit('photo-received', { tempPath: filePath, filename: nodePath.basename(filePath) })
         }
       })
+
+      // Attempt to start tethering; if USB claim fails, kill services again and retry once
+      let result = await this.spawnGphoto2(outputDir)
+      if (!result.success && result.error?.includes('Could not claim')) {
+        console.log('[gphoto2] USB claim failed — killing camera services and retrying...')
+        if (process.platform === 'darwin') await this.killMacOSCameraServices()
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        result = await this.spawnGphoto2(outputDir)
+      }
+
+      if (!result.success) {
+        // Close watcher if gphoto2 ultimately failed
+        await this.watcher.close()
+        this.watcher = null
+        this.emit('tethering-error', result.error ?? 'gPhoto2 failed to start')
+        return result
+      }
 
       return { success: true }
     } catch (err) {
@@ -127,7 +214,15 @@ export class CameraManager extends EventEmitter {
   }
 
   /**
-   * Detiene el proceso gphoto2 y el watcher de chokidar.
+   * Returns true if gphoto2 tethering (or at least the chokidar watcher) is currently active.
+   * Used by CapturePage to skip the full init sequence when switching between recipes.
+   */
+  isTethering(): boolean {
+    return this.gphotoProcess !== null || this.watcher !== null
+  }
+
+  /**
+   * Stops gphoto2 process and chokidar watcher.
    */
   async stopTethering(): Promise<void> {
     if (this.gphotoProcess) {
@@ -137,6 +232,50 @@ export class CameraManager extends EventEmitter {
     if (this.watcher) {
       await this.watcher.close()
       this.watcher = null
+    }
+  }
+
+  /**
+   * Watch Folder mode — used when gphoto2 tethering is unavailable (e.g. macOS Sequoia).
+   * The user points their tethering software (Capture One, EOS Utility) to save photos here.
+   * Every new image file emits the same 'photo-received' event as gphoto2 tethering.
+   */
+  startFolderWatch(watchPath: string): { success: boolean; error?: string } {
+    try {
+      if (this.folderWatcher) {
+        this.folderWatcher.close()
+        this.folderWatcher = null
+      }
+
+      if (!fs.existsSync(watchPath)) {
+        return { success: false, error: `Folder not found: ${watchPath}` }
+      }
+
+      this.folderWatcher = chokidar.watch(watchPath, {
+        ignoreInitial: true,
+        awaitWriteFinish: { stabilityThreshold: 800, pollInterval: 100 },
+        depth: 0,   // only watch the top-level folder, not subdirectories
+      })
+
+      this.folderWatcher.on('add', (filePath: string) => {
+        const ext = nodePath.extname(filePath).toLowerCase()
+        if (['.jpg', '.jpeg', '.cr2', '.cr3', '.nef', '.arw', '.tif', '.tiff'].includes(ext)) {
+          this.emit('photo-received', { tempPath: filePath, filename: nodePath.basename(filePath) })
+        }
+      })
+
+      console.log('[CameraManager] Folder watch started:', watchPath)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  }
+
+  async stopFolderWatch(): Promise<void> {
+    if (this.folderWatcher) {
+      await this.folderWatcher.close()
+      this.folderWatcher = null
+      console.log('[CameraManager] Folder watch stopped')
     }
   }
 }

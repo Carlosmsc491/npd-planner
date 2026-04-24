@@ -1,18 +1,18 @@
 /**
  * CameraBadge — shows camera connection status in the app header.
  * Green = connected, gray = disconnected.
- * Visible ONLY for owner and photographer roles.
+ * Visible for owner, photographer role, or any user with isPhotographer add-on.
  */
 import { Camera } from 'lucide-react'
 import { useCameraStatus } from '../../hooks/useCameraStatus'
 import { useAuthStore } from '../../store/authStore'
+import { canTakePhotos } from '../../lib/permissions'
 
 export function CameraBadge() {
   const { user } = useAuthStore()
   const { connected, model } = useCameraStatus()
 
-  // Only owner and photographer see the badge
-  if (!user || (user.role !== 'owner' && user.role !== 'photographer')) return null
+  if (!user || !canTakePhotos(user)) return null
 
   return (
     <div

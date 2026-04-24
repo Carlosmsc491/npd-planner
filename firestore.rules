@@ -70,6 +70,9 @@ service cloud.firestore {
       // Owner can update anyone (except change another owner's role)
       // Admin can update members only (not owners, not other admins)
       // Users can update their own non-sensitive preferences
+      // Emergency recovery: any active user can promote themselves to owner ONLY
+      // (protected by the emergency key in-app; this rule is intentionally permissive
+      //  because the emergency page is the last resort recovery path)
       allow update: if isAppOwner() ||
                        (isAdmin() &&
                         resource.data.role == 'member' &&
@@ -77,7 +80,10 @@ service cloud.firestore {
                        (isSelf(uid) &&
                         !request.resource.data.diff(resource.data)
                           .affectedKeys()
-                          .hasAny(['role', 'status', 'email', 'uid', 'areaPermissions']));
+                          .hasAny(['role', 'status', 'email', 'uid', 'areaPermissions'])) ||
+                       (isSelf(uid) &&
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']) &&
+                        request.resource.data.role == 'owner');
 
       // Only owner can delete users (soft delete via status is preferred)
       allow delete: if isAppOwner();
@@ -208,7 +214,11 @@ service cloud.firestore {
     // without requiring authentication (new users are not yet logged in at that point).
     match /settings/appBootstrap {
       allow read: if true;
-      allow write: if isAdmin() || !exists(/databases/$(database)/documents/settings/appBootstrap);
+      // First-time bootstrap: allow any authenticated @eliteflower.com user to create it
+      // (prevents outsiders from claiming first-admin if document is accidentally deleted)
+      allow write: if isAdmin() ||
+                      (isAuthenticated() && isEliteFlowerEmail() &&
+                       !exists(/databases/$(database)/documents/settings/appBootstrap));
     }
 
     // ─────────────────────────────────────────
@@ -228,6 +238,17 @@ service cloud.firestore {
 
       match /recipeFiles/{fileId} {
         allow read, write: if isActiveUser();
+
+        // Notes subcollection — all active users can post; only author or admin can delete
+        match /notes/{noteId} {
+          allow read:   if isActiveUser();
+          allow create: if isActiveUser();
+          // Notes are immutable — no edits allowed
+          allow update: if false;
+          // Author can delete their own note; admins can delete any
+          allow delete: if isActiveUser() &&
+                           (resource.data.authorId == request.auth.uid || isAdmin());
+        }
       }
 
       match /recipePresence/{userId} {

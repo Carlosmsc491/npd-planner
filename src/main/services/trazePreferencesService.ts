@@ -11,7 +11,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 
-const PREFERENCES_FILE = path.join(app.getPath('userData'), 'traze-preferences.json');
+function getPreferencesFile(): string {
+  return path.join(app.getPath('userData'), 'traze-preferences.json');
+}
 
 export interface TrazePreferences {
   /** If true, shows the browser window during automation (headless: false) */
@@ -28,6 +30,7 @@ const DEFAULT_PREFERENCES: TrazePreferences = {
  */
 export function readPreferences(): TrazePreferences {
   try {
+    const PREFERENCES_FILE = getPreferencesFile();
     if (!fs.existsSync(PREFERENCES_FILE)) {
       return { ...DEFAULT_PREFERENCES };
     }
@@ -46,11 +49,12 @@ export function readPreferences(): TrazePreferences {
  * Saves preferences to disk.
  */
 export function savePreferences(preferences: TrazePreferences): void {
+  const PREFERENCES_FILE = getPreferencesFile();
   const dir = path.dirname(PREFERENCES_FILE);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  
+
   fs.writeFileSync(PREFERENCES_FILE, JSON.stringify(preferences, null, 2), 'utf-8');
 }
 

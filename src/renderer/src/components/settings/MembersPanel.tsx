@@ -2,11 +2,12 @@
 // Admin/Owner panel to manage team members: approve, reject, change role, suspend
 
 import { useEffect, useState } from 'react'
-import { Plus, Eye, EyeOff, Loader2, X, Shield } from 'lucide-react'
+import { Plus, Eye, EyeOff, Loader2, X, Shield, Camera } from 'lucide-react'
 import {
   subscribeToUsers,
   updateUserStatus,
   updateUserRole,
+  updateUserPhotographerFlag,
   approveUser,
   rejectUser,
 } from '../../lib/firestore'
@@ -69,6 +70,10 @@ export default function MembersPanel() {
 
   async function setRole(uid: string, role: UserRole) {
     await updateUserRole(uid, role)
+  }
+
+  async function togglePhotographer(uid: string, current: boolean) {
+    await updateUserPhotographerFlag(uid, !current)
   }
 
   async function resetPassword(email: string) {
@@ -158,6 +163,7 @@ export default function MembersPanel() {
             const isSelf = u.uid === currentUser?.uid
             // Use canChangeRole from permissions.ts for consistent enforcement
             const canAct = !!currentUser && canChangeRole(currentUser, u)
+            const isPhotoAddon = u.isPhotographer === true
             return (
               <MemberRow key={u.uid} user={u} isSelf={isSelf}>
                 {canAct && u.role === 'member' && (
@@ -168,6 +174,21 @@ export default function MembersPanel() {
                   >
                     <Shield size={12} />
                     Access
+                  </button>
+                )}
+                {/* Photographer add-on toggle — available to owner/admin for any non-owner user */}
+                {canAct && u.role !== 'photographer' && (
+                  <button
+                    onClick={() => togglePhotographer(u.uid, isPhotoAddon)}
+                    title={isPhotoAddon ? 'Remove photographer access' : 'Grant photographer access'}
+                    className={`flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      isPhotoAddon
+                        ? 'border-green-400 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-600 dark:bg-green-900/20 dark:text-green-400'
+                        : 'border-gray-300 text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <Camera size={12} />
+                    {isPhotoAddon ? '📷 Photo' : 'Photo'}
                   </button>
                 )}
                 {canAct && currentUser && (
@@ -544,6 +565,12 @@ function MemberRow({
           <p className="text-xs text-gray-400 dark:text-gray-500">{user.email}</p>
         </div>
         <RoleBadge role={user.role} />
+        {user.isPhotographer && user.role !== 'photographer' && (
+          <span className="flex items-center gap-0.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+            <Camera size={10} />
+            📷
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-2">{children}</div>
     </div>

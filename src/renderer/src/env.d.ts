@@ -49,7 +49,7 @@ interface IElectronAPI {
   recipeRenameFile: (oldPath: string, newPath: string) => Promise<{ success: boolean }>
   recipeIsFileOpen: (filePath: string) => Promise<boolean>
   recipeCreateFolder: (folderPath: string) => Promise<{ success: boolean }>
-  recipeScanProject: (rootPath: string) => Promise<Array<{ relativePath: string; displayName: string; price: string; option: string; name: string }>>
+  recipeScanProject: (rootPath: string) => Promise<Array<{ relativePath: string; displayName: string; price: string; option: string; name: string; recipeUid: string }>>
   recipeOpenInExcel: (filePath: string) => Promise<{ success: boolean; error?: string }>
   recipeListFolder: (folderPath: string) => Promise<Array<{ name: string; isDirectory: boolean; size: number; modifiedAt: string; fullPath: string }>>
   recipeDeleteItem: (itemPath: string) => Promise<{ success: boolean; error?: string }>
@@ -80,11 +80,31 @@ interface IElectronAPI {
   // Camera / Photo Capture
   startCameraTethering: (outputDir: string) => Promise<{ success: boolean; error?: string }>
   stopCameraTethering: () => Promise<void>
+  isTetheringActive: () => Promise<boolean>
   checkCameraConnection: () => Promise<{ connected: boolean; model: string | null }>
   onCameraStatusChanged: (cb: (data: { connected: boolean; model: string | null }) => void) => () => void
   onCameraPhotoReceived: (cb: (data: { tempPath: string; filename: string }) => void) => () => void
+  onCameraLog: (cb: (msg: string) => void) => () => void
+  onCameraTetheringError: (cb: (msg: string) => void) => () => void
+  cameraCopyFile: (sourcePath: string, destPath: string) => Promise<{ success: boolean; error?: string }>
+  startFolderWatch: (watchPath: string) => Promise<{ success: boolean; error?: string }>
+  stopFolderWatch: () => Promise<void>
+  recipeRenameWithPhotos: (input: import('./types').RenameWithPhotosInput) => Promise<import('./types').RenameWithPhotosResult>
+  recipeWriteIndex: (indexPath: string, content: string) => Promise<{ success: boolean; error?: string }>
+  recipeWriteUid: (filePath: string, uid: string) => Promise<{ success: boolean; error?: string }>
+  recipeGenerateUid: () => Promise<string>
+  copyToSelected: (args: { sourcePath: string; destPath: string }) => Promise<{ success: boolean; error?: string }>
+  deleteFromSelected: (args: { filePath: string }) => Promise<{ success: boolean; error?: string }>
+  convertPngToJpg: (args: { sourcePng: string; destJpg: string; quality?: number }) => Promise<{ success: boolean; error?: string }>
+  // Excel / Python
+  excelCheckDependencies: () => Promise<{ available: boolean; error?: string }>
+  insertPhotoInExcel: (args: { excelPath: string; jpgPath: string }) => Promise<{ success: boolean; error?: string }>
+  photoSaveAs: (entries: { srcPath: string; archivePath: string }[], destFolder: string) => Promise<{ success: boolean; errors: string[] }>
+  photoShowSaveDialog: (defaultFilename: string) => Promise<string | null>
+  photoExportZip: (entries: { srcPath: string; archivePath: string }[], destZipPath: string) => Promise<{ success: boolean; error?: string }>
   // App utilities
   getUserDataPath: () => Promise<string>
+  getDefaultTemplatePath: () => Promise<string>
   readFileAsDataUrl: (filePath: string) => Promise<string>
   testWriteAccess: (dirPath: string) => Promise<{ success: boolean; error?: string }>
   // Generic Traze / AWB IPC channels

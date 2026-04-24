@@ -1,7 +1,10 @@
 // src/renderer/src/components/recipes/wizard/WizardStepBasics.tsx
 // Step 1: Project name, root folder, template file, creation mode
 
-import { FolderOpen, FileSpreadsheet } from 'lucide-react'
+import { useEffect } from 'react'
+import { FolderOpen, FileSpreadsheet, Package } from 'lucide-react'
+
+const DEFAULT_TEMPLATE_NAME = 'ELITE QUOTE BOUQUET 2026'
 
 interface BasicsData {
   name: string
@@ -17,6 +20,15 @@ interface Props {
 }
 
 export default function WizardStepBasics({ data, onChange }: Props) {
+  // Auto-fill default template on first render if none is set
+  useEffect(() => {
+    if (data.templatePath) return
+    if (typeof window.electronAPI?.getDefaultTemplatePath !== 'function') return
+    window.electronAPI.getDefaultTemplatePath().then((p) => {
+      onChange({ templatePath: p })
+    }).catch(() => { /* ignore — user can browse manually */ })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function browseFolder() {
     const selected = await window.electronAPI.selectFolder()
     if (selected) onChange({ rootPath: selected })
@@ -26,6 +38,11 @@ export default function WizardStepBasics({ data, onChange }: Props) {
     const selected = await window.electronAPI.selectFile()
     if (selected) onChange({ templatePath: selected })
   }
+
+  const isDefaultTemplate = data.templatePath?.endsWith(`${DEFAULT_TEMPLATE_NAME}.xlsx`)
+  const templateLabel = isDefaultTemplate
+    ? DEFAULT_TEMPLATE_NAME
+    : (data.templatePath?.split(/[\\/]/).pop() ?? '')
 
   return (
     <div className="space-y-5">
@@ -99,10 +116,22 @@ export default function WizardStepBasics({ data, onChange }: Props) {
         </label>
         <div className="flex gap-2">
           <div className="flex-1 flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 min-w-0">
-            <FileSpreadsheet size={14} className="shrink-0 text-gray-400" />
-            <span className="text-sm truncate text-gray-600 dark:text-gray-300 font-mono">
-              {data.templatePath || <span className="text-gray-400 font-sans">No file selected</span>}
-            </span>
+            <FileSpreadsheet size={14} className="shrink-0 text-green-500" />
+            {data.templatePath ? (
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm truncate text-gray-700 dark:text-gray-200 font-medium">
+                  {templateLabel}
+                </span>
+                {isDefaultTemplate && (
+                  <span className="shrink-0 flex items-center gap-0.5 rounded-full bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 text-[9px] font-semibold text-green-700 dark:text-green-400">
+                    <Package size={8} />
+                    Default
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span className="text-sm text-gray-400 font-sans">Loading default template…</span>
+            )}
           </div>
           <button
             onClick={browseTemplate}
@@ -111,6 +140,11 @@ export default function WizardStepBasics({ data, onChange }: Props) {
             Browse
           </button>
         </div>
+        {isDefaultTemplate && (
+          <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
+            Bundled with the app — use Browse to override with a custom template.
+          </p>
+        )}
       </div>
 
       {/* Project deadline */}

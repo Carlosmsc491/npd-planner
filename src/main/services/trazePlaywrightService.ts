@@ -21,8 +21,8 @@ import { app } from 'electron';
 import * as os from 'os';
 import { readPreferences } from './trazePreferencesService';
 
-const CSV_OUTPUT_DIR    = path.join(app.getPath('userData'), 'traze-exports');
-const CREDENTIALS_FILE  = path.join(app.getPath('userData'), 'traze-credentials.json');
+function getCsvOutputDir(): string { return path.join(app.getPath('userData'), 'traze-exports'); }
+function getCredentialsFile(): string { return path.join(app.getPath('userData'), 'traze-credentials.json'); }
 
 interface TrazeCredentials {
   email:    string;
@@ -78,11 +78,11 @@ export function isChromiumAvailable(): boolean {
 
 function loadCredentials(): TrazeCredentials {
   try {
-    const raw = fs.readFileSync(CREDENTIALS_FILE, 'utf-8');
+    const raw = fs.readFileSync(getCredentialsFile(), 'utf-8');
     return JSON.parse(raw) as TrazeCredentials;
   } catch {
     throw new Error(
-      `Traze credentials not found. Create the file:\n${CREDENTIALS_FILE}\nWith content: {"email":"...","password":"..."}`
+      `Traze credentials not found. Create the file:\n${getCredentialsFile()}\nWith content: {"email":"...","password":"..."}`
     );
   }
 }
@@ -103,7 +103,7 @@ export async function downloadTrazeCSV(): Promise<string> {
 
   const creds = loadCredentials();
 
-  fs.mkdirSync(CSV_OUTPUT_DIR, { recursive: true });
+  fs.mkdirSync(getCsvOutputDir(), { recursive: true });
 
   // Check user preference for view browser mode
   const preferences = readPreferences();
@@ -250,7 +250,7 @@ export async function downloadTrazeCSV(): Promise<string> {
     // Timestamped filename so each download is preserved (7-day retention)
     const now = new Date();
     const ts = now.toISOString().slice(0, 19).replace(/[T:]/g, '-'); // YYYY-MM-DD-HH-mm-ss
-    const savePath = path.join(CSV_OUTPUT_DIR, `traze_export_${ts}.csv`);
+    const savePath = path.join(getCsvOutputDir(), `traze_export_${ts}.csv`);
 
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 30000 }),

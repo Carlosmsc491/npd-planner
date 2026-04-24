@@ -11,6 +11,7 @@ import { errorReporter } from './services/errorReporter'
 import { startTrashCleanupService, registerTrashCleanupHandlers } from './services/trashCleanupService'
 import { registerRecipeHandlers } from './ipc/recipeIpcHandlers'
 import { registerCameraHandlers } from './ipc/cameraHandlers'
+import { registerExcelHandlers } from './ipc/excelHandlers'
 import { createSplashWindow, closeSplashWindow } from './splash'
 
 const isDev = process.env.NODE_ENV === 'development' || !!process.env.ELECTRON_RENDERER_URL
@@ -193,6 +194,14 @@ app.whenReady().then(() => {
   // ── App utility handlers ───────────────────────────────────────────────────
   ipcMain.handle('app:get-user-data-path', () => app.getPath('userData'))
 
+  ipcMain.handle('app:get-default-template-path', () => {
+    if (app.isPackaged) {
+      return path.join(process.resourcesPath, 'templates', 'ELITE QUOTE BOUQUET 2026.xlsx')
+    }
+    // In dev, __dirname = out/main, so walk up to repo root
+    return path.join(__dirname, '../../resources/templates/ELITE QUOTE BOUQUET 2026.xlsx')
+  })
+
   ipcMain.handle('app:read-file-as-dataurl', async (_event, filePath: string) => {
     const buffer = fs.readFileSync(filePath)
     const ext = path.extname(filePath).toLowerCase().replace('.', '')
@@ -223,6 +232,7 @@ app.whenReady().then(() => {
   registerAwbIpcHandlers()
   registerTrashCleanupHandlers()
   registerRecipeHandlers()
+  registerExcelHandlers()
   startTrashCleanupService()
   errorReporter.log('App started')
 

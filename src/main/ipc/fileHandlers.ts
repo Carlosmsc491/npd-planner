@@ -114,17 +114,35 @@ export function registerFileHandlers(ipcMain: IpcMain): void {
   })
 
   // Resolve full path from SharePoint root + relative path
+  // Uses safeJoin() to prevent path-traversal (e.g. relativePath = "../../etc/passwd")
   ipcMain.handle(
     IPC.SHAREPOINT_RESOLVE_PATH,
     async (_event, sharePointRoot: string, relativePath: string): Promise<string> => {
-      const segments = relativePath.split('/')
-      return path.join(sharePointRoot, ...segments)
+      try {
+        const segments = relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+        return safeJoin(sharePointRoot, segments)
+      } catch (err) {
+        throw new Error(`Invalid path: ${err instanceof Error ? err.message : String(err)}`)
+      }
     }
   )
 
   // Open file with default system app
   ipcMain.handle(IPC.FILE_OPEN, async (_event, filePath: string): Promise<void> => {
     await shell.openPath(filePath)
+  })
+
+  // Open native folder picker — returns selected folder path or null
+  ipcMain.handle('dialog:open-folder', async (event): Promise<string | null> => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return null
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Select Watch Folder',
+      buttonLabel: 'Watch This Folder',
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
   })
 
   // Open native file picker — returns selected file path or null

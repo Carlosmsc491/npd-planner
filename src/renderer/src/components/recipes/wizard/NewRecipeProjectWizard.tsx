@@ -2,6 +2,7 @@
 // 3-step wizard: Basics → Rules → Structure → Create Project
 
 import React, { useState } from 'react'
+import { nanoid } from 'nanoid'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Loader2, Check, FolderPlus, Copy, FileSpreadsheet, Database, CheckCircle2 } from 'lucide-react'
 import { useAuthStore } from '../../../store/authStore'
@@ -163,6 +164,8 @@ export default function NewRecipeProjectWizard() {
       setProgress([...steps])
 
       const batchUpdates: Array<{ filePath: string; updates: Array<{ sheet: string; cell: string; value: string }> }> = []
+      // Map outputPath → recipeUid so we can persist it to Firestore in step 4
+      const recipeUidByPath = new Map<string, string>()
       let copied = 0
 
       for (const folder of data.folders) {
@@ -208,10 +211,14 @@ export default function NewRecipeProjectWizard() {
               value: String((recipe.distributionOverride[key] ?? 0) / 100),
             }))
 
+          const recipeUid = nanoid()
+          recipeUidByPath.set(outputPath, recipeUid)
+
           batchUpdates.push({
             filePath: outputPath,
             updates: [
               { sheet: 'Quote',      cell: 'D3',   value: normalizedName },
+              { sheet: 'Quote',      cell: 'Z52',  value: recipeUid },
               { sheet: 'Quote',      cell: 'D6',   value: recipe.holidayOverride    || '' },
               { sheet: 'Quote',      cell: 'D7',   value: recipe.customerOverride   || '' },
               { sheet: 'Quote',      cell: 'AA40', value: recipe.wetPackOverride    || '' },
@@ -275,11 +282,14 @@ export default function NewRecipeProjectWizard() {
           const fileId = `${projectId}::${relativePath.replace(/\//g, '|')}`
           const priceKey2 = recipe.price.startsWith('$') ? recipe.price : `$${recipe.price}`
           const hasSleevePrice = !!SLEEVE_PRICE_MAP[priceKey2]
+          const outputPath2 = `${projectRoot}/${sanitizeWindowsName(folder.name)}/${normalizedName}.xlsx`
+          const storedUid = recipeUidByPath.get(outputPath2) ?? nanoid()
 
           await upsertRecipeFile(projectId, fileId, {
             id: fileId,
             projectId,
             fileId,
+            recipeUid: storedUid,
             relativePath,
             displayName: normalizedName,
             price: recipe.price,
@@ -305,6 +315,14 @@ export default function NewRecipeProjectWizard() {
             assignedToName: null,
             photoStatus: 'pending',
             capturedPhotos: [],
+            readyPngPath: null,
+            readyJpgPath: null,
+            readyProcessedAt: null,
+            readyProcessedBy: null,
+            activeNotesCount: 0,
+            cleanedPhotoPaths: [],
+            cleanedPhotoStatus: null,
+            cleanedPhotoDroppedAt: null,
           })
 
           saved++

@@ -36,12 +36,15 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
   }
 }
 
+// React.StrictMode intentionally omitted — Firebase 12 persistentLocalCache is
+// incompatible with StrictMode's double-effect invocation in development.
+// StrictMode causes "INTERNAL ASSERTION FAILED: Unexpected state" (ID: b815/ca9)
+// because onSnapshot listeners are subscribed, immediately unsubscribed, then
+// re-subscribed faster than the Firestore watch stream can handle.
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <HashRouter>
-        <App />
-      </HashRouter>
-    </ErrorBoundary>
-  </React.StrictMode>
+  <ErrorBoundary>
+    <HashRouter>
+      <App />
+    </HashRouter>
+  </ErrorBoundary>
 )

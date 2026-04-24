@@ -96,6 +96,14 @@ export async function updateUserRole(uid: string, role: AppUser['role']): Promis
   }
 }
 
+export async function updateUserPhotographerFlag(uid: string, isPhotographer: boolean): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.USERS, uid), { isPhotographer })
+  } catch (err) {
+    throw new Error(`Failed to update photographer flag: ${err}`)
+  }
+}
+
 export async function updateUserAreaPermissions(
   uid: string,
   areaPermissions: AreaPermissions
@@ -315,10 +323,14 @@ export function subscribeToTask(
   taskId: string,
   callback: (task: Task | null) => void
 ): Unsubscribe {
-  return onSnapshot(doc(db, COLLECTIONS.TASKS, taskId), (snap) => {
-    if (!snap.exists()) callback(null)
-    else callback({ id: snap.id, ...snap.data() } as Task)
-  })
+  return onSnapshot(
+    doc(db, COLLECTIONS.TASKS, taskId),
+    (snap) => {
+      if (!snap.exists()) callback(null)
+      else callback({ id: snap.id, ...snap.data() } as Task)
+    },
+    (err) => console.error('subscribeToTask error:', err)
+  )
 }
 
 export function subscribeToTasks(
@@ -1072,15 +1084,15 @@ export async function updateUserPreferences(
 // ─────────────────────────────────────────
 
 const RECIPE_PROJECTS = 'recipeProjects'
-const RECIPE_FILES    = 'files'
+const RECIPE_FILES    = 'recipeFiles'
 
 export async function updateRecipePhotoStatus(
   recipeId: string,
-  status: 'pending' | 'in_progress' | 'complete'
+  status: 'pending' | 'in_progress' | 'complete' | 'selected'
 ): Promise<void> {
   try {
-    // recipeId is "{projectId}::{relativePath}" — derive projectId and fileId
-    const [projectId] = recipeId.split('::')
+    // recipeId is the full file.id compound key: "{projectId}::{encoded_path}"
+    const projectId = recipeId.substring(0, recipeId.indexOf('::'))
     await updateDoc(doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId), {
       photoStatus: status,
       updatedAt: serverTimestamp(),
@@ -1091,12 +1103,30 @@ export async function updateRecipePhotoStatus(
   }
 }
 
+export async function updateRecipePhotoSelections(
+  recipeId: string,
+  updatedPhotos: CapturedPhoto[],
+  status: 'complete' | 'selected'
+): Promise<void> {
+  try {
+    const projectId = recipeId.substring(0, recipeId.indexOf('::'))
+    await updateDoc(doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId), {
+      capturedPhotos: updatedPhotos,
+      photoStatus: status,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (err) {
+    console.error('updateRecipePhotoSelections failed:', err)
+    throw err
+  }
+}
+
 export async function addCapturedPhoto(
   recipeId: string,
   photo: CapturedPhoto
 ): Promise<void> {
   try {
-    const [projectId] = recipeId.split('::')
+    const projectId = recipeId.substring(0, recipeId.indexOf('::'))
     await updateDoc(doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId), {
       capturedPhotos: arrayUnion(photo),
       photoStatus: 'in_progress',
@@ -1104,6 +1134,66 @@ export async function addCapturedPhoto(
     })
   } catch (err) {
     console.error('addCapturedPhoto failed:', err)
+    throw err
+  }
+}
+
+export async function updateRecipeReadyPaths(
+  recipeId: string,
+  pngPath: string,
+  jpgPath: string,
+  userId: string
+): Promise<void> {
+  try {
+    const projectId = recipeId.substring(0, recipeId.indexOf('::'))
+    await updateDoc(doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId), {
+      readyPngPath:       pngPath,
+      readyJpgPath:       jpgPath,
+      readyProcessedAt:   serverTimestamp(),
+      readyProcessedBy:   userId,
+      photoStatus:        'ready',
+      updatedAt:          serverTimestamp(),
+    })
+  } catch (err) {
+    console.error('updateRecipeReadyPaths failed:', err)
+    throw err
+  }
+}
+
+export async function updateRecipeCleanedPaths(
+  recipeId: string,
+  cleanedPaths: string[],
+  status: 'needs_retouch' | 'done' | null,
+  userId: string
+): Promise<void> {
+  try {
+    const projectId = recipeId.substring(0, recipeId.indexOf('::'))
+    await updateDoc(doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId), {
+      cleanedPhotoPaths:    cleanedPaths,
+      cleanedPhotoStatus:   status,
+      cleanedPhotoDroppedAt: serverTimestamp(),
+      updatedBy:            userId,
+      updatedAt:            serverTimestamp(),
+    })
+  } catch (err) {
+    console.error('updateRecipeCleanedPaths failed:', err)
+    throw err
+  }
+}
+
+export async function updateRecipeExcelInserted(
+  recipeId: string,
+  userId: string
+): Promise<void> {
+  try {
+    const projectId = recipeId.substring(0, recipeId.indexOf('::'))
+    await updateDoc(doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId), {
+      excelInsertedAt: serverTimestamp(),
+      excelInsertedBy: userId,
+      updatedAt:       serverTimestamp(),
+    })
+  } catch (err) {
+    console.error('updateRecipeExcelInserted failed:', err)
     throw err
   }
 }
@@ -1941,10 +2031,14 @@ export async function setReviewingBy(
 export function subscribePendingApprovals(
   callback: (approvals: PendingApproval[]) => void
 ): Unsubscribe {
-  return onSnapshot(collection(db, COLLECTIONS.PENDING_APPROVALS), (snap) => {
-    const approvals = snap.docs.map((d) => d.data() as PendingApproval)
-    callback(approvals)
-  })
+  return onSnapshot(
+    collection(db, COLLECTIONS.PENDING_APPROVALS),
+    (snap) => {
+      const approvals = snap.docs.map((d) => d.data() as PendingApproval)
+      callback(approvals)
+    },
+    (err) => console.warn('subscribePendingApprovals error (requires admin):', err)
+  )
 }
 
 // ─────────────────────────────────────────

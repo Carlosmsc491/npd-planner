@@ -26,7 +26,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 const TRAZE_URL      = 'https://onesitegroup.trazeapp.com';
-const CSV_OUTPUT_DIR = path.join(app.getPath('userData'), 'traze-exports');
+function getCsvOutputDir(): string {
+  return path.join(app.getPath('userData'), 'traze-exports');
+}
 
 let trazeWindow: BrowserWindow | null = null;
 let npdMainWindow: BrowserWindow | null = null;
@@ -90,14 +92,14 @@ export function getOrCreateTrazeWindow(show = false): BrowserWindow {
   // ── Intercept CSV downloads from the Traze browser window ──────────────────
   // When the user clicks the Export button in the Traze UI, this captures the
   // file before it reaches the OS Downloads folder and saves it to our
-  // CSV_OUTPUT_DIR instead — then notifies the NPD Planner via callback.
+  // getCsvOutputDir() instead — then notifies the NPD Planner via callback.
   trazeWindow.webContents.session.on('will-download', (_event, item) => {
     const filename = item.getFilename();
     if (!filename.toLowerCase().endsWith('.csv')) return;
 
-    fs.mkdirSync(CSV_OUTPUT_DIR, { recursive: true });
+    fs.mkdirSync(getCsvOutputDir(), { recursive: true });
     const dateTag  = new Date().toISOString().slice(0, 10);
-    const savePath = path.join(CSV_OUTPUT_DIR, `shipments_inbound_${dateTag}.csv`);
+    const savePath = path.join(getCsvOutputDir(), `shipments_inbound_${dateTag}.csv`);
 
     item.setSavePath(savePath);
     console.log(`[TrazeWindow] Intercepting CSV download → ${savePath}`);
@@ -268,7 +270,7 @@ export async function downloadCsvViaTrazeWindow(from: string, to: string): Promi
 
   const debugLog = (msg: string): void => {
     const line = `${new Date().toISOString()} ${msg}\n`;
-    try { fs.appendFileSync(path.join(CSV_OUTPUT_DIR, '.traze_debug.log'), line); } catch { /* ignore */ }
+    try { fs.appendFileSync(path.join(getCsvOutputDir(), '.traze_debug.log'), line); } catch { /* ignore */ }
     console.log('[TrazeWindow]', msg);
   };
 
@@ -387,9 +389,9 @@ export async function downloadCsvViaTrazeWindow(from: string, to: string): Promi
   debugLog(`XHR success — file: ${parsed.filename}, CSV length: ${parsed.csv.length}`);
 
   // Save to disk
-  fs.mkdirSync(CSV_OUTPUT_DIR, { recursive: true });
+  fs.mkdirSync(getCsvOutputDir(), { recursive: true });
   const dateTag  = new Date().toISOString().slice(0, 10);
-  const filePath = path.join(CSV_OUTPUT_DIR, `shipments_inbound_${dateTag}.csv`);
+  const filePath = path.join(getCsvOutputDir(), `shipments_inbound_${dateTag}.csv`);
   fs.writeFileSync(filePath, parsed.csv, 'utf-8');
 
   const rowCount = parsed.csv.split('\n').filter(Boolean).length - 1;

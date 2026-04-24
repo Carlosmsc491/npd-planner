@@ -19,6 +19,10 @@ extraResources:
     to: playwright-browsers/chromium-1208
     filter:
       - "**/*"
+  - from: resources/scripts/insert_photo.py
+    to: scripts/insert_photo.py
+  - from: "resources/templates/ELITE QUOTE BOUQUET 2026.xlsx"
+    to: "templates/ELITE QUOTE BOUQUET 2026.xlsx"
 asarUnpack:
   - resources/**
 win:

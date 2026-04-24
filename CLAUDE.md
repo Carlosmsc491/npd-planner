@@ -13,6 +13,7 @@
 - **Platform:** Desktop — Windows (.exe) + Mac (.dmg)
 - **Purpose:** Central operations hub for team task management, trips, vacations, and file coordination
 - **Auth domain:** @eliteflower.com ONLY — all other domains are rejected at registration and login
+- **Language:** ALL user-facing text must be in English. No Spanish strings anywhere in the UI.
 
 ---
 
@@ -652,6 +653,38 @@ Update these as you complete each feature. Add [x] when done.
 ├── CAMERA/{subfolder}/{recipeName} - {n}.jpg   ← raw tethered files
 └── Pictures/{subfolder}/{recipeName} - {n}.jpg ← permanent copies
 ```
+
+### Phase 9 — Photo Manager (Fase 2–4)
+- [x] `PhotoManagerView.tsx` — 4-tab manager: CAMERA · SELECTED · CLEANED · READY
+- [x] KPI cards: Photographed, Selected, Warnings, Cleaned, Ready + progress bar
+- [x] CAMERA & SELECTED tabs: per-recipe grouped grid with STAR toggle
+- [x] CLEANED tab: per-recipe drop zones (drag retouched PNG/JPG → promotes to READY)
+- [x] READY tab: processed recipes grid (PNG + JPG preview cards)
+- [x] Selection: checkbox overlay on hover, Select All, Select All from Recipe, Deselect All
+- [x] Delete selected with confirmation dialog
+- [x] Save As (copies files to chosen folder maintaining recipe folder structure)
+- [x] Download ZIP (zip/PowerShell, same structure, no extra npm packages)
+- [x] Format dialog for READY exports: PNG + JPG checkboxes (both must be chosen)
+- [x] Warning dialog before accepting READY drop (shows open recipe notes)
+- [x] Notes subcollection Firestore rules added (fixes notes-not-posting bug)
+- [x] **Fase 4 — Excel insertion**: `insert_photo.py` Python script (openpyxl + Pillow)
+  - Inserts JPG into "Spec Sheet" G8:M35 using AbsoluteAnchor (pixel-precise, EMU)
+  - IPC: `excel:check-dependencies`, `excel:insert-photo` in `excelHandlers.ts`
+  - `RecipeFile` fields: `excelInsertedAt: Timestamp | null`, `excelInsertedBy: string | null`
+  - Firestore: `updateRecipeExcelInserted(recipeId, userId)`
+  - UI: "Insertar en Excel" button on each READY card (blue → spinner → green ✓ + Reinsertar)
+  - Python script bundled via `electron-builder.yml` extraResources → `scripts/insert_photo.py`
+
+**System requirement:** `pip3 install openpyxl pillow`
+
+**New IPC channels (excel):**
+- `excel:check-dependencies` → `{ available, error? }`
+- `excel:insert-photo({ excelPath, jpgPath })` → `{ success, error? }`
+
+**New IPC channels (photo export):**
+- `photo:save-as(entries, destFolder)` → `{ success, errors[] }`
+- `photo:show-save-dialog(defaultFilename)` → `string | null`
+- `photo:export-zip(entries, destZipPath)` → `{ success, error? }`
 
 ### Phase 8 — Analytics & Build
 - [ ] Analytics dashboard (admin only): tasks/week, load by person, top clients

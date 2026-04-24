@@ -17,24 +17,28 @@ interface NotificationRequest {
 export function registerNotificationHandlers(ipcMain: IpcMain): void {
 
   ipcMain.on(IPC.NOTIFICATION_SEND, (_event, req: NotificationRequest) => {
-    // Only Planner board tasks get desktop notifications
-    if (req.boardType !== 'planner') return
+    try {
+      // Only Planner board tasks get desktop notifications
+      if (req.boardType !== 'planner') return
+      if (!Notification.isSupported()) return
+      if (!req.title || !req.body || !req.taskId) return
 
-    if (!Notification.isSupported()) return
+      const notification = new Notification({
+        title: String(req.title).slice(0, 256),
+        body: String(req.body).slice(0, 512),
+        silent: req.silent ?? false,
+        timeoutType: 'default',
+      })
 
-    const notification = new Notification({
-      title: req.title,
-      body: req.body,
-      silent: req.silent ?? false,
-      timeoutType: 'default',
-    })
+      notification.on('click', () => {
+        // Send taskId back to renderer to open the task
+        try { _event.sender.send(IPC.NOTIFICATION_CLICKED, req.taskId) } catch { /* window may have closed */ }
+      })
 
-    notification.on('click', () => {
-      // Send taskId back to renderer to open the task
-      _event.sender.send(IPC.NOTIFICATION_CLICKED, req.taskId)
-    })
-
-    notification.show()
+      notification.show()
+    } catch (err) {
+      console.error('[notification] Failed to show notification:', err)
+    }
   })
 }
 

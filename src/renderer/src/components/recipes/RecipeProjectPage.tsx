@@ -2,6 +2,8 @@
 // Full project window: file list, locks, presence, progress, detail panel
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useRecipeNotes } from '../../hooks/useRecipeNotes'
+import CaptureWarningModal from './CaptureWarningModal'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
@@ -18,8 +20,10 @@ import {
   assignRecipeFile,
   updateRecipeFileId,
   updateRecipeProject,
+  updateRecipeAfterRename,
+  resolveAllRecipeNotes,
 } from '../../lib/recipeFirestore'
-import { subscribeToUsers, createNotification } from '../../lib/firestore'
+import { subscribeToUsers, createNotification, getGlobalSettings } from '../../lib/firestore'
 import { canEditArea } from '../../lib/permissions'
 import { useAuthStore } from '../../store/authStore'
 import { useRecipeLock } from '../../hooks/useRecipeLock'
@@ -31,8 +35,9 @@ import RecipeActivityFeed from './RecipeActivityFeed'
 import DeadlineWidget from './DeadlineWidget'
 import RecipeFileManagerDialog from './RecipeFileManagerDialog'
 import RecipeSettingsTab from './settings/RecipeSettingsTab'
-import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification } from '../../types'
-import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Download, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft } from 'lucide-react'
+import { PhotoManagerView } from './PhotoManagerView'
+import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification, RenameWithPhotosResult } from '../../types'
+import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Download, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
 
 export default function RecipeProjectPage() {
@@ -49,6 +54,8 @@ export default function RecipeProjectPage() {
   const [fileManagerOpen, setFileManagerOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [users, setUsers] = useState<AppUser[]>([])
+  const [ssdBase, setSsdBase] = useState<string | null>(null)
+  const [view, setView] = useState<'recipes' | 'photo-manager'>('recipes')
 
   // Bulk selection
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set())
@@ -153,6 +160,13 @@ export default function RecipeProjectPage() {
     return unsub
   }, [])
 
+  // ── Load global settings (for SSD path) ─────────────────────────────────
+  useEffect(() => {
+    getGlobalSettings().then(gs => {
+      setSsdBase(gs?.ssdPhotoPath ?? null)
+    }).catch(console.error)
+  }, [])
+
   // ── Check and expire stale locks on mount ────────────────────────────────
   useEffect(() => {
     if (!projectId) return
@@ -178,10 +192,12 @@ export default function RecipeProjectPage() {
   }, [unclaimFile])
 
   const handleMarkDone = useCallback(async () => {
-    if (!projectId || !selectedFile || !user || !currentLock) return
-    await markRecipeDone(projectId, selectedFile.id, user.name, currentLock.lockToken)
-    // Lock is released as part of markRecipeDone — reset local state
-    await unclaimFile()
+    if (!projectId || !selectedFile || !user) return
+    // currentLock may be null after app restart (token is in-memory only).
+    // markRecipeDone ignores the token server-side, so passing '' is safe.
+    await markRecipeDone(projectId, selectedFile.id, user.name, currentLock?.lockToken ?? '')
+    // Only unclaim if we have an active in-memory lock to clean up
+    if (currentLock) await unclaimFile()
   }, [projectId, selectedFile, user, currentLock, unclaimFile])
 
   const handleReopen = useCallback(async () => {
@@ -196,13 +212,14 @@ export default function RecipeProjectPage() {
 
   const handleOpenInExcel = useCallback(async () => {
     if (!project || !selectedFile) return
-    const fullPath = `${project.rootPath}/${selectedFile.relativePath}`.replace(/\//g, '\\')
+    // Use the IPC layer to join paths cross-platform (avoids hardcoded separators)
+    const fullPath = await window.electronAPI.resolveSharePointPath(project.rootPath, selectedFile.relativePath)
     await window.electronAPI.recipeOpenInExcel(fullPath)
   }, [project, selectedFile])
 
   const handleOpenInExcelForFile = useCallback(async (file: RecipeFile) => {
     if (!project) return
-    const fullPath = `${project.rootPath}/${file.relativePath}`.replace(/\//g, '\\')
+    const fullPath = await window.electronAPI.resolveSharePointPath(project.rootPath, file.relativePath)
     await window.electronAPI.recipeOpenInExcel(fullPath)
   }, [project])
 
@@ -316,6 +333,49 @@ export default function RecipeProjectPage() {
     }
     setScanKey((k) => k + 1)
   }, [projectId, project])
+
+  // ── Rename handler (from RenameRecipeModal) ─────────────────────────────
+  const handleRename = useCallback(async (result: RenameWithPhotosResult, newDisplayName: string) => {
+    if (!projectId || !project || !selectedFile) return
+
+    const root = project.rootPath.replace(/\\/g, '/')
+    const newRel = result.newExcelPath.replace(/\\/g, '/').replace(root + '/', '')
+    const newFileId = `${projectId}::${newRel.replace(/\//g, '|')}`
+    const oldFileId = selectedFile.fileId
+
+    // Update Firestore: migrate doc to new fileId + update paths/photos
+    await updateRecipeAfterRename(projectId, oldFileId, {
+      newFileId,
+      newRelativePath: newRel,
+      newDisplayName,
+      updatedPhotos: result.updatedPhotos,
+      newReadyPngPath: result.newReadyPngPath,
+      newReadyJpgPath: result.newReadyJpgPath,
+    })
+
+    // Write backup index to _PROJECT folder (best-effort)
+    // Build a snapshot of the current recipe list with the renamed entry applied
+    const indexPath = `${project.rootPath.replace(/\\/g, '/')}/_PROJECT/_recipe-index.json`
+    const updatedFiles = files.map(f =>
+      f.fileId === oldFileId
+        ? { ...f, fileId: newFileId, relativePath: newRel, displayName: newDisplayName }
+        : f
+    )
+    const indexContent = JSON.stringify({
+      projectId,
+      projectName: project.name,
+      generatedAt: new Date().toISOString(),
+      recipes: Object.fromEntries(
+        updatedFiles
+          .filter(f => f.recipeUid)
+          .map(f => [f.recipeUid, { relativePath: f.relativePath, displayName: f.displayName, updatedAt: new Date().toISOString() }])
+      ),
+    }, null, 2)
+    window.electronAPI.recipeWriteIndex(indexPath, indexContent).catch(console.error)
+
+    // Trigger re-scan so the file list reflects the rename
+    setScanKey((k) => k + 1)
+  }, [projectId, project, selectedFile, files])
 
   // ── Update folder path when project folder not found ─────────────────────
   const handleUpdateFolderPath = useCallback(async () => {
@@ -518,6 +578,22 @@ export default function RecipeProjectPage() {
           CSV
         </button>
 
+        {/* Photo Manager — visible to all users (actions gated by canTakePhotos inside) */}
+        {user && (
+          <button
+            onClick={() => setView(v => v === 'photo-manager' ? 'recipes' : 'photo-manager')}
+            title="Photo Manager"
+            className={`flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 transition-colors shrink-0 ${
+              view === 'photo-manager'
+                ? 'bg-green-600 text-white border-green-600'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border-gray-200 dark:border-gray-700'
+            }`}
+          >
+            <Camera size={13} />
+            {view === 'photo-manager' ? '← Recipes' : 'Photo Manager'}
+          </button>
+        )}
+
         {/* Settings */}
         {canEdit && (
           <button
@@ -596,7 +672,12 @@ export default function RecipeProjectPage() {
       </div>
 
       {/* ── Main body: file list + detail panel ── */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* ── Photo Manager view ── */}
+      {view === 'photo-manager' && project && (
+        <PhotoManagerView project={project} onBack={() => setView('recipes')} />
+      )}
+
+      <div className={`flex flex-1 overflow-hidden ${view === 'photo-manager' ? 'hidden' : ''}`}>
         {/* ── Left column: folders + activity ── */}
         <div className="flex flex-col w-2/3 overflow-hidden border-r border-gray-200 dark:border-gray-700">
           {/* File list */}
@@ -846,6 +927,7 @@ export default function RecipeProjectPage() {
                       key={folder}
                       folderName={folder}
                       files={folderFiles}
+                      projectId={projectId}
                       selectedFileId={selectedFile?.id ?? null}
                       currentUserName={user?.name ?? ''}
                       currentUserUid={user?.uid}
@@ -884,6 +966,7 @@ export default function RecipeProjectPage() {
               <RecipeFolderSection
                 folderName={currentFolder}
                 files={filteredFilesByFolder[currentFolder] ?? []}
+                projectId={projectId}
                 selectedFileId={selectedFile?.id ?? null}
                 currentUserName={user?.name ?? ''}
                 currentUserUid={user?.uid}
@@ -907,6 +990,7 @@ export default function RecipeProjectPage() {
                     selected={selectedFile?.id === file.id}
                     checked={selectedFileIds.has(file.id)}
                     currentUserUid={user?.uid}
+                    userRole={user?.role}
                     onSelect={() => setSelectedFile(file)}
                     onCheckToggle={() => toggleCheck(file.id)}
                     onDoubleClick={() => handleOpenInExcelForFile(file)}
@@ -934,7 +1018,6 @@ export default function RecipeProjectPage() {
             project={project}
             settings={settings}
             currentUserName={user?.name ?? ''}
-            currentLockToken={currentLock?.lockToken ?? null}
             users={users}
             canEdit={canEdit}
             onClaim={handleClaim}
@@ -944,6 +1027,8 @@ export default function RecipeProjectPage() {
             onOpenInExcel={handleOpenInExcel}
             onAssign={handleAssign}
             onForceUnlock={handleForceUnlock}
+            onRename={handleRename}
+            ssdBase={ssdBase}
           />
         </div>
       </div>
@@ -1068,11 +1153,51 @@ function FileExplorerCard({
   selected: boolean
   checked: boolean
   currentUserUid: string | undefined
+  userRole?: string
   onSelect: () => void
   onCheckToggle: () => void
   onDoubleClick: () => void
 }) {
+  const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const [showWarning, setShowWarning] = useState(false)
   const isSm = size === 'sm'
+  const photoStatus = file.photoStatus ?? 'pending'
+
+  const { activeNotes } = useRecipeNotes(file.projectId, file.fileId)
+
+  function handleCameraClick(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (activeNotes.length > 0) {
+      setShowWarning(true)
+    } else {
+      navigate(`/capture/${file.id}`)
+    }
+  }
+
+  async function handleFixNow() {
+    if (!user) return
+    await resolveAllRecipeNotes(file.projectId, file.fileId, user.uid, user.name)
+    setShowWarning(false)
+    navigate(`/capture/${file.id}`)
+  }
+
+  const cameraBtnConfig = (() => {
+    switch (photoStatus) {
+      case 'in_progress': return {
+        label: 'Continue', cls: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400', disabled: false,
+      }
+      case 'complete': return {
+        label: 'Select Candidate', cls: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400', disabled: false,
+      }
+      case 'selected': return {
+        label: 'Reopen Session', cls: 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-300', disabled: false,
+      }
+      default: return {
+        label: 'Take Photos', cls: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400', disabled: false,
+      }
+    }
+  })()
 
   const statusColor: Record<string, string> = {
     pending:      'text-gray-400 dark:text-gray-500',
@@ -1111,16 +1236,27 @@ function FileExplorerCard({
         </div>
       </div>
 
-      {/* Excel icon */}
-      <div className={`flex items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30 ${
-        isSm ? 'w-9 h-9' : size === 'md' ? 'w-11 h-11' : 'w-14 h-14'
-      }`}>
-        <svg viewBox="0 0 24 24" className={isSm ? 'w-5 h-5' : 'w-6 h-6'} fill="none">
-          <rect x="2" y="2" width="20" height="20" rx="3" fill="#217346" />
-          <path d="M7 8l2.5 4L7 16h2l1.5-2.5L12 16h2l-2.5-4L14 8h-2l-1.5 2.5L9 8H7z" fill="white" />
-          <rect x="13" y="8" width="1" height="8" fill="white" opacity="0.5" />
-          <rect x="14" y="8" width="4" height="8" rx="1" fill="white" opacity="0.2" />
-        </svg>
+      {/* Excel icon + warning badge */}
+      <div className="relative">
+        <div className={`flex items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30 ${
+          isSm ? 'w-9 h-9' : size === 'md' ? 'w-11 h-11' : 'w-14 h-14'
+        }`}>
+          <svg viewBox="0 0 24 24" className={isSm ? 'w-5 h-5' : 'w-6 h-6'} fill="none">
+            <rect x="2" y="2" width="20" height="20" rx="3" fill="#217346" />
+            <path d="M7 8l2.5 4L7 16h2l1.5-2.5L12 16h2l-2.5-4L14 8h-2l-1.5 2.5L9 8H7z" fill="white" />
+            <rect x="13" y="8" width="1" height="8" fill="white" opacity="0.5" />
+            <rect x="14" y="8" width="4" height="8" rx="1" fill="white" opacity="0.2" />
+          </svg>
+        </div>
+        {(file.activeNotesCount ?? 0) > 0 && (
+          <div
+            className="absolute -bottom-1 -right-1 rounded-full bg-amber-400 dark:bg-amber-500 flex items-center justify-center"
+            style={{ width: 14, height: 14 }}
+            title={`${file.activeNotesCount} active note${file.activeNotesCount !== 1 ? 's' : ''}`}
+          >
+            <AlertTriangle size={8} className="text-white" />
+          </div>
+        )}
       </div>
 
       {/* Name */}
@@ -1144,6 +1280,42 @@ function FileExplorerCard({
         <p className="text-[9px] text-gray-400 dark:text-gray-500 mt-0.5 truncate w-full text-center">
           {file.assignedToName}
         </p>
+      )}
+
+      {/* Camera button — md and lg, all roles */}
+      {!isSm && (
+        <button
+          title={cameraBtnConfig.label}
+          disabled={cameraBtnConfig.disabled}
+          onClick={(e) => {
+            handleCameraClick(e)
+          }}
+          className={`mt-1.5 w-full flex items-center justify-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium transition-colors ${cameraBtnConfig.cls}`}
+        >
+          <Camera size={9} />
+          {cameraBtnConfig.label}
+        </button>
+      )}
+
+      {/* Camera dot — sm: color by photo status */}
+      {isSm && photoStatus !== 'pending' && (
+        <div className={`absolute bottom-1 right-1 rounded-full w-3.5 h-3.5 flex items-center justify-center ${
+          photoStatus === 'selected' ? 'bg-green-500'
+          : photoStatus === 'complete' ? 'bg-blue-500'
+          : 'bg-amber-400'
+        }`}>
+          <Camera size={8} className="text-white" />
+        </div>
+      )}
+
+      {/* Pre-capture warning modal */}
+      {showWarning && (
+        <CaptureWarningModal
+          recipeName={file.displayName}
+          activeNotes={activeNotes}
+          onFixLater={() => { setShowWarning(false); navigate(`/capture/${file.id}`) }}
+          onFixNow={handleFixNow}
+        />
       )}
     </div>
   )

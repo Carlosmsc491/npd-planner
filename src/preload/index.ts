@@ -23,6 +23,8 @@ const INVOKE_CHANNELS = [
   'traze:chromium-available',
   // SharePoint template files
   'file:save-text',
+  // Folder picker dialog
+  'dialog:open-folder',
 ] as const
 
 const EVENT_CHANNELS = [
@@ -152,6 +154,9 @@ const electronAPI = {
   stopCameraTethering: (): Promise<void> =>
     ipcRenderer.invoke('camera:stop-tethering'),
 
+  isTetheringActive: (): Promise<boolean> =>
+    ipcRenderer.invoke('camera:is-tethering'),
+
   checkCameraConnection: (): Promise<{ connected: boolean; model: string | null }> =>
     ipcRenderer.invoke('camera:check-connection'),
 
@@ -167,9 +172,70 @@ const electronAPI = {
     return () => ipcRenderer.removeListener('camera:photo-received', listener)
   },
 
+  onCameraLog: (cb: (msg: string) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, msg: string) => cb(msg)
+    ipcRenderer.on('camera:log', listener)
+    return () => ipcRenderer.removeListener('camera:log', listener)
+  },
+
+  onCameraTetheringError: (cb: (msg: string) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, msg: string) => cb(msg)
+    ipcRenderer.on('camera:tethering-error', listener)
+    return () => ipcRenderer.removeListener('camera:tethering-error', listener)
+  },
+
+  cameraCopyFile: (sourcePath: string, destPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('camera:copy-file', sourcePath, destPath),
+
+  startFolderWatch: (watchPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('camera:start-folder-watch', watchPath),
+
+  stopFolderWatch: (): Promise<void> =>
+    ipcRenderer.invoke('camera:stop-folder-watch'),
+
+  recipeRenameWithPhotos: (input: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('recipe:rename-with-photos', input),
+
+  recipeWriteIndex: (indexPath: string, content: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('recipe:write-index', indexPath, content),
+
+  recipeWriteUid: (filePath: string, uid: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('recipe:write-uid', filePath, uid),
+
+  recipeGenerateUid: (): Promise<string> =>
+    ipcRenderer.invoke('recipe:generate-uid'),
+
+  copyToSelected: (args: { sourcePath: string; destPath: string }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('photo:copy-to-selected', args),
+
+  deleteFromSelected: (args: { filePath: string }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('photo:delete-from-selected', args),
+
+  convertPngToJpg: (args: { sourcePng: string; destJpg: string; quality?: number }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('photo:convert-png-to-jpg', args),
+
+  // ── Excel / Python ──────────────────────────────────────────────────────────
+  excelCheckDependencies: (): Promise<{ available: boolean; error?: string }> =>
+    ipcRenderer.invoke('excel:check-dependencies'),
+
+  insertPhotoInExcel: (args: { excelPath: string; jpgPath: string }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('excel:insert-photo', args),
+
+  photoSaveAs: (entries: { srcPath: string; archivePath: string }[], destFolder: string): Promise<{ success: boolean; errors: string[] }> =>
+    ipcRenderer.invoke('photo:save-as', entries, destFolder),
+
+  photoShowSaveDialog: (defaultFilename: string): Promise<string | null> =>
+    ipcRenderer.invoke('photo:show-save-dialog', defaultFilename),
+
+  photoExportZip: (entries: { srcPath: string; archivePath: string }[], destZipPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('photo:export-zip', entries, destZipPath),
+
   // ── App utilities ─────────────────────────────────────────────────────────
   getUserDataPath: (): Promise<string> =>
     ipcRenderer.invoke('app:get-user-data-path'),
+
+  getDefaultTemplatePath: (): Promise<string> =>
+    ipcRenderer.invoke('app:get-default-template-path'),
 
   readFileAsDataUrl: (filePath: string): Promise<string> =>
     ipcRenderer.invoke('app:read-file-as-dataurl', filePath),

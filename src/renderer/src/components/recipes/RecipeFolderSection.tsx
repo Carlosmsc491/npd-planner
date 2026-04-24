@@ -9,6 +9,7 @@ import RecipeRowItem from './RecipeRowItem'
 interface Props {
   folderName: string
   files: RecipeFile[]
+  projectId: string
   selectedFileId: string | null
   currentUserName: string
   currentUserUid?: string
@@ -22,6 +23,7 @@ interface Props {
 export default function RecipeFolderSection({
   folderName,
   files,
+  projectId,
   selectedFileId,
   currentUserName,
   currentUserUid,
@@ -102,6 +104,7 @@ export default function RecipeFolderSection({
               <RecipeRowItem
                 key={file.id}
                 file={file}
+                projectId={projectId}
                 isSelected={selectedFileId === file.id}
                 isChecked={selectedFileIds?.has(file.id)}
                 currentUserName={currentUserName}

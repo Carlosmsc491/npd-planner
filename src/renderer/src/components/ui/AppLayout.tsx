@@ -79,7 +79,8 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
   const [showApprovalModal, setShowApprovalModal] = useState(false)
 
   const isAdmin        = user?.role === 'admin' || user?.role === 'owner'
-  const isPhotographer = user?.role === 'photographer'
+  // Standalone photographer (role=photographer without the add-on flag) is app-restricted
+  const isPhotographer = user?.role === 'photographer' && !user?.isPhotographer
 
   // Pending approvals — only active for admin/owner
   const pendingApprovals = usePendingApprovals(user ?? null)

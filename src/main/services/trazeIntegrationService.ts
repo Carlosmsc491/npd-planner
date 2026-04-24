@@ -14,8 +14,12 @@ import { app }   from 'electron';
 import { downloadTrazeCSV, isChromiumAvailable } from './trazePlaywrightService';
 import { cleanupOldCsvFiles }  from './awbLookupService';
 
-const CSV_OUTPUT_DIR = path.join(app.getPath('userData'), 'traze-exports');
-const LAST_RUN_FILE  = path.join(CSV_OUTPUT_DIR, '.last_run');
+function getCsvOutputDir(): string {
+  return path.join(app.getPath('userData'), 'traze-exports');
+}
+function getLastRunFile(): string {
+  return path.join(getCsvOutputDir(), '.last_run');
+}
 
 const SCHEDULE_START_HOUR = 7;   // 7:00 AM
 const SCHEDULE_END_HOUR   = 18;  // 6:00 PM
@@ -30,7 +34,7 @@ let isDownloading = false;
 
 function getLastRun(): Date | null {
   try {
-    const content = fs.readFileSync(LAST_RUN_FILE, 'utf-8').trim();
+    const content = fs.readFileSync(getLastRunFile(), 'utf-8').trim();
     return new Date(content);
   } catch {
     return null;
@@ -39,8 +43,8 @@ function getLastRun(): Date | null {
 
 function saveLastRun(): void {
   try {
-    fs.mkdirSync(path.dirname(LAST_RUN_FILE), { recursive: true });
-    fs.writeFileSync(LAST_RUN_FILE, new Date().toISOString(), 'utf-8');
+    fs.mkdirSync(path.dirname(getLastRunFile()), { recursive: true });
+    fs.writeFileSync(getLastRunFile(), new Date().toISOString(), 'utf-8');
   } catch (err) {
     console.error('[TrazeIntegration] Could not save last_run:', err);
   }

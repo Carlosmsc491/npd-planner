@@ -54,6 +54,7 @@ export interface AppUser {
   lastSeen: Timestamp
   preferences: UserPreferences
   areaPermissions?: AreaPermissions
+  isPhotographer?: boolean   // add-on: any role can gain photo-capture capabilities
 }
 
 // ─────────────────────────────────────────
@@ -329,6 +330,7 @@ export interface GlobalSettings {
   archiveAfterMonths: number            // default: 12
   notificationsEnabled: boolean
   ssdPhotoPath: string | null           // external SSD path for photo backups (photographer module)
+  captureWatchPath: string | null       // folder watched for new photos (e.g. Capture One output folder)
 }
 
 // ─────────────────────────────────────────
@@ -344,6 +346,9 @@ export interface CapturedPhoto {
   ssdPath: string | null    // path on SSD if available
   capturedAt: Timestamp
   capturedBy: string        // uid
+  isSelected: boolean       // marked as candidate in Gallery mode
+  selectedAt?: Timestamp
+  selectedBy?: string       // uid
 }
 
 export interface EmergencySettings {
@@ -620,6 +625,7 @@ export interface RecipeFile {
   id: string
   projectId: string
   fileId: string                  // "{projectId}::{folder}|{filename}.xlsx" (| replaces / to avoid Firestore path issues)
+  recipeUid: string               // stable UUID stored in Excel Z52 — never changes on rename
   relativePath: string            // "Valentine/$12.99 A VALENTINE.xlsx"
   displayName: string             // "$12.99 A VALENTINE"
   price: string                   // "$12.99"
@@ -643,8 +649,37 @@ export interface RecipeFile {
   updatedAt: Timestamp
   assignedTo: string | null       // uid del usuario asignado
   assignedToName: string | null   // nombre display (para mostrar sin query)
-  photoStatus: 'pending' | 'in_progress' | 'complete'
+  photoStatus: 'pending' | 'in_progress' | 'complete' | 'selected' | 'ready'
   capturedPhotos: CapturedPhoto[]
+  // Fase 3 — READY
+  readyPngPath: string | null
+  readyJpgPath: string | null
+  readyProcessedAt: Timestamp | null
+  readyProcessedBy: string | null
+  // Notes & warnings (denormalized count for quick display)
+  activeNotesCount: number
+  // Cleaned photos (optional pre-retouch step)
+  cleanedPhotoPaths: string[]            // one or more cleaned PNGs
+  cleanedPhotoStatus: 'needs_retouch' | 'done' | null
+  cleanedPhotoDroppedAt: Timestamp | null
+  // Fase 4 — Excel insertion
+  excelInsertedAt: Timestamp | null
+  excelInsertedBy: string | null
+}
+
+// ─────────────────────────────────────────
+// RECIPE NOTES
+// ─────────────────────────────────────────
+
+export interface RecipeNote {
+  id: string
+  text: string
+  authorId: string
+  authorName: string
+  createdAt: Timestamp
+  resolvedAt: Timestamp | null
+  resolvedBy: string | null
+  resolvedByName: string | null
 }
 
 export interface RecipePresence {
@@ -747,6 +782,43 @@ export interface RecipeScannedFile {
   price: string
   option: string
   name: string
+  recipeUid: string   // contents of Excel Z52; empty string for legacy files
+}
+
+// ── Recipe rename IPC types ───────────────────────────────────────────────
+
+export interface RenameWithPhotosInput {
+  excelPath: string
+  newBaseName: string
+  newDisplayName: string
+  capturedPhotos: CapturedPhoto[]
+  readyPngPath: string | null
+  readyJpgPath: string | null
+  projectRoot: string
+  ssdBase: string | null
+  projectName: string
+}
+
+export interface RenameWithPhotosResult {
+  success: boolean
+  newExcelPath: string
+  updatedPhotos: CapturedPhoto[]
+  newReadyPngPath: string | null
+  newReadyJpgPath: string | null
+  errors: string[]
+}
+
+export interface RecipeIndexEntry {
+  relativePath: string
+  displayName: string
+  updatedAt: string   // ISO string
+}
+
+export interface RecipeIndex {
+  projectId: string
+  projectName: string
+  generatedAt: string
+  recipes: Record<string, RecipeIndexEntry>   // keyed by recipeUid
 }
 
 // ── Recipe Manager defaults & constants ───────────────────────────────────

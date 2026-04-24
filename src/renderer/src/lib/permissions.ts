@@ -35,7 +35,23 @@ export function canViewArea(user: AppUser, area: AreaKey): boolean {
 
 export function canEditArea(user: AppUser, area: AreaKey): boolean {
   if (isPrivileged(user)) return true
+  // Photographer role or isPhotographer add-on always has edit access to recipes
+  if ((user.role === 'photographer' || user.isPhotographer) && area === 'recipes') return true
   return (user.areaPermissions?.[area] ?? 'none') === 'edit'
+}
+
+// ─── Photo capture permissions ────────────────────────────────────────────────
+
+/** Can access the camera, start tethering, and take/select/delete photos. */
+export function canTakePhotos(user: AppUser): boolean {
+  return user.role === 'owner' ||
+         user.role === 'photographer' ||
+         user.isPhotographer === true
+}
+
+/** Can view photos in Photo Manager (read-only for everyone else). */
+export function canViewPhotos(_user: AppUser): boolean {
+  return true  // all authenticated users with recipe access can view
 }
 
 // ─── User management permissions ─────────────────────────────────────────────
@@ -45,7 +61,7 @@ export function canApproveUsers(user: AppUser): boolean {
 }
 
 export function canChangeRole(actor: AppUser, target: AppUser): boolean {
-  if (actor.uid === target.uid) return false          // can't change own role
+  if (actor.uid === target.uid) return false          // nobody can change their own role
   if (actor.role === 'owner') return target.role !== 'owner'
   if (actor.role === 'admin') return target.role === 'member'
   return false

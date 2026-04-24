@@ -8,13 +8,16 @@ import * as path from 'path'
 import * as os from 'os'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { randomUUID } from 'crypto'
 import ExcelJS from 'exceljs'
 
 const execAsync = promisify(exec)
 
-/** Normalize a path so mixed / and \ separators always resolve correctly on Windows. */
+/** Normalize a path so mixed / and \ separators always resolve correctly on any platform. */
 function np(p: string): string {
-  return path.normalize(p)
+  // On Mac/Linux, backslashes are not path separators — convert them to forward slashes first
+  const normalized = process.platform === 'win32' ? p : p.replace(/\\/g, '/')
+  return path.normalize(normalized)
 }
 
 // ─────────────────────────────────────────
@@ -32,6 +35,43 @@ interface RecipeScannedFile {
   price: string
   option: string
   name: string
+  recipeUid: string   // contents of Z52; empty string if blank or unreadable
+}
+
+// Plain-object version of CapturedPhoto for IPC transport (no Firestore Timestamp class)
+interface CapturedPhotoPOJO {
+  sequence: number
+  filename: string
+  subfolderName: string
+  picturePath: string
+  cameraPath: string
+  ssdPath: string | null
+  capturedAt: { seconds: number; nanoseconds: number }
+  capturedBy: string
+  isSelected: boolean
+  selectedAt?: { seconds: number; nanoseconds: number }
+  selectedBy?: string
+}
+
+interface RenameWithPhotosInput {
+  excelPath: string
+  newBaseName: string
+  newDisplayName: string
+  capturedPhotos: CapturedPhotoPOJO[]
+  readyPngPath: string | null
+  readyJpgPath: string | null
+  projectRoot: string
+  ssdBase: string | null
+  projectName: string
+}
+
+interface RenameWithPhotosResult {
+  success: boolean
+  newExcelPath: string
+  updatedPhotos: CapturedPhotoPOJO[]
+  newReadyPngPath: string | null
+  newReadyJpgPath: string | null
+  errors: string[]
 }
 
 interface RecipeSpec {
@@ -79,28 +119,38 @@ function isFileLockedByExcel(filePath: string): boolean {
   return fs.existsSync(lockFile)
 }
 
-/** Walk a directory recursively and collect all .xlsx files */
-function walkXlsx(
+/** Walk a directory recursively and collect all .xlsx files, reading Z52 for stable recipeUid */
+async function walkXlsx(
   rootPath: string,
   currentPath: string,
   results: RecipeScannedFile[]
-): void {
+): Promise<void> {
   const entries = fs.readdirSync(currentPath, { withFileTypes: true })
   for (const entry of entries) {
     const fullPath = path.join(currentPath, entry.name)
     if (entry.isDirectory()) {
-      // Skip the _project metadata folder
-      if (entry.name === '_project') continue
-      walkXlsx(rootPath, fullPath, results)
+      // Skip the _project metadata folder and PICTURES folder
+      if (entry.name === '_project' || entry.name === 'PICTURES') continue
+      await walkXlsx(rootPath, fullPath, results)
     } else if (entry.isFile() && entry.name.endsWith('.xlsx') && !entry.name.startsWith('~$')) {
       const relativePath = path.relative(rootPath, fullPath)
       const parsed = parseRecipeFilename(entry.name)
+      let recipeUid = ''
+      try {
+        const wb = new ExcelJS.Workbook()
+        await wb.xlsx.readFile(fullPath)
+        const ws = wb.getWorksheet('Quote') ?? wb.worksheets[0]
+        if (ws) recipeUid = getCellStringValue(ws, 'Z52').trim()
+      } catch {
+        // File locked or corrupt — recipeUid stays '' (legacy fallback kicks in)
+      }
       results.push({
         relativePath,
         displayName: parsed.displayName,
         price: parsed.price,
         option: parsed.option,
         name: parsed.name,
+        recipeUid,
       })
     }
   }
@@ -182,11 +232,85 @@ function normalizeExcelValue(cell: string, value: string): string {
 }
 
 /**
- * Write cells to one or more Excel files in a SINGLE Excel COM session.
- * Opening Excel once for all files avoids RPC_E_CALL_REJECTED when processing batches.
- * Same approach as EliteQuote's HybridExcelBackend (WinExcelComWriteAdapter).
+ * Write cells to one or more Excel files using AppleScript + Excel for Mac.
+ * Mac equivalent of the Windows COM approach — Excel itself handles the save,
+ * so conditional formatting, data validation, and macros are fully preserved.
  */
-async function writeExcelViaCOM(files: ExcelFileWrite[]): Promise<void> {
+async function writeExcelViaAppleScript(files: ExcelFileWrite[]): Promise<void> {
+  const filesToProcess = files
+    .map((f) => ({
+      ...f,
+      updates: f.updates
+        .filter((u) => u.value !== '' && u.value !== undefined)
+        .map((u) => ({ ...u, value: normalizeExcelValue(u.cell, u.value) })),
+    }))
+    .filter((f) => f.updates.length > 0)
+
+  if (filesToProcess.length === 0) return
+
+  // Group updates by sheet so we can use tell-worksheet blocks (avoids -50 Parameter error)
+  const blocks: string[] = []
+  for (const { filePath, updates } of filesToProcess) {
+    const absPath = path.resolve(filePath)
+    const safePath = absPath.replace(/\\/g, '/').replace(/"/g, '\\"')
+
+    // Group by sheet name
+    const bySheet = new Map<string, Array<{ cell: string; value: string }>>()
+    for (const u of updates) {
+      const list = bySheet.get(u.sheet) ?? []
+      list.push({ cell: u.cell, value: u.value })
+      bySheet.set(u.sheet, list)
+    }
+
+    const sheetBlocks: string[] = []
+    for (const [sheet, cells] of bySheet) {
+      const safeSheet = sheet.replace(/"/g, '\\"')
+      const cellLines = cells
+        .map(({ cell, value }) => {
+          // Escape backslashes then double quotes for AppleScript string literals
+          const safeValue = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+          return `      set value of cell "${cell}" to "${safeValue}"`
+        })
+        .join('\n')
+      sheetBlocks.push(`    tell worksheet "${safeSheet}" of wb\n${cellLines}\n    end tell`)
+    }
+
+    blocks.push(
+      `  set wb to open workbook workbook file name (POSIX file "${safePath}" as text)\n` +
+      sheetBlocks.join('\n') + '\n' +
+      `  close wb saving yes`
+    )
+  }
+
+  const script = [
+    'tell application "Microsoft Excel"',
+    '  set display alerts to false',
+    ...blocks,
+    '  set display alerts to true',
+    'end tell',
+  ].join('\n')
+
+  const tmpFile = path.join(os.tmpdir(), `recipe_write_${Date.now()}.applescript`)
+  fs.writeFileSync(tmpFile, script, 'utf8')
+
+  try {
+    const { stderr } = await execAsync(`osascript "${tmpFile}"`, { timeout: 300000 })
+    if (stderr?.trim()) console.warn('AppleScript stderr:', stderr.trim())
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string }
+    const detail = [e.stderr, e.stdout].filter(Boolean).join('\n').trim() || e.message || String(err)
+    console.error('Failed AppleScript:', tmpFile)
+    throw new Error(`AppleScript Excel error: ${detail}`)
+  } finally {
+    try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Write cells to one or more Excel files in a SINGLE Excel COM session (Windows only).
+ * Opening Excel once for all files avoids RPC_E_CALL_REJECTED when processing batches.
+ */
+async function writeExcelViaCOMWindows(files: ExcelFileWrite[]): Promise<void> {
   const filesToProcess = files
     .map((f) => ({
       ...f,
@@ -247,6 +371,16 @@ async function writeExcelViaCOM(files: ExcelFileWrite[]): Promise<void> {
   }
 }
 
+/**
+ * Cross-platform dispatcher: uses AppleScript on Mac, PowerShell COM on Windows.
+ */
+async function writeExcelViaCOM(files: ExcelFileWrite[]): Promise<void> {
+  if (process.platform === 'darwin') {
+    return writeExcelViaAppleScript(files)
+  }
+  return writeExcelViaCOMWindows(files)
+}
+
 export function registerRecipeHandlers(): void {
 
   // ── Read multiple cells from an Excel file ────────────────────────────────
@@ -255,7 +389,7 @@ export function registerRecipeHandlers(): void {
     async (_event, filePath: string, cells: string[]): Promise<Record<string, string>> => {
       try {
         const workbook = new ExcelJS.Workbook()
-        await workbook.xlsx.readFile(filePath)
+        await workbook.xlsx.readFile(np(filePath))
         const ws = workbook.getWorksheet('Quote') ?? workbook.getWorksheet(1)
         if (!ws) throw new Error('No worksheet found in file')
 
@@ -277,7 +411,7 @@ export function registerRecipeHandlers(): void {
     async (_event, filePath: string, changes: RecipeCellChange[]): Promise<{ success: boolean }> => {
       try {
         await writeExcelViaCOM([{
-          filePath,
+          filePath: np(filePath),
           updates: changes.map((c) => ({ sheet: 'Quote', cell: c.cell, value: String(c.value ?? '') }))
         }])
         return { success: true }
@@ -342,7 +476,7 @@ export function registerRecipeHandlers(): void {
       batch: Array<{ filePath: string; updates: Array<{ sheet: string; cell: string; value: string }> }>
     ): Promise<{ success: boolean }> => {
       try {
-        await writeExcelViaCOM(batch)
+        await writeExcelViaCOM(batch.map((b) => ({ ...b, filePath: np(b.filePath) })))
         return { success: true }
       } catch (err) {
         console.error('recipe:batchWriteCells error:', err)
@@ -356,10 +490,10 @@ export function registerRecipeHandlers(): void {
     'recipe:renameFile',
     async (_event, oldPath: string, newPath: string): Promise<{ success: boolean }> => {
       try {
-        if (isFileLockedByExcel(oldPath)) {
+        if (isFileLockedByExcel(np(oldPath))) {
           throw new Error('File is currently open in Excel. Close it before renaming.')
         }
-        fs.renameSync(oldPath, newPath)
+        fs.renameSync(np(oldPath), np(newPath))
         return { success: true }
       } catch (err) {
         console.error('recipe:renameFile error:', err)
@@ -373,7 +507,7 @@ export function registerRecipeHandlers(): void {
     'recipe:isFileOpen',
     async (_event, filePath: string): Promise<boolean> => {
       try {
-        return isFileLockedByExcel(filePath)
+        return isFileLockedByExcel(np(filePath))
       } catch (err) {
         console.error('recipe:isFileOpen error:', err)
         return false
@@ -400,11 +534,11 @@ export function registerRecipeHandlers(): void {
     'recipe:scanProject',
     async (_event, rootPath: string): Promise<RecipeScannedFile[]> => {
       try {
-        if (!fs.existsSync(rootPath)) {
+        if (!fs.existsSync(np(rootPath))) {
           return []
         }
         const results: RecipeScannedFile[] = []
-        walkXlsx(rootPath, rootPath, results)
+        await walkXlsx(np(rootPath), np(rootPath), results)
         return results
       } catch (err) {
         console.error('recipe:scanProject error:', err)
@@ -424,8 +558,8 @@ export function registerRecipeHandlers(): void {
       fullPath: string
     }>> => {
       try {
-        if (!fs.existsSync(folderPath)) return []
-        const entries = fs.readdirSync(folderPath, { withFileTypes: true })
+        if (!fs.existsSync(np(folderPath))) return []
+        const entries = fs.readdirSync(np(folderPath), { withFileTypes: true })
         const result: Array<{
           name: string; isDirectory: boolean; size: number; modifiedAt: string; fullPath: string
         }> = []
@@ -461,11 +595,11 @@ export function registerRecipeHandlers(): void {
     'recipe:deleteItem',
     async (_event, itemPath: string): Promise<{ success: boolean; error?: string }> => {
       try {
-        const stat = fs.statSync(itemPath)
+        const stat = fs.statSync(np(itemPath))
         if (stat.isDirectory()) {
-          fs.rmSync(itemPath, { recursive: true, force: true })
+          fs.rmSync(np(itemPath), { recursive: true, force: true })
         } else {
-          fs.unlinkSync(itemPath)
+          fs.unlinkSync(np(itemPath))
         }
         return { success: true }
       } catch (err) {
@@ -481,10 +615,10 @@ export function registerRecipeHandlers(): void {
     async (_event, oldPath: string, newPath: string): Promise<{ success: boolean; error?: string }> => {
       try {
         // Excel lock check for .xlsx files
-        if (oldPath.endsWith('.xlsx') && isFileLockedByExcel(oldPath)) {
+        if (oldPath.endsWith('.xlsx') && isFileLockedByExcel(np(oldPath))) {
           return { success: false, error: 'Close the file in Excel before renaming' }
         }
-        fs.renameSync(oldPath, newPath)
+        fs.renameSync(np(oldPath), np(newPath))
         return { success: true }
       } catch (err) {
         console.error('recipe:renameItem error:', err)
@@ -503,17 +637,17 @@ export function registerRecipeHandlers(): void {
       fileName: string
     ): Promise<{ success: boolean; destPath?: string; error?: string }> => {
       try {
-        if (!fs.existsSync(templatePath)) {
+        if (!fs.existsSync(np(templatePath))) {
           return { success: false, error: 'Template file not found' }
         }
         // Ensure .xlsx extension
         const safeName = fileName.endsWith('.xlsx') ? fileName : `${fileName}.xlsx`
-        const destPath = path.join(destFolder, safeName)
+        const destPath = path.join(np(destFolder), safeName)
         if (fs.existsSync(destPath)) {
           return { success: false, error: 'File already exists' }
         }
-        fs.mkdirSync(destFolder, { recursive: true })
-        fs.copyFileSync(templatePath, destPath)
+        fs.mkdirSync(np(destFolder), { recursive: true })
+        fs.copyFileSync(np(templatePath), destPath)
         return { success: true, destPath }
       } catch (err) {
         console.error('recipe:createFileFromTemplate error:', err)
@@ -527,7 +661,7 @@ export function registerRecipeHandlers(): void {
     'recipe:openInExcel',
     async (_event, filePath: string): Promise<{ success: boolean; error?: string }> => {
       try {
-        const result = await shell.openPath(filePath)
+        const result = await shell.openPath(np(filePath))
         if (result) {
           // shell.openPath returns empty string on success, error string on failure
           return { success: false, error: result }
@@ -545,7 +679,7 @@ export function registerRecipeHandlers(): void {
     'recipe:pathExists',
     async (_event, folderPath: string): Promise<boolean> => {
       try {
-        return fs.existsSync(folderPath) && fs.statSync(folderPath).isDirectory()
+        return fs.existsSync(np(folderPath)) && fs.statSync(np(folderPath)).isDirectory()
       } catch {
         return false
       }
@@ -557,7 +691,7 @@ export function registerRecipeHandlers(): void {
     'recipe:createImportTemplate',
     async (_event, destPath: string): Promise<{ success: boolean; error?: string }> => {
       try {
-        fs.mkdirSync(path.dirname(destPath), { recursive: true })
+        fs.mkdirSync(path.dirname(np(destPath)), { recursive: true })
         const workbook = new ExcelJS.Workbook()
         const ws = workbook.addWorksheet('Import')
 
@@ -597,7 +731,7 @@ export function registerRecipeHandlers(): void {
     }> => {
       try {
         const workbook = new ExcelJS.Workbook()
-        await workbook.xlsx.readFile(filePath)
+        await workbook.xlsx.readFile(np(filePath))
         const sheet = workbook.getWorksheet(1)
         if (!sheet) return { success: false, error: 'No worksheet found' }
 
@@ -635,7 +769,7 @@ export function registerRecipeHandlers(): void {
     }> => {
       try {
         const workbook = new ExcelJS.Workbook()
-        await workbook.xlsx.readFile(filePath)
+        await workbook.xlsx.readFile(np(filePath))
 
         const sheet = workbook.getWorksheet(1)
         if (!sheet) return { success: false, error: 'No worksheet found' }
@@ -719,4 +853,188 @@ export function registerRecipeHandlers(): void {
       }
     }
   )
+
+  // ── Rename recipe Excel + all associated photos ───────────────────────────
+  ipcMain.handle(
+    'recipe:rename-with-photos',
+    async (_event, input: RenameWithPhotosInput): Promise<RenameWithPhotosResult> => {
+      const errors: string[] = []
+      const {
+        excelPath, newBaseName, newDisplayName,
+        capturedPhotos, readyPngPath, readyJpgPath,
+        ssdBase, projectName,
+      } = input
+
+      // 1. Guard: file must not be locked by Excel
+      if (isFileLockedByExcel(np(excelPath))) {
+        return {
+          success: false, newExcelPath: excelPath,
+          updatedPhotos: capturedPhotos, newReadyPngPath: readyPngPath,
+          newReadyJpgPath: readyJpgPath,
+          errors: ['The Excel file is open in another program. Please close it and try again.'],
+        }
+      }
+
+      // 2. Compute new Excel path
+      const newExcelPath = path.join(path.dirname(np(excelPath)), `${newBaseName}.xlsx`)
+      if (fs.existsSync(newExcelPath)) {
+        return {
+          success: false, newExcelPath: excelPath,
+          updatedPhotos: capturedPhotos, newReadyPngPath: readyPngPath,
+          newReadyJpgPath: readyJpgPath,
+          errors: [`A file named "${newBaseName}.xlsx" already exists in this folder.`],
+        }
+      }
+
+      // 3. Rename Excel file (fatal if fails)
+      try {
+        fs.renameSync(np(excelPath), newExcelPath)
+      } catch (err) {
+        return {
+          success: false, newExcelPath: excelPath,
+          updatedPhotos: capturedPhotos, newReadyPngPath: readyPngPath,
+          newReadyJpgPath: readyJpgPath,
+          errors: [`Failed to rename Excel file: ${String(err)}`],
+        }
+      }
+
+      // 4. Update D3 (recipe name cell) in the renamed Excel
+      try {
+        await writeExcelViaCOM([{
+          filePath: newExcelPath,
+          updates: [{ sheet: 'Quote', cell: 'D3', value: newDisplayName }],
+        }])
+      } catch (err) {
+        errors.push(`Excel cell D3 update failed: ${String(err)}`)
+      }
+
+      // 5. Helper: rename/move a single file, returns new path.
+      //    Falls back to copy+delete when source and destination are on different drives
+      //    (Windows EXDEV error — e.g., project on C: and SSD on D:).
+      function safeRenameFile(oldFilePath: string, newFilePath: string): void {
+        try {
+          fs.renameSync(oldFilePath, newFilePath)
+        } catch (err) {
+          const e = err as NodeJS.ErrnoException
+          if (e.code === 'EXDEV') {
+            // Cross-device link — copy then remove original
+            fs.copyFileSync(oldFilePath, newFilePath)
+            fs.unlinkSync(oldFilePath)
+          } else {
+            throw err
+          }
+        }
+      }
+
+      function renamePhotoFile(oldFilePath: string, newFilename: string): string {
+        const newFilePath = path.join(path.dirname(oldFilePath), newFilename)
+        try {
+          if (fs.existsSync(oldFilePath)) {
+            fs.mkdirSync(path.dirname(newFilePath), { recursive: true })
+            safeRenameFile(oldFilePath, newFilePath)
+          }
+        } catch (err) {
+          errors.push(`Could not rename "${path.basename(oldFilePath)}": ${String(err)}`)
+        }
+        return newFilePath
+      }
+
+      // 6. Rename all captured photos (CAMERA + SELECTED on project root)
+      const updatedPhotos: CapturedPhotoPOJO[] = capturedPhotos.map(photo => {
+        const newFilename = `${newDisplayName} - ${photo.sequence}.jpg`
+        const newCameraPath   = renamePhotoFile(photo.cameraPath,   newFilename)
+        const newPicturePath  = renamePhotoFile(photo.picturePath,  newFilename)
+
+        // SSD (best-effort — never fatal, handles cross-drive on Windows)
+        let newSsdPath = photo.ssdPath
+        if (photo.ssdPath) {
+          try {
+            newSsdPath = path.join(path.dirname(photo.ssdPath), newFilename)
+            if (fs.existsSync(photo.ssdPath)) {
+              fs.mkdirSync(path.dirname(newSsdPath), { recursive: true })
+              safeRenameFile(photo.ssdPath, newSsdPath)
+            }
+          } catch (err) {
+            errors.push(`SSD rename failed for "${photo.filename}": ${String(err)}`)
+            newSsdPath = photo.ssdPath  // keep old path if SSD rename failed
+          }
+        }
+
+        return { ...photo, filename: newFilename, cameraPath: newCameraPath, picturePath: newPicturePath, ssdPath: newSsdPath }
+      })
+
+      // 7. Rename READY PNG and JPG files
+      let newReadyPngPath = readyPngPath
+      let newReadyJpgPath = readyJpgPath
+
+      if (readyPngPath) {
+        const ext = path.extname(readyPngPath)
+        const newName = `${newDisplayName}${ext}`
+        newReadyPngPath = renamePhotoFile(readyPngPath, newName)
+      }
+      if (readyJpgPath) {
+        const ext = path.extname(readyJpgPath)
+        const newName = `${newDisplayName}${ext}`
+        newReadyJpgPath = renamePhotoFile(readyJpgPath, newName)
+      }
+
+      // 8. SSD READY files (best-effort)
+      if (ssdBase) {
+        try {
+          const ssdPicturesBase = path.join(np(ssdBase), projectName, 'PICTURES')
+          const pngSsd = path.join(ssdPicturesBase, '3. READY', 'PNG', `${newDisplayName}.png`)
+          const jpgSsd = path.join(ssdPicturesBase, '3. READY', 'JPG', `${newDisplayName}.jpg`)
+          const oldPngSsd = path.join(ssdPicturesBase, '3. READY', 'PNG', `${path.basename(excelPath, '.xlsx')}.png`)
+          const oldJpgSsd = path.join(ssdPicturesBase, '3. READY', 'JPG', `${path.basename(excelPath, '.xlsx')}.jpg`)
+          if (fs.existsSync(oldPngSsd)) { fs.mkdirSync(path.dirname(pngSsd), { recursive: true }); safeRenameFile(oldPngSsd, pngSsd) }
+          if (fs.existsSync(oldJpgSsd)) { fs.mkdirSync(path.dirname(jpgSsd), { recursive: true }); safeRenameFile(oldJpgSsd, jpgSsd) }
+        } catch (err) {
+          errors.push(`SSD READY rename failed: ${String(err)}`)
+        }
+      }
+
+      // 9. Write backup index entry — caller handles full index; we just confirm success
+      return {
+        success: true,
+        newExcelPath,
+        updatedPhotos,
+        newReadyPngPath,
+        newReadyJpgPath,
+        errors,
+      }
+    }
+  )
+
+  // ── Write the recipe index JSON backup to the project folder ─────────────
+  ipcMain.handle(
+    'recipe:write-index',
+    async (_event, indexPath: string, content: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        fs.mkdirSync(path.dirname(np(indexPath)), { recursive: true })
+        fs.writeFileSync(np(indexPath), content, 'utf-8')
+        return { success: true }
+      } catch (err) {
+        return { success: false, error: String(err) }
+      }
+    }
+  )
+
+  // ── Generate a stable recipeUid and write it to Z52 of an existing file ──
+  ipcMain.handle(
+    'recipe:write-uid',
+    async (_event, filePath: string, uid: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        await writeExcelViaCOM([{
+          filePath: np(filePath),
+          updates: [{ sheet: 'Quote', cell: 'Z52', value: uid }],
+        }])
+        return { success: true }
+      } catch (err) {
+        return { success: false, error: String(err) }
+      }
+    }
+  )
+
+  // ── Generate a new stable UUID (for legacy file backfill) ─────────────────
+  ipcMain.handle('recipe:generate-uid', () => randomUUID())
 }
