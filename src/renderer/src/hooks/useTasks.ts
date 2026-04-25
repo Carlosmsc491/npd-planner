@@ -42,6 +42,7 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
         await updateTaskField(task.id, 'completedAt', null, user.uid, user.name, task.completedAt, boardType)
         await updateTaskField(task.id, 'completedBy', null, user.uid, user.name, task.completedBy, boardType)
       } else {
+
         // ── COMPLETE ──
         const snapshot = { ...task }
         await completeTask(task.id, user.uid, user.name, boardType)
@@ -91,13 +92,19 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
           message: `Completed: ${task.title}`,
           type: 'info',
           undoAction: async () => {
-            await updateTaskField(task.id, 'completed', false, user.uid, user.name, true, boardType)
-            await updateTaskField(task.id, 'completedAt', null, user.uid, user.name, snapshot.completedAt, boardType)
-            await updateTaskField(task.id, 'completedBy', null, user.uid, user.name, snapshot.completedBy, boardType)
+            try {
+              await updateTaskField(task.id, 'completed', false, user.uid, user.name, true, boardType)
+              await updateTaskField(task.id, 'completedAt', null, user.uid, user.name, snapshot.completedAt, boardType)
+              await updateTaskField(task.id, 'completedBy', null, user.uid, user.name, snapshot.completedBy, boardType)
+            } catch {
+              setToast({ id: `undo-err-${task.id}`, message: 'Could not undo — check your connection', type: 'error', duration: 5000 })
+            }
           },
           duration: 5000,
         })
       }
+    } catch {
+      setToast({ id: `complete-err-${task.id}`, message: `Failed to update task. Check your connection.`, type: 'error', duration: 5000 })
     } finally {
       setTimeout(() => completingRef.current.delete(task.id), 2000)
     }
@@ -144,14 +151,22 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
   }, [user, setToast])
 
   const duplicate = useCallback(async (task: Task) => {
-    const newId = await duplicateTask(task, `Copy of ${task.title}`)
-    return newId
-  }, [])
+    try {
+      const newId = await duplicateTask(task, `Copy of ${task.title}`)
+      return newId
+    } catch {
+      setToast({ id: `dup-err-${task.id}`, message: 'Failed to duplicate task. Check your connection.', type: 'error', duration: 5000 })
+    }
+  }, [setToast])
 
   const setRecurring = useCallback(async (task: Task, config: RecurringConfig) => {
     if (!user) return
-    await updateTaskField(task.id, 'recurring', config, user.uid, user.name, task.recurring, boardType)
-  }, [user, boardType])
+    try {
+      await updateTaskField(task.id, 'recurring', config, user.uid, user.name, task.recurring, boardType)
+    } catch {
+      setToast({ id: `rec-err-${task.id}`, message: 'Failed to save recurring config. Check your connection.', type: 'error', duration: 5000 })
+    }
+  }, [user, boardType, setToast])
 
   /**
    * Syncs a task to SharePoint by generating an HTML template for trips/vacations.

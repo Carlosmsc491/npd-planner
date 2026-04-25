@@ -119,6 +119,9 @@ export function registerFileHandlers(ipcMain: IpcMain): void {
     IPC.SHAREPOINT_RESOLVE_PATH,
     async (_event, sharePointRoot: string, relativePath: string): Promise<string> => {
       try {
+        // relativePath is always a stored sub-path (e.g. "2026/Publix/spec.xlsx"), never an
+        // absolute or UNC path. Normalizing backslashes here is safe — sharePointRoot is passed
+        // directly to safeJoin without modification, so UNC roots like \\server\share are preserved.
         const segments = relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
         return safeJoin(sharePointRoot, segments)
       } catch (err) {

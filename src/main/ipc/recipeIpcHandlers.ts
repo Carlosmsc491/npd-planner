@@ -351,10 +351,12 @@ async function writeExcelViaCOMWindows(files: ExcelFileWrite[]): Promise<void> {
 
   const tmpFile = path.join(os.tmpdir(), `recipe_write_${Date.now()}.ps1`)
   fs.writeFileSync(tmpFile, script, 'utf8')
+  // PowerShell accepts forward slashes on Windows — avoids backslash escaping issues
+  const tmpFilePsPath = tmpFile.replace(/\\/g, '/')
 
   try {
     const { stdout, stderr } = await execAsync(
-      `powershell -NonInteractive -NoProfile -ExecutionPolicy Bypass -File "${tmpFile}"`,
+      `powershell -NonInteractive -NoProfile -ExecutionPolicy Bypass -File "${tmpFilePsPath}"`,
       { timeout: 300000 }
     )
     if (stderr?.trim()) console.warn('PS stderr:', stderr.trim())

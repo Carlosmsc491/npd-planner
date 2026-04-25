@@ -55,12 +55,20 @@ export default function BoardPage() {
   }, [activeBoard?.id])
 
   async function handleDuplicate(task: Task) {
-    await duplicate(task)
+    try {
+      await duplicate(task)
+    } catch {
+      // duplicate() already shows a toast — swallow here to prevent unhandled rejection
+    }
   }
 
   async function handleRecurringSave(config: RecurringConfig) {
     if (!recurringTask) return
-    await setRecurring(recurringTask, config)
+    try {
+      await setRecurring(recurringTask, config)
+    } catch {
+      // setRecurring() already shows a toast — swallow here to prevent unhandled rejection
+    }
     setRecurringTask(null)
   }
 

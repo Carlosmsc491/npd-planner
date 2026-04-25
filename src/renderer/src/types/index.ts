@@ -276,7 +276,22 @@ export interface Comment {
 // NOTIFICATIONS
 // ─────────────────────────────────────────
 
-export type NotificationType = 'assigned' | 'updated' | 'completed' | 'comment' | 'mentioned' | 'reopened' | 'new_user_pending'
+export type NotificationType = 'assigned' | 'updated' | 'completed' | 'comment' | 'mentioned' | 'reopened' | 'new_user_pending' | 'crash_report'
+
+// ─────────────────────────────────────────
+// CRASH REPORTS (ephemeral — deleted from Firestore after local save)
+// ─────────────────────────────────────────
+export interface CrashReport {
+  id: string
+  message: string        // error message (not shown to end user)
+  stack: string          // full stack trace
+  route: string          // app route where crash happened, e.g. "/recipes/proj-123"
+  version: string        // app version, e.g. "1.3.0"
+  platform: string       // "win32" | "darwin"
+  userId: string | null
+  userName: string | null
+  timestamp: Timestamp
+}
 
 export interface AppNotification {
   id: string

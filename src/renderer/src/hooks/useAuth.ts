@@ -17,8 +17,11 @@ export function useAuth() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        // Race against a 15-second timeout so the loading spinner never hangs
+        // forever when Firestore is unreachable on first launch with no cached data.
+        const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 15_000))
         try {
-          const appUser: AppUser | null = await getUser(firebaseUser.uid)
+          const appUser = await Promise.race([getUser(firebaseUser.uid), timeout]) as AppUser | null
           setUser(appUser)
         } catch {
           setUser(null)

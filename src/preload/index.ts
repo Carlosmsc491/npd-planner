@@ -89,6 +89,12 @@ const electronAPI = {
   sendErrorReport: (report: unknown) =>
     ipcRenderer.invoke('error-report:send', report),
 
+  saveCrashLocal: (report: unknown) =>
+    ipcRenderer.invoke('crash:save-local', report),
+
+  getCrashReportsDir: () =>
+    ipcRenderer.invoke('crash:get-reports-dir'),
+
   deleteTrashFolder: (folderPath: string) =>
     ipcRenderer.invoke('trash:delete-folder', folderPath),
 

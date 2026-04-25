@@ -33,8 +33,8 @@ export class CameraManager extends EventEmitter {
   private folderWatcher: FSWatcher | null = null
   /**
    * Detects whether gphoto2 is installed.
-   * Uses `which` on macOS/Linux, `where` on Windows.
-   * gPhoto2 tethering is macOS-only in Phase 1 — returns false on Windows immediately.
+   * gPhoto2 tethering is Mac-only — returns false immediately on Windows.
+   * On Mac/Linux, checks via `which gphoto2`.
    */
   async isGphoto2Available(): Promise<boolean> {
     if (process.platform === 'win32') return false

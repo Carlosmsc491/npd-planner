@@ -186,6 +186,7 @@ export function registerCameraHandlers(mainWindow: BrowserWindow): void {
             )
           })
         } else {
+          // `zip` is a macOS built-in (/usr/bin/zip) — always present on the only non-Windows platform this app targets.
           await new Promise<void>((resolve, reject) => {
             const proc = spawn('zip', ['-r', destZipPath, '.'], { cwd: tmpDir })
             proc.on('close', code =>

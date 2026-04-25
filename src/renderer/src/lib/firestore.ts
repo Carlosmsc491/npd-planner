@@ -2073,3 +2073,54 @@ export async function updateAreaPermissions(
 ): Promise<void> {
   await updateDoc(doc(db, COLLECTIONS.USERS, uid), { areaPermissions })
 }
+
+// ─────────────────────────────────────────
+// CRASH REPORTS
+// Flow: save to Firestore (temp) → notify owners → save locally → delete from Firestore
+// ─────────────────────────────────────────
+
+const CRASH_REPORTS = 'crashReports'
+
+export async function saveCrashReport(
+  report: Omit<import('../types').CrashReport, 'id' | 'timestamp'>
+): Promise<string> {
+  const docRef = await addDoc(collection(db, CRASH_REPORTS), {
+    ...report,
+    timestamp: serverTimestamp(),
+  })
+  return docRef.id
+}
+
+export async function deleteCrashReport(id: string): Promise<void> {
+  await deleteDoc(doc(db, CRASH_REPORTS, id))
+}
+
+/** Creates a notification for every active owner so they know about the crash. */
+export async function notifyOwnersCrashReport(
+  message: string,
+  triggeredBy: string,
+  triggeredByName: string
+): Promise<void> {
+  const q = query(
+    collection(db, COLLECTIONS.USERS),
+    where('role', '==', 'owner'),
+    where('status', '==', 'active')
+  )
+  const snap = await getDocs(q)
+  if (snap.empty) return
+
+  const batch = writeBatch(db)
+  snap.docs.forEach(userDoc => {
+    const notifRef = doc(collection(db, COLLECTIONS.NOTIFICATIONS))
+    batch.set(notifRef, {
+      userId: userDoc.id,
+      type: 'crash_report',
+      message,
+      read: false,
+      createdAt: serverTimestamp(),
+      triggeredBy,
+      triggeredByName,
+    })
+  })
+  await batch.commit()
+}

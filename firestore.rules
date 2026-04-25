@@ -318,6 +318,22 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────
+    // CRASH REPORTS (ephemeral — write by any active user, delete by admin)
+    // Flow: renderer saves → notifies owners → admin reads → doc deleted immediately
+    // ─────────────────────────────────────────
+
+    match /crashReports/{reportId} {
+      // Any active user can submit a crash report
+      allow create: if isActiveUser();
+      // Owners/admins can read reports (for in-app notification flow)
+      allow read: if isAdmin();
+      // Only admins can delete (the notification handler deletes after reading)
+      allow delete: if isAdmin();
+      // Reports are immutable — no updates
+      allow update: if false;
+    }
+
+    // ─────────────────────────────────────────
     // DENY ALL OTHER PATHS
     // ─────────────────────────────────────────
 

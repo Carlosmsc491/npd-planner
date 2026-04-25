@@ -18,24 +18,54 @@ function getScriptPath(): string {
   return path.join(__dirname, '../../resources/scripts/insert_photo.py')
 }
 
+/**
+ * Finds the Python executable available on this machine.
+ * Windows commonly installs Python as 'python' or 'py' instead of 'python3'.
+ * Tries candidates in order and returns the first one that responds.
+ */
+function findPythonExec(): Promise<string | null> {
+  const candidates = process.platform === 'win32'
+    ? ['python', 'python3', 'py']
+    : ['python3', 'python']
+
+  return candidates.reduce<Promise<string | null>>(
+    (acc, cmd) =>
+      acc.then(found =>
+        found !== null
+          ? found
+          : new Promise(resolve => {
+              execFile(cmd, ['--version'], { timeout: 5_000 }, err => resolve(err ? null : cmd))
+            })
+      ),
+    Promise.resolve(null)
+  )
+}
+
 export function registerExcelHandlers(): void {
   /**
    * excel:check-dependencies
-   * Returns whether python3 + openpyxl + Pillow are available.
+   * Returns whether python3/python + openpyxl + Pillow are available.
    */
   ipcMain.handle(
     'excel:check-dependencies',
     async (): Promise<{ available: boolean; error?: string }> => {
+      const pyExec = await findPythonExec()
+      if (!pyExec) {
+        return {
+          available: false,
+          error: 'Python not found. Install Python 3 and ensure it is in your PATH.',
+        }
+      }
       return new Promise(resolve => {
         execFile(
-          'python3',
+          pyExec,
           ['-c', 'import openpyxl, PIL; print("OK")'],
           { timeout: 10_000 },
           (error, stdout) => {
             if (error || stdout.trim() !== 'OK') {
               resolve({
                 available: false,
-                error: 'openpyxl or Pillow not installed. Run: pip3 install openpyxl pillow',
+                error: `openpyxl or Pillow not installed. Run: ${pyExec === 'py' ? 'py -m pip' : 'pip3'} install openpyxl pillow`,
               })
             } else {
               resolve({ available: true })
@@ -70,9 +100,14 @@ export function registerExcelHandlers(): void {
           return { success: false, error: `Script not found: ${scriptPath}` }
         }
 
+        const pyExec = await findPythonExec()
+        if (!pyExec) {
+          return { success: false, error: 'Python not found. Install Python 3 and ensure it is in your PATH.' }
+        }
+
         return new Promise(resolve => {
           execFile(
-            'python3',
+            pyExec,
             [scriptPath, excelPath, jpgPath],
             { timeout: 30_000 },
             (error, _stdout, stderr) => {

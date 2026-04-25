@@ -1,7 +1,7 @@
 // src/renderer/src/components/recipes/wizard/WizardStepBasics.tsx
 // Step 1: Project name, root folder, template file, creation mode
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { FolderOpen, FileSpreadsheet, Package } from 'lucide-react'
 
 const DEFAULT_TEMPLATE_NAME = 'ELITE QUOTE BOUQUET 2026'
@@ -20,13 +20,22 @@ interface Props {
 }
 
 export default function WizardStepBasics({ data, onChange }: Props) {
+  const [loadingTemplate, setLoadingTemplate] = useState(false)
+
   // Auto-fill default template on first render if none is set
   useEffect(() => {
     if (data.templatePath) return
     if (typeof window.electronAPI?.getDefaultTemplatePath !== 'function') return
+    setLoadingTemplate(true)
+    const timer = setTimeout(() => setLoadingTemplate(false), 8_000) // fallback — never show forever
     window.electronAPI.getDefaultTemplatePath().then((p) => {
       onChange({ templatePath: p })
-    }).catch(() => { /* ignore — user can browse manually */ })
+    }).catch(() => {
+      // IPC failed — user will need to select the template manually via Browse
+    }).finally(() => {
+      clearTimeout(timer)
+      setLoadingTemplate(false)
+    })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function browseFolder() {
@@ -129,8 +138,10 @@ export default function WizardStepBasics({ data, onChange }: Props) {
                   </span>
                 )}
               </div>
+            ) : loadingTemplate ? (
+              <span className="text-sm text-gray-400 font-sans animate-pulse">Loading default template…</span>
             ) : (
-              <span className="text-sm text-gray-400 font-sans">Loading default template…</span>
+              <span className="text-sm text-amber-500 font-sans">No template selected — click Browse</span>
             )}
           </div>
           <button

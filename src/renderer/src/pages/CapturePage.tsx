@@ -52,6 +52,7 @@ export default function CapturePage() {
   // Watch Folder mode
   const [watchFolderPath, setWatchFolderPath]   = useState<string | null>(null)
   const [watchFolderActive, setWatchFolderActive] = useState(false)
+  const [watchFolderError, setWatchFolderError] = useState<string | null>(null)
   const watchFolderRef = useRef<string | null>(null)
 
   // ── Photo session state ────────────────────────────────────────────────────
@@ -231,6 +232,7 @@ export default function CapturePage() {
 
   // ── Watch folder ───────────────────────────────────────────────────────────
   const handleStartWatchFolder = useCallback(async (folderPath: string) => {
+    setWatchFolderError(null)
     await window.electronAPI.stopFolderWatch()
     const result = await window.electronAPI.startFolderWatch(folderPath)
     if (result.success) {
@@ -239,6 +241,8 @@ export default function CapturePage() {
       watchFolderRef.current = folderPath
       const { updateGlobalSettings } = await import('../lib/firestore')
       updateGlobalSettings({ captureWatchPath: folderPath }).catch(console.error)
+    } else {
+      setWatchFolderError(result.error ?? 'Could not watch folder. Make sure the folder exists.')
     }
   }, [])
 
@@ -661,6 +665,14 @@ export default function CapturePage() {
                   Start Watching
                 </button>
               )}
+            </div>
+          )}
+
+          {watchFolderError && (
+            <div className="bg-red-950/50 border-b border-red-800/40 px-4 py-2 flex items-center gap-2 shrink-0">
+              <AlertTriangle size={13} className="text-red-400 shrink-0" />
+              <span className="text-xs text-red-300 flex-1">{watchFolderError}</span>
+              <button onClick={() => setWatchFolderError(null)} className="text-red-400 hover:text-red-200 text-xs">✕</button>
             </div>
           )}
         </>
