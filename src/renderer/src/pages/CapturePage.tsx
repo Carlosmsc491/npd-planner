@@ -5,14 +5,16 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, Timestamp } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import { ChevronLeft, Camera, Loader2, AlertTriangle, CheckCircle, Star } from 'lucide-react'
+import { ChevronLeft, Camera, Loader2, AlertTriangle, CheckCircle, Star, Trash2 } from 'lucide-react'
 import type { RecipeFile, RecipeProject, CapturedPhoto, GlobalSettings } from '../types'
 import { useAuthStore } from '../store/authStore'
 import {
   addCapturedPhoto,
   updateRecipePhotoSelections,
+  deleteCapturedPhoto,
   getGlobalSettings,
 } from '../lib/firestore'
+import { resolvePhotoPath, toRelativePhotoPath } from '../utils/photoUtils'
 
 // ── Local state shape for photos in this session ─────────────────────────────
 interface LocalPhoto {
@@ -67,6 +69,10 @@ export default function CapturePage() {
   // ── DONE / finish modals ───────────────────────────────────────────────────
   const [showFinishModal, setShowFinishModal] = useState(false)
   const [finishLoading, setFinishLoading]     = useState(false)
+
+  // ── Delete photo state ────────────────────────────────────────────────────
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null) // filename pending delete
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   // ── System paths / settings ────────────────────────────────────────────────
   const [userDataPath, setUserDataPath] = useState<string | null>(null)
@@ -132,12 +138,14 @@ export default function CapturePage() {
         }
 
         // Pre-populate from previously captured photos in Firestore
+        // Paths stored in Firestore may be relative (new) or absolute (legacy) — resolve both.
         if (loadedRecipe.capturedPhotos?.length) {
+          const projRoot = projectRef.current?.rootPath ?? ''
           const existing: LocalPhoto[] = loadedRecipe.capturedPhotos.map(cp => ({
             sequence:    cp.sequence,
             filename:    cp.filename,
-            picturePath: cp.picturePath,
-            cameraPath:  cp.cameraPath,
+            picturePath: resolvePhotoPath(cp.picturePath, projRoot),
+            cameraPath:  resolvePhotoPath(cp.cameraPath,  projRoot),
             ssdPath:     cp.ssdPath,
             dataUrl:     null,
           }))
@@ -316,20 +324,24 @@ export default function CapturePage() {
         const filename      = `${baseName} - ${nextSeq}.jpg`
 
         const projectRoot = currentProject.rootPath.replace(/\\/g, '/')
-        const cameraPath  = subfolderName
+        // Absolute paths — for local file ops on THIS machine
+        const cameraAbsPath = subfolderName
           ? `${projectRoot}/PICTURES/1. CAMERA/${subfolderName}/${filename}`
           : `${projectRoot}/PICTURES/1. CAMERA/${filename}`
-        // picturePath mirrors CAMERA for now; SELECTED and READY handled in finish/Fase 3
-        const picturePath = cameraPath
-        const ssdBase     = settingsRef.current?.ssdPhotoPath ?? null
-        const ssdPath     = ssdBase
+        // Relative paths — portable across machines, stored in Firestore
+        const cameraRelPath = subfolderName
+          ? `PICTURES/1. CAMERA/${subfolderName}/${filename}`
+          : `PICTURES/1. CAMERA/${filename}`
+        // SSD stays absolute (it's always machine-specific)
+        const ssdBase = settingsRef.current?.ssdPhotoPath ?? null
+        const ssdPath = ssdBase
           ? (subfolderName
               ? `${ssdBase}/${currentProject.name}/PICTURES/1. CAMERA/${subfolderName}/${filename}`
               : `${ssdBase}/${currentProject.name}/PICTURES/1. CAMERA/${filename}`)
           : null
 
         const [camResult] = await Promise.all([
-          window.electronAPI.cameraCopyFile(data.tempPath, cameraPath),
+          window.electronAPI.cameraCopyFile(data.tempPath, cameraAbsPath),
         ])
         if (!camResult.success) console.error('[Capture] CAMERA copy failed:', camResult.error)
 
@@ -338,12 +350,13 @@ export default function CapturePage() {
             .catch(err => console.warn('[Capture] SSD copy failed:', err))
         }
 
+        // Firestore: store relative paths so any user can resolve them
         const capturedPhoto: CapturedPhoto = {
           sequence:      nextSeq,
           filename,
           subfolderName,
-          picturePath,
-          cameraPath,
+          picturePath:   cameraRelPath,
+          cameraPath:    cameraRelPath,
           ssdPath,
           capturedAt:    Timestamp.now(),
           capturedBy:    user?.uid ?? '',
@@ -353,11 +366,15 @@ export default function CapturePage() {
 
         let dataUrl: string | null = null
         try {
-          dataUrl = await window.electronAPI.readFileAsDataUrl(picturePath)
+          dataUrl = await window.electronAPI.readFileAsDataUrl(cameraAbsPath)
         } catch { /* skip */ }
 
+        // LocalPhoto: absolute paths for immediate use on this machine
         const newPhoto: LocalPhoto = {
-          sequence: nextSeq, filename, picturePath, cameraPath, ssdPath, dataUrl,
+          sequence: nextSeq, filename,
+          picturePath: cameraAbsPath,
+          cameraPath:  cameraAbsPath,
+          ssdPath, dataUrl,
         }
 
         const newIndex = photosRef.current.length
@@ -428,6 +445,72 @@ export default function CapturePage() {
     setLocalSelection(prev => ({ ...prev, [filename]: !prev[filename] }))
   }
 
+  // ── Delete a single captured photo ────────────────────────────────────────
+  async function handleDeletePhoto(filename: string) {
+    if (!recipeId) return
+    setDeleteLoading(true)
+    try {
+      const target = photosRef.current.find(p => p.filename === filename)
+      if (target) {
+        // Best-effort: delete physical files (CAMERA + SSD copies)
+        await window.electronAPI.deleteFromSelected({ filePath: target.cameraPath })
+        if (target.ssdPath) {
+          window.electronAPI.deleteFromSelected({ filePath: target.ssdPath }).catch(() => {/* ignore */})
+        }
+        // Also remove from SELECTED/ if it was selected
+        if (localSelection[filename] && project) {
+          const relParts      = (recipeRef.current?.relativePath ?? '').replace(/\\/g, '/').split('/')
+          const subfolderName = relParts.length > 1 ? relParts[0] : ''
+          const projectRoot   = project.rootPath.replace(/\\/g, '/')
+          const selectedPath  = subfolderName
+            ? `${projectRoot}/PICTURES/2. SELECTED/${subfolderName}/${filename}`
+            : `${projectRoot}/PICTURES/2. SELECTED/${filename}`
+          window.electronAPI.deleteFromSelected({ filePath: selectedPath }).catch(() => {/* ignore */})
+        }
+      }
+
+      // Re-build remaining array with re-sequenced numbers.
+      // LocalPhoto uses absolute paths; Firestore needs relative paths.
+      const rootPath    = projectRef.current?.rootPath ?? ''
+      const subfolderForRecipe = (recipeRef.current?.relativePath ?? '').replace(/\\/g, '/').split('/').slice(0, -1)[0] ?? ''
+      const remaining: CapturedPhoto[] = photosRef.current
+        .filter(p => p.filename !== filename)
+        .map((p, i) => ({
+          sequence:      i + 1,
+          filename:      p.filename,
+          subfolderName: subfolderForRecipe,
+          picturePath:   toRelativePhotoPath(p.picturePath, rootPath),
+          cameraPath:    toRelativePhotoPath(p.cameraPath,  rootPath),
+          ssdPath:       p.ssdPath,
+          capturedAt:    Timestamp.now(),
+          capturedBy:    user?.uid ?? '',
+          isSelected:    localSelection[p.filename] ?? false,
+        }))
+
+      await deleteCapturedPhoto(recipeId, remaining)
+
+      // Update local state
+      const newPhotos = photosRef.current.filter(p => p.filename !== filename)
+      setPhotos(newPhotos)
+      photosRef.current = newPhotos
+      setLocalSelection(prev => {
+        const next = { ...prev }
+        delete next[filename]
+        return next
+      })
+      // Adjust preview/gallery index so it doesn't go out of bounds
+      const lastIdx = newPhotos.length - 1
+      if (mode === 'capture') setPreviewIndex(prev => Math.min(prev, lastIdx))
+      else setGalleryIndex(prev => Math.min(prev, Math.max(0, lastIdx)))
+
+      setDeleteConfirm(null)
+    } catch (err) {
+      console.error('[Capture] Delete photo error:', err)
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
+
   // ── Finish session ─────────────────────────────────────────────────────────
   async function handleFinishSession() {
     if (!recipeId || !projectRef.current) return
@@ -436,13 +519,17 @@ export default function CapturePage() {
       const currentPhotos = photosRef.current
       const projectRoot   = projectRef.current.rootPath.replace(/\\/g, '/')
 
-      // Build updated CapturedPhoto array with isSelected from localSelection
+      const relParts      = (recipeRef.current?.relativePath ?? '').replace(/\\/g, '/').split('/')
+      const subfolderName = relParts.length > 1 ? relParts[0] : ''
+
+      // Build updated CapturedPhoto array for Firestore — use RELATIVE paths
       const updatedPhotos: CapturedPhoto[] = currentPhotos.map(p => ({
         sequence:      p.sequence,
         filename:      p.filename,
-        subfolderName: '', // will be re-derived below
-        picturePath:   p.picturePath,
-        cameraPath:    p.cameraPath,
+        subfolderName,
+        // LocalPhoto has absolute paths → convert to relative for Firestore
+        picturePath:   toRelativePhotoPath(p.picturePath, projectRoot),
+        cameraPath:    toRelativePhotoPath(p.cameraPath,  projectRoot),
         ssdPath:       p.ssdPath,
         capturedAt:    Timestamp.now(),
         capturedBy:    user?.uid ?? '',
@@ -453,18 +540,16 @@ export default function CapturePage() {
       }))
 
       // Copy selected photos to SELECTED/, remove deselected ones
+      // File ops use absolute paths (local machine) — resolve from relative
       for (const photo of updatedPhotos) {
-        const relParts      = (recipeRef.current?.relativePath ?? '').replace(/\\/g, '/').split('/')
-        const subfolderName = relParts.length > 1 ? relParts[0] : ''
-        photo.subfolderName = subfolderName
-
+        const absCamera    = resolvePhotoPath(photo.cameraPath, projectRoot)
         const selectedPath = subfolderName
           ? `${projectRoot}/PICTURES/2. SELECTED/${subfolderName}/${photo.filename}`
           : `${projectRoot}/PICTURES/2. SELECTED/${photo.filename}`
 
         if (photo.isSelected) {
           const result = await window.electronAPI.copyToSelected({
-            sourcePath: photo.cameraPath,
+            sourcePath: absCamera,
             destPath:   selectedPath,
           })
           if (!result.success) console.error('[Capture] SELECTED copy failed:', result.error)
@@ -768,6 +853,16 @@ export default function CapturePage() {
                   }
                 </button>
               )}
+              {/* Delete button — gallery mode */}
+              {galleryPhoto && (
+                <button
+                  onClick={() => setDeleteConfirm(galleryPhoto.filename)}
+                  title="Delete this photo"
+                  className="absolute top-3 left-3 bg-red-700/70 hover:bg-red-600 rounded-lg p-1.5 transition-colors"
+                >
+                  <Trash2 size={16} className="text-white" />
+                </button>
+              )}
             </div>
 
             {/* Right arrow */}
@@ -798,18 +893,18 @@ export default function CapturePage() {
             const isActive = mode === 'capture' ? idx === previewIndex : idx === galleryIndex
             const isSelected = localSelection[photo.filename] ?? false
             return (
-              <button
+              <div
                 key={photo.filename}
+                className={`relative group shrink-0 w-[120px] h-[80px] rounded overflow-hidden border-2 transition-colors cursor-pointer ${
+                  isActive
+                    ? mode === 'gallery' ? 'border-white' : 'border-green-500'
+                    : 'border-transparent hover:border-gray-600'
+                }`}
                 onClick={() => {
                   if (mode === 'capture') setPreviewIndex(idx)
                   else setGalleryIndex(idx)
                 }}
                 title={photo.filename}
-                className={`relative shrink-0 w-[120px] h-[80px] rounded overflow-hidden border-2 transition-colors ${
-                  isActive
-                    ? mode === 'gallery' ? 'border-white' : 'border-green-500'
-                    : 'border-transparent hover:border-gray-600'
-                }`}
               >
                 {photo.dataUrl ? (
                   <img src={photo.dataUrl} alt={photo.filename} className="w-full h-full object-cover" />
@@ -827,7 +922,15 @@ export default function CapturePage() {
                     <Star size={12} fill="#F59E0B" className="text-yellow-400 drop-shadow" />
                   </div>
                 )}
-              </button>
+                {/* Delete button — appears on hover */}
+                <button
+                  onClick={e => { e.stopPropagation(); setDeleteConfirm(photo.filename) }}
+                  title="Delete photo"
+                  className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity bg-red-700/80 hover:bg-red-600 rounded p-0.5"
+                >
+                  <Trash2 size={11} className="text-white" />
+                </button>
+              </div>
             )
           })
         )}
@@ -872,6 +975,44 @@ export default function CapturePage() {
           </>
         )}
       </div>
+
+      {/* ── Delete photo confirmation modal ───────────────────────────────────── */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[320px] shadow-2xl">
+            <div className="flex items-center gap-2 mb-2">
+              <Trash2 size={16} className="text-red-400" />
+              <h3 className="text-white font-semibold text-base">Delete photo?</h3>
+            </div>
+            <p className="text-sm text-gray-400 mb-1 truncate" title={deleteConfirm}>
+              {deleteConfirm}
+            </p>
+            <p className="text-xs text-gray-500 mb-5">
+              This will remove the photo from disk and from this session. This cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleteLoading}
+                className="flex-1 px-4 py-2 rounded-lg text-sm border border-gray-600 text-gray-300 hover:bg-gray-800 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeletePhoto(deleteConfirm)}
+                disabled={deleteLoading}
+                className="flex-1 px-4 py-2 rounded-lg text-sm bg-red-700 hover:bg-red-600 text-white font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {deleteLoading
+                  ? <Loader2 size={14} className="animate-spin" />
+                  : <Trash2 size={14} />
+                }
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Finish session modal ───────────────────────────────────────────────── */}
       {showFinishModal && (

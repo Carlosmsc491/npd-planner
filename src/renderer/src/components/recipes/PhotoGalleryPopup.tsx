@@ -5,15 +5,17 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { X, Camera } from 'lucide-react'
 import { Star } from 'lucide-react'
 import type { CapturedPhoto } from '../../types'
+import { resolvePhotoPath } from '../../utils/photoUtils'
 
 interface Props {
   photos: CapturedPhoto[]
   initialIndex: number
   recipeName: string
+  projectRootPath: string   // needed to resolve relative photo paths
   onClose: () => void
 }
 
-export default function PhotoGalleryPopup({ photos, initialIndex, recipeName, onClose }: Props) {
+export default function PhotoGalleryPopup({ photos, initialIndex, recipeName, projectRootPath, onClose }: Props) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const [dataUrls, setDataUrls] = useState<Record<string, string | null>>({})
   const filmstripRef = useRef<HTMLDivElement>(null)
@@ -26,12 +28,13 @@ export default function PhotoGalleryPopup({ photos, initialIndex, recipeName, on
     if (!photo) return
     if (dataUrls[photo.filename] !== undefined) return
     try {
-      const url = await window.electronAPI.readFileAsDataUrl(photo.picturePath)
+      const absPath = resolvePhotoPath(photo.picturePath, projectRootPath)
+      const url = await window.electronAPI.readFileAsDataUrl(absPath)
       setDataUrls(prev => ({ ...prev, [photo.filename]: url }))
     } catch {
       setDataUrls(prev => ({ ...prev, [photo.filename]: null }))
     }
-  }, [photos, dataUrls])
+  }, [photos, dataUrls, projectRootPath])
 
   // Load current + neighbours
   useEffect(() => {

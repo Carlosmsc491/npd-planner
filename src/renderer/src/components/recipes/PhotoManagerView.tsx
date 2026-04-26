@@ -11,6 +11,7 @@ import { collection, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebas
 import { db } from '../../lib/firebase'
 import { useAuthStore } from '../../store/authStore'
 import { updateRecipeReadyPaths, updateRecipeCleanedPaths, updateRecipeExcelInserted } from '../../lib/firestore'
+import { resolvePhotoPath, toRelativePhotoPath } from '../../utils/photoUtils'
 import { resolveAllRecipeNotes } from '../../lib/recipeFirestore'
 import { useRecipeNotes } from '../../hooks/useRecipeNotes'
 import PhotoGalleryPopup from './PhotoGalleryPopup'
@@ -237,8 +238,8 @@ export function PhotoManagerView({ project }: Props) {
         for (const recipeId of selectedReadyIds) {
           const recipe = recipes.find(r => r.id === recipeId)
           if (!recipe) continue
-          if (recipe.readyPngPath) await window.electronAPI.recipeDeleteItem(recipe.readyPngPath).catch(() => {})
-          if (recipe.readyJpgPath) await window.electronAPI.recipeDeleteItem(recipe.readyJpgPath).catch(() => {})
+          if (recipe.readyPngPath) await window.electronAPI.recipeDeleteItem(resolvePhotoPath(recipe.readyPngPath, project.rootPath)).catch(() => {})
+          if (recipe.readyJpgPath) await window.electronAPI.recipeDeleteItem(resolvePhotoPath(recipe.readyJpgPath, project.rootPath)).catch(() => {})
           const projectId = recipeId.substring(0, recipeId.indexOf('::'))
           const newStatus = recipe.capturedPhotos?.some(p => p.isSelected) ? 'selected' as const
                           : (recipe.capturedPhotos?.length ?? 0) > 0 ? 'in_progress' as const
@@ -270,7 +271,7 @@ export function PhotoManagerView({ project }: Props) {
           }
         }
         for (const picturePath of selectedPhotoKeys)
-          await window.electronAPI.recipeDeleteItem(picturePath).catch(() => {})
+          await window.electronAPI.recipeDeleteItem(resolvePhotoPath(picturePath, project.rootPath)).catch(() => {})
         for (const [recipeId, pathsToDelete] of byRecipe) {
           const recipe = recipes.find(r => r.id === recipeId)!
           const projectId = recipeId.substring(0, recipeId.indexOf('::'))
@@ -328,11 +329,11 @@ export function PhotoManagerView({ project }: Props) {
           const safeName = sanitize(recipe.recipeName || recipe.displayName)
           if (wantPng && recipe.readyPngPath) {
             const ext = recipe.readyPngPath.split('.').pop() ?? 'png'
-            entries.push({ srcPath: recipe.readyPngPath, archivePath: `${safeName}/PNG/${safeName}.${ext}` })
+            entries.push({ srcPath: resolvePhotoPath(recipe.readyPngPath, project.rootPath), archivePath: `${safeName}/PNG/${safeName}.${ext}` })
           }
           if (wantJpg && recipe.readyJpgPath) {
             const ext = recipe.readyJpgPath.split('.').pop() ?? 'jpg'
-            entries.push({ srcPath: recipe.readyJpgPath, archivePath: `${safeName}/JPG/${safeName}.${ext}` })
+            entries.push({ srcPath: resolvePhotoPath(recipe.readyJpgPath, project.rootPath), archivePath: `${safeName}/JPG/${safeName}.${ext}` })
           }
         }
       } else {
@@ -341,7 +342,7 @@ export function PhotoManagerView({ project }: Props) {
           for (const photo of g.photos) {
             if (!selectedPhotoKeys.has(photo.picturePath)) continue
             const safeName = sanitize(photo.recipeName)
-            entries.push({ srcPath: photo.picturePath, archivePath: `${safeName}/${photo.filename}` })
+            entries.push({ srcPath: resolvePhotoPath(photo.picturePath, project.rootPath), archivePath: `${safeName}/${photo.filename}` })
           }
         }
       }
@@ -387,10 +388,11 @@ export function PhotoManagerView({ project }: Props) {
   async function moveOldReady(recipe: RecipeFile): Promise<void> {
     if (!recipe.readyJpgPath) return
     try {
-      const baseName    = recipe.readyJpgPath.split('/').pop() ?? 'old.jpg'
       const projectRoot = project.rootPath.replace(/\\/g, '/')
+      const absJpg      = resolvePhotoPath(recipe.readyJpgPath, projectRoot)
+      const baseName    = absJpg.split('/').pop() ?? 'old.jpg'
       const oldDest     = `${projectRoot}/PICTURES/old/${recipe.id.replace(/::/g, '-')}-${baseName}`
-      await window.electronAPI.copyToSelected({ sourcePath: recipe.readyJpgPath, destPath: oldDest })
+      await window.electronAPI.copyToSelected({ sourcePath: absJpg, destPath: oldDest })
     } catch { /* non-critical */ }
   }
 
@@ -404,6 +406,7 @@ export function PhotoManagerView({ project }: Props) {
     const subfolderName = recipe.capturedPhotos?.[0]?.subfolderName ?? ''
     const projectRoot   = project.rootPath.replace(/\\/g, '/')
 
+    // Absolute paths for local file ops
     const pngDest = subfolderName
       ? `${projectRoot}/PICTURES/4. READY/PNG/${subfolderName}/${baseName}.png`
       : `${projectRoot}/PICTURES/4. READY/PNG/${baseName}.png`
@@ -424,9 +427,12 @@ export function PhotoManagerView({ project }: Props) {
       return
     }
 
-    await updateRecipeReadyPaths(recipe.id, pngDest, jpgDest, user?.uid ?? '')
+    // Firestore: store relative paths so any user can resolve them
+    const pngRel = toRelativePhotoPath(pngDest, projectRoot)
+    const jpgRel = toRelativePhotoPath(jpgDest, projectRoot)
+    await updateRecipeReadyPaths(recipe.id, pngRel, jpgRel, user?.uid ?? '')
     setRecipes(prev => prev.map(r => r.id === recipe.id
-      ? { ...r, readyPngPath: pngDest, readyJpgPath: jpgDest, photoStatus: 'ready' }
+      ? { ...r, readyPngPath: pngRel, readyJpgPath: jpgRel, photoStatus: 'ready' }
       : r
     ))
   }
@@ -490,7 +496,9 @@ export function PhotoManagerView({ project }: Props) {
       : `${projectRoot}/PICTURES/3. CLEANED/${baseName}.png`
     const copyResult = await window.electronAPI.copyToSelected({ sourcePath: srcPath, destPath })
     if (!copyResult.success) { setCleanedErrors(prev => [...prev, `${file.name}: copy failed — ${copyResult.error}`]); return }
-    const newPaths = [...(recipe.cleanedPhotoPaths ?? []), destPath]
+    // Firestore: store relative path so any user can resolve it
+    const destRel  = toRelativePhotoPath(destPath, projectRoot)
+    const newPaths = [...(recipe.cleanedPhotoPaths ?? []), destRel]
     await updateRecipeCleanedPaths(recipe.id, newPaths, 'needs_retouch', user?.uid ?? '')
     setRecipes(prev => prev.map(r => r.id === recipe.id
       ? { ...r, cleanedPhotoPaths: newPaths, cleanedPhotoStatus: 'needs_retouch' }
@@ -649,6 +657,7 @@ export function PhotoManagerView({ project }: Props) {
               : 'No candidates selected yet. Complete a capture session.'}
             allSelected={activeTab === 'selected'}
             selectedKeys={selectedPhotoKeys}
+            projectRootPath={project.rootPath}
             onToggle={togglePhoto}
             onOpen={(photos, idx, name) => openGallery(photos, idx, name)}
             onWarningClick={(recipeId, recipeName) => setNotesModal({
@@ -676,7 +685,7 @@ export function PhotoManagerView({ project }: Props) {
                     recipe={recipe}
                     isProcessing={cleanedProcessing === recipe.id}
                     onDrop={file => handleCleanedDrop(file, recipe)}
-                    onOpenPhotoshop={path => window.electronAPI.openFile(path)}
+                    onOpenPhotoshop={path => window.electronAPI.openFile(resolvePhotoPath(path, project.rootPath))}
                     onWarningClick={() => setNotesModal({ recipeId: recipe.id, projectId: project.id, recipeName: recipe.recipeName || recipe.displayName })}
                   />
                 ))
@@ -896,6 +905,7 @@ export function PhotoManagerView({ project }: Props) {
           photos={galleryPhotos}
           initialIndex={galleryIndex}
           recipeName={galleryRecipeName}
+          projectRootPath={project.rootPath}
           onClose={() => setGalleryOpen(false)}
         />
       )}
@@ -1043,9 +1053,9 @@ function ReadyWarningDialog({ file, recipe, dataUrl, onConfirm, onCancel }: {
 
 // ── Photo group grid (CAMERA + SELECTED tabs) ──────────────────────────────────
 
-function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, onToggle, onOpen, onWarningClick }: {
+function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, projectRootPath, onToggle, onOpen, onWarningClick }: {
   groups: PhotoGroup[]; emptyMessage: string; allSelected?: boolean
-  selectedKeys: Set<string>
+  selectedKeys: Set<string>; projectRootPath: string
   onToggle: (picturePath: string, recipeId: string, recipeName: string) => void
   onOpen: (photos: CapturedPhoto[], idx: number, recipeName: string) => void
   onWarningClick?: (recipeId: string, recipeName: string) => void
@@ -1080,6 +1090,7 @@ function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, onTog
               <ManagerThumbnail
                 key={photo.filename}
                 photo={photo}
+                projectRootPath={projectRootPath}
                 forceSelected={allSelected}
                 isChecked={selectedKeys.has(photo.picturePath)}
                 onToggle={() => onToggle(photo.picturePath, photo.recipeId, photo.recipeName)}
@@ -1095,8 +1106,8 @@ function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, onTog
 
 // ── Manager thumbnail ──────────────────────────────────────────────────────────
 
-function ManagerThumbnail({ photo, forceSelected, isChecked, onToggle, onDoubleClick }: {
-  photo: CapturedPhoto; forceSelected?: boolean; isChecked: boolean
+function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, onToggle, onDoubleClick }: {
+  photo: CapturedPhoto; projectRootPath: string; forceSelected?: boolean; isChecked: boolean
   onToggle: () => void; onDoubleClick: () => void
 }) {
   const [dataUrl, setDataUrl] = useState<string | null | undefined>(undefined)
@@ -1104,11 +1115,12 @@ function ManagerThumbnail({ photo, forceSelected, isChecked, onToggle, onDoubleC
 
   useEffect(() => {
     let cancelled = false
-    window.electronAPI.readFileAsDataUrl(photo.picturePath)
+    const absPath = resolvePhotoPath(photo.picturePath, projectRootPath)
+    window.electronAPI.readFileAsDataUrl(absPath)
       .then(url => { if (!cancelled) setDataUrl(url) })
       .catch(() => { if (!cancelled) setDataUrl(null) })
     return () => { cancelled = true }
-  }, [photo.picturePath])
+  }, [photo.picturePath, projectRootPath])
 
   const isStarred = forceSelected || photo.isSelected
 
@@ -1188,11 +1200,12 @@ function ReadyCard({ recipe, project, userId, isSelected, onToggle, onWarningCli
   useEffect(() => {
     if (!recipe.readyJpgPath) return
     let cancelled = false
-    window.electronAPI.readFileAsDataUrl(recipe.readyJpgPath)
+    const absJpg = resolvePhotoPath(recipe.readyJpgPath, project.rootPath)
+    window.electronAPI.readFileAsDataUrl(absJpg)
       .then(url => { if (!cancelled) setDataUrl(url) })
       .catch(() => { if (!cancelled) setDataUrl(null) })
     return () => { cancelled = true }
-  }, [recipe.readyJpgPath])
+  }, [recipe.readyJpgPath, project.rootPath])
 
   const hasBoth = !!(recipe.readyPngPath && recipe.readyJpgPath)
 
@@ -1204,7 +1217,8 @@ function ReadyCard({ recipe, project, userId, isSelected, onToggle, onWarningCli
     try {
       const sep = project.rootPath.includes('\\') ? '\\' : '/'
       const excelPath = project.rootPath + sep + recipe.relativePath.replace(/\//g, sep)
-      const result = await window.electronAPI.insertPhotoInExcel({ excelPath, jpgPath: recipe.readyJpgPath })
+      const jpgPath   = resolvePhotoPath(recipe.readyJpgPath, project.rootPath)
+      const result = await window.electronAPI.insertPhotoInExcel({ excelPath, jpgPath })
       if (!result.success) {
         setInsertError(result.error ?? 'Unknown error')
       } else {

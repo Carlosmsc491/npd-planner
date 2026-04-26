@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import {
-  X, Calendar, Sparkles, Zap, Shield, GripVertical,
+  X, Camera, Sparkles, Image, FileSpreadsheet, Shield,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.2.9'
+const CURRENT_VERSION = '1.3.0'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Feature {
@@ -16,51 +16,50 @@ interface Feature {
 
 const FEATURES: Feature[] = [
   {
-    icon: Calendar,
-    color: '#378ADD',
-    title: 'Event Date Tags',
+    icon: Camera,
+    color: '#1D9E75',
+    title: 'Photo Manager — Selection & Cleaning',
     description:
-      'Tasks now support typed date tags — Preparation, Ship, Set Up, and Show Day. ' +
-      'Add them from the task panel under "Event Dates". Each tag has its own color and icon, ' +
-      'with date pickers bounded to the task\'s start/end range. ' +
-      'Out-of-range dates show a warning badge.',
+      'The Photo Manager now has 4 tabs: CAMERA (all captured photos), SELECTED (star candidates), ' +
+      'CLEANED (drop background-removed PNGs per recipe), and READY (processed final photos). ' +
+      'Select multiple photos, delete, Save As, or export as ZIP directly from the manager.',
+  },
+  {
+    icon: Image,
+    color: '#8B5CF6',
+    title: 'Photo Visibility for All Users',
+    description:
+      'Captured photos are now stored with portable paths so every team member ' +
+      'sees the same photos in the Photo Manager — no more "file not found" for users ' +
+      'other than the photographer. Photos sync automatically through SharePoint.',
+  },
+  {
+    icon: FileSpreadsheet,
+    color: '#378ADD',
+    title: 'Insert Photo into Excel',
+    description:
+      'From the READY tab, click "Insert into Excel" on any recipe card to automatically ' +
+      'place the final JPG into cells G8:M35 of the Spec Sheet using Python. ' +
+      'Requires openpyxl + Pillow: pip3 install openpyxl pillow.',
   },
   {
     icon: Sparkles,
-    color: '#8B5CF6',
-    title: 'Calendar Marker View',
-    description:
-      'The Board Calendar and Master Calendar now display a single bar per task. ' +
-      'Event date tags appear as colored marker dots positioned along the bar, ' +
-      'showing exactly where each milestone falls within the task\'s timeline. ' +
-      'Hover over any marker to see its type and date.',
-  },
-  {
-    icon: Zap,
     color: '#F59E0B',
-    title: 'Instant Updates',
+    title: 'Default Quote Template',
     description:
-      'All task changes now apply instantly — status, dates, assignees, properties, and event dates. ' +
-      'The UI updates immediately while syncing to the server in the background, ' +
-      'so the app feels fast and responsive even with slow connections.',
-  },
-  {
-    icon: GripVertical,
-    color: '#1D9E75',
-    title: 'Board Properties Sync',
-    description:
-      'Custom properties added or removed in Board Settings now reflect immediately ' +
-      'across the entire app — in task panels, board views, and the planner. ' +
-      'No more needing to refresh to see changes.',
+      'The "ELITE QUOTE BOUQUET 2026.xlsx" template is now bundled with the app. ' +
+      'New recipe projects automatically use it — no manual setup needed. ' +
+      'The Browse button remains available if you need to switch templates.',
   },
   {
     icon: Shield,
     color: '#EF4444',
-    title: 'Stability & Reliability',
+    title: 'Security & Stability',
     description:
-      'Upgraded to Firebase 12 for better real-time sync stability. ' +
-      'Fixed calendar date accuracy (end dates now display correctly). ' +
-      'Resolved crashes when switching between pages.',
+      'Fixed a path traversal vulnerability in SharePoint file resolution. ' +
+      'Fixed PowerShell command injection in ZIP export. ' +
+      'Added crash reporting with local save and owner notification. ' +
+      'Fixed photo deletion button in capture sessions.',
   },
 ]
 

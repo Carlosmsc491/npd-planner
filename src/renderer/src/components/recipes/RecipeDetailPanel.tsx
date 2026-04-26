@@ -15,6 +15,7 @@ import PhotoGalleryPopup from './PhotoGalleryPopup'
 import RenameRecipeModal from './RenameRecipeModal'
 import NotesSection from './NotesSection'
 import type { RecipeFile, RecipeProject, RecipeSettings, ValidationChange, AppUser, CapturedPhoto, RenameWithPhotosResult } from '../../types'
+import { resolvePhotoPath } from '../../utils/photoUtils'
 import { nanoid } from 'nanoid'
 
 interface Props {
@@ -555,6 +556,7 @@ export default function RecipeDetailPanel({
                   <PhotoThumbnail
                     key={photo.filename}
                     photo={photo}
+                    projectRootPath={project.rootPath}
                     onDoubleClick={() => { setGalleryIndex(idx); setGalleryOpen(true) }}
                   />
                 ))}
@@ -570,6 +572,7 @@ export default function RecipeDetailPanel({
           photos={file.capturedPhotos}
           initialIndex={galleryIndex}
           recipeName={file.recipeName || file.displayName}
+          projectRootPath={project.rootPath}
           onClose={() => setGalleryOpen(false)}
         />
       )}
@@ -676,20 +679,23 @@ function formatTimestamp(ts: Timestamp): string {
 
 function PhotoThumbnail({
   photo,
+  projectRootPath,
   onDoubleClick,
 }: {
   photo: CapturedPhoto
+  projectRootPath: string
   onDoubleClick: () => void
 }) {
   const [dataUrl, setDataUrl] = useState<string | null | undefined>(undefined) // undefined=loading, null=error
 
   useEffect(() => {
     let cancelled = false
-    window.electronAPI.readFileAsDataUrl(photo.picturePath)
+    const absPath = resolvePhotoPath(photo.picturePath, projectRootPath)
+    window.electronAPI.readFileAsDataUrl(absPath)
       .then(url => { if (!cancelled) setDataUrl(url) })
       .catch(() => { if (!cancelled) setDataUrl(null) })
     return () => { cancelled = true }
-  }, [photo.picturePath])
+  }, [photo.picturePath, projectRootPath])
 
   return (
     <div

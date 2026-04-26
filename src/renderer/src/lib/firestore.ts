@@ -1121,6 +1121,26 @@ export async function updateRecipePhotoSelections(
   }
 }
 
+export async function deleteCapturedPhoto(
+  recipeId: string,
+  remainingPhotos: CapturedPhoto[],
+): Promise<void> {
+  try {
+    const projectId = recipeId.substring(0, recipeId.indexOf('::'))
+    const newStatus = remainingPhotos.length === 0
+      ? 'pending'
+      : remainingPhotos.some(p => p.isSelected) ? 'selected' : 'in_progress'
+    await updateDoc(doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId), {
+      capturedPhotos: remainingPhotos,
+      photoStatus: newStatus,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (err) {
+    console.error('deleteCapturedPhoto failed:', err)
+    throw err
+  }
+}
+
 export async function addCapturedPhoto(
   recipeId: string,
   photo: CapturedPhoto
