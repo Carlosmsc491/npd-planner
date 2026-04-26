@@ -268,6 +268,8 @@ function mergeFilesWithFirestore(
           cleanedPhotoPaths: [],
           cleanedPhotoStatus: null,
           cleanedPhotoDroppedAt: null,
+          excelInsertedAt: null,
+          excelInsertedBy: null,
         }
         upsertRecipeFile(projectId, fileId, newFile).catch(console.error)
         result.push(newFile)

@@ -255,7 +255,7 @@ export function PhotoManagerView({ project }: Props) {
           const newStatus = r.capturedPhotos?.some(p => p.isSelected) ? 'selected' as const
                           : (r.capturedPhotos?.length ?? 0) > 0 ? 'in_progress' as const
                           : 'pending' as const
-          return { ...r, readyPngPath: undefined, readyJpgPath: undefined, photoStatus: newStatus }
+          return { ...r, readyPngPath: null, readyJpgPath: null, photoStatus: newStatus }
         }))
         setSelectedReadyIds(new Set())
       } else {

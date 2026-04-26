@@ -323,6 +323,8 @@ export default function NewRecipeProjectWizard() {
             cleanedPhotoPaths: [],
             cleanedPhotoStatus: null,
             cleanedPhotoDroppedAt: null,
+            excelInsertedAt: null,
+            excelInsertedBy: null,
           })
 
           saved++

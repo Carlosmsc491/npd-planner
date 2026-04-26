@@ -102,6 +102,9 @@ interface IElectronAPI {
   photoSaveAs: (entries: { srcPath: string; archivePath: string }[], destFolder: string) => Promise<{ success: boolean; errors: string[] }>
   photoShowSaveDialog: (defaultFilename: string) => Promise<string | null>
   photoExportZip: (entries: { srcPath: string; archivePath: string }[], destZipPath: string) => Promise<{ success: boolean; error?: string }>
+  // Crash reporting
+  saveCrashLocal: (report: unknown) => Promise<{ success: boolean; filePath?: string }>
+  getCrashReportsDir: () => Promise<string>
   // App utilities
   getUserDataPath: () => Promise<string>
   getDefaultTemplatePath: () => Promise<string>

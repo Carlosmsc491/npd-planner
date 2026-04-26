@@ -150,12 +150,13 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
     }
   }, [user, setToast])
 
-  const duplicate = useCallback(async (task: Task) => {
+  const duplicate = useCallback(async (task: Task): Promise<string | undefined> => {
     try {
       const newId = await duplicateTask(task, `Copy of ${task.title}`)
       return newId
     } catch {
       setToast({ id: `dup-err-${task.id}`, message: 'Failed to duplicate task. Check your connection.', type: 'error', duration: 5000 })
+      return undefined
     }
   }, [setToast])
 
