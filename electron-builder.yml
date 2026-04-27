@@ -30,10 +30,17 @@ win:
   target: nsis
   icon: resources/icon.ico
 nsis:
+  oneClick: true
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: false
+  guid: A3F8C2D1-7E4B-4A90-B3C5-1D6E2F8A9B0C
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
 mac:
   identity: null
   entitlementsInherit: build/entitlements.mac.plist
