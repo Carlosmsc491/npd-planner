@@ -81,13 +81,18 @@ export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemo
     : null
 
   useEffect(() => {
-    if (!msgAbsPath || !window.electronAPI?.fileExists) return
+    if (!msgAbsPath) { setAvailable(true); return }
+    if (!window.electronAPI?.fileExists) { setAvailable(true); return }
     async function check() {
-      const exists = await window.electronAPI.fileExists(msgAbsPath!)
-      setAvailable(exists)
-      if (exists && intervalRef.current) {
-        clearInterval(intervalRef.current)
-        intervalRef.current = null
+      try {
+        const exists = await window.electronAPI.fileExists(msgAbsPath!)
+        setAvailable(exists)
+        if (exists && intervalRef.current) {
+          clearInterval(intervalRef.current)
+          intervalRef.current = null
+        }
+      } catch {
+        setAvailable(true) // on error, assume available
       }
     }
     check()
@@ -99,7 +104,7 @@ export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemo
   const isChecking = available === null
 
   function handleOpenEmail() {
-    if (!msgAbsPath || isUnavailable || isChecking) return
+    if (!msgAbsPath || isUnavailable) return
     setViewerOpen(true)
   }
 
@@ -111,7 +116,7 @@ export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemo
         <button
           onClick={handleOpenEmail}
           title={isUnavailable ? 'Waiting for SharePoint sync…' : 'Open email'}
-          disabled={!sharePointRoot || isUnavailable || isChecking}
+          disabled={!sharePointRoot || isUnavailable}
           className="shrink-0 mt-0.5 text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 disabled:opacity-40 disabled:cursor-default transition-colors"
         >
           {isChecking ? <Loader2 size={15} className="animate-spin text-gray-400" /> : <Mail size={15} />}
@@ -121,7 +126,7 @@ export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemo
           {/* Subject — clickable to open email viewer */}
           <button
             onClick={handleOpenEmail}
-            disabled={!sharePointRoot || isUnavailable || isChecking}
+            disabled={!sharePointRoot || isUnavailable}
             className="w-full text-left text-sm font-semibold text-gray-800 dark:text-gray-100 truncate leading-tight hover:text-blue-600 dark:hover:text-blue-300 disabled:opacity-40 disabled:cursor-default transition-colors"
           >
             {attachment.subject}

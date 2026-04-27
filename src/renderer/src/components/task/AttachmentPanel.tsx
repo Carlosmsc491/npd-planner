@@ -273,20 +273,24 @@ function AttachmentRow({ attachment, sharePointPath, onRemove, onOpen, onPreview
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
-    if (!sharePointPath || !window.electronAPI?.fileExists) return
+    if (!sharePointPath) { setAvailable(true); return }
+    if (!window.electronAPI?.fileExists) { setAvailable(true); return }
     const absPath = `${sharePointPath}/${attachment.sharePointRelativePath}`
 
     async function check() {
-      const exists = await window.electronAPI.fileExists(absPath)
-      setAvailable(exists)
-      if (exists && intervalRef.current) {
-        clearInterval(intervalRef.current)
-        intervalRef.current = null
+      try {
+        const exists = await window.electronAPI.fileExists(absPath)
+        setAvailable(exists)
+        if (exists && intervalRef.current) {
+          clearInterval(intervalRef.current)
+          intervalRef.current = null
+        }
+      } catch {
+        setAvailable(true)
       }
     }
 
     check()
-    // Poll every 30s until the file appears (SharePoint sync may be in progress)
     intervalRef.current = setInterval(check, 30_000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [sharePointPath, attachment.sharePointRelativePath])
@@ -338,7 +342,7 @@ function AttachmentRow({ attachment, sharePointPath, onRemove, onOpen, onPreview
         {canPreview && (
           <button
             onClick={() => onPreview(attachment)}
-            disabled={isUnavailable || isChecking}
+            disabled={isUnavailable}
             title="Preview"
             className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
           >
@@ -347,7 +351,7 @@ function AttachmentRow({ attachment, sharePointPath, onRemove, onOpen, onPreview
         )}
         <button
           onClick={() => onOpen(attachment)}
-          disabled={isUnavailable || isChecking}
+          disabled={isUnavailable}
           title={isUnavailable ? 'File not yet synced to this computer' : 'Open in app'}
           className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
         >
