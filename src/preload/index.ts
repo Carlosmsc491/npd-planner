@@ -237,6 +237,9 @@ const electronAPI = {
     ipcRenderer.invoke('photo:export-zip', entries, destZipPath),
 
   // ── Email attachments (.msg) ──────────────────────────────────────────────
+  fileExists: (filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke('file:exists', filePath),
+
   readMsgFile: (filePath: string): Promise<{
     success: boolean
     subject?: string

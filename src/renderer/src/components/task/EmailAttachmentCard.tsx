@@ -81,9 +81,9 @@ export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemo
     : null
 
   useEffect(() => {
-    if (!msgAbsPath || !window.electronAPI?.recipePathExists) return
+    if (!msgAbsPath || !window.electronAPI?.fileExists) return
     async function check() {
-      const exists = await window.electronAPI.recipePathExists(msgAbsPath!)
+      const exists = await window.electronAPI.fileExists(msgAbsPath!)
       setAvailable(exists)
       if (exists && intervalRef.current) {
         clearInterval(intervalRef.current)

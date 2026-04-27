@@ -273,11 +273,11 @@ function AttachmentRow({ attachment, sharePointPath, onRemove, onOpen, onPreview
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
-    if (!sharePointPath || !window.electronAPI?.recipePathExists) return
+    if (!sharePointPath || !window.electronAPI?.fileExists) return
     const absPath = `${sharePointPath}/${attachment.sharePointRelativePath}`
 
     async function check() {
-      const exists = await window.electronAPI.recipePathExists(absPath)
+      const exists = await window.electronAPI.fileExists(absPath)
       setAvailable(exists)
       if (exists && intervalRef.current) {
         clearInterval(intervalRef.current)

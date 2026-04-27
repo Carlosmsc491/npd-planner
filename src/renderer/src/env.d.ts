@@ -110,6 +110,8 @@ interface IElectronAPI {
   getDefaultTemplatePath: () => Promise<string>
   readFileAsDataUrl: (filePath: string) => Promise<string>
   testWriteAccess: (dirPath: string) => Promise<{ success: boolean; error?: string }>
+  // File utilities
+  fileExists: (filePath: string) => Promise<boolean>
   // Email attachments (.msg)
   readMsgFile: (filePath: string) => Promise<{
     success: boolean
