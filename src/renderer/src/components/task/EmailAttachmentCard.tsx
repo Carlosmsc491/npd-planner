@@ -1,8 +1,8 @@
 // src/renderer/src/components/task/EmailAttachmentCard.tsx
 // Collapsible card showing an Outlook .msg attachment and its inner files
 
-import { useState } from 'react'
-import { Mail, ChevronDown, Trash2, ExternalLink, Paperclip } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Mail, ChevronDown, Trash2, ExternalLink, Paperclip, Loader2 } from 'lucide-react'
 import type { EmailAttachment, EmailInnerAttachment } from '../../types'
 import EmailViewerModal from './EmailViewerModal'
 
@@ -70,6 +70,8 @@ export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemo
   const [expanded, setExpanded] = useState(attachment.innerAttachments.length > 0)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [viewerOpen, setViewerOpen] = useState(false)
+  const [available, setAvailable] = useState<boolean | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const dateStr = formatDate(attachment.date)
   const hasInner = attachment.innerAttachments.length > 0
@@ -78,30 +80,48 @@ export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemo
     ? `${sharePointRoot}/${attachment.msgRelativePath}`
     : null
 
+  useEffect(() => {
+    if (!msgAbsPath || !window.electronAPI?.recipePathExists) return
+    async function check() {
+      const exists = await window.electronAPI.recipePathExists(msgAbsPath!)
+      setAvailable(exists)
+      if (exists && intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+    check()
+    intervalRef.current = setInterval(check, 30_000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [msgAbsPath])
+
+  const isUnavailable = available === false
+  const isChecking = available === null
+
   function handleOpenEmail() {
-    if (!msgAbsPath) return
+    if (!msgAbsPath || isUnavailable || isChecking) return
     setViewerOpen(true)
   }
 
   return (
     <>
-    <div className="rounded-lg border border-blue-200 dark:border-blue-800/50 border-l-4 border-l-blue-400 bg-blue-50/40 dark:bg-blue-900/10 overflow-hidden">
+    <div className={`rounded-lg border border-blue-200 dark:border-blue-800/50 border-l-4 border-l-blue-400 bg-blue-50/40 dark:bg-blue-900/10 overflow-hidden transition-opacity ${isUnavailable ? 'opacity-60' : ''}`}>
       {/* Header */}
       <div className="flex items-start gap-2 px-3 py-2.5">
         <button
           onClick={handleOpenEmail}
-          title="Open email"
-          disabled={!sharePointRoot}
+          title={isUnavailable ? 'Waiting for SharePoint sync…' : 'Open email'}
+          disabled={!sharePointRoot || isUnavailable || isChecking}
           className="shrink-0 mt-0.5 text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 disabled:opacity-40 disabled:cursor-default transition-colors"
         >
-          <Mail size={15} />
+          {isChecking ? <Loader2 size={15} className="animate-spin text-gray-400" /> : <Mail size={15} />}
         </button>
 
         <div className="flex-1 min-w-0">
-          {/* Subject — clickable to open .msg */}
+          {/* Subject — clickable to open email viewer */}
           <button
             onClick={handleOpenEmail}
-            disabled={!sharePointRoot}
+            disabled={!sharePointRoot || isUnavailable || isChecking}
             className="w-full text-left text-sm font-semibold text-gray-800 dark:text-gray-100 truncate leading-tight hover:text-blue-600 dark:hover:text-blue-300 disabled:opacity-40 disabled:cursor-default transition-colors"
           >
             {attachment.subject}
@@ -117,6 +137,20 @@ export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemo
               "{attachment.bodySnippet}"
             </p>
           )}
+          {/* Sync state + uploader */}
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            {isUnavailable && (
+              <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                <Loader2 size={9} className="animate-spin" />
+                Waiting for SharePoint sync…
+              </span>
+            )}
+            {attachment.uploadedByName && (
+              <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                {attachment.uploadedByName}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Actions */}

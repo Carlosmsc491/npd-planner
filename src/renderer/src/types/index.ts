@@ -149,6 +149,7 @@ export interface TaskAttachment {
   name: string
   sharePointRelativePath: string  // relative to SharePoint root folder
   uploadedBy: string              // uid
+  uploadedByName?: string         // display name — stored at upload time
   uploadedAt: Timestamp
   status: AttachmentStatus
   sizeBytes: number | null
@@ -173,6 +174,7 @@ export interface EmailAttachment {
   msgRelativePath: string
   innerAttachments: EmailInnerAttachment[]
   uploadedBy: string
+  uploadedByName?: string         // display name — stored at upload time
   uploadedAt: Timestamp
 }
 

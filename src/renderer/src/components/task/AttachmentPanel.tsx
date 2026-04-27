@@ -1,12 +1,12 @@
 // src/renderer/src/components/task/AttachmentPanel.tsx
 // File attachment panel inside TaskPage — handles attach, preview, open, remove
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   Paperclip, Upload, FileText, Image, FileSpreadsheet,
   File, Trash2, ExternalLink, AlertTriangle, RefreshCw,
   CheckCircle, Clock, X, ZoomIn, ChevronLeft, ChevronRight,
-  Mail,
+  Mail, Loader2,
 } from 'lucide-react'
 import { useSharePoint } from '../../hooks/useSharePoint'
 import { useSettingsStore } from '../../store/settingsStore'
@@ -261,42 +261,95 @@ function PDFPreviewModal({ name, base64, onClose }: PDFPreviewModalProps) {
 interface RowProps {
   attachment: TaskAttachment
   task: Task
+  sharePointPath: string | null
   onRemove: (id: string) => void
   onOpen: (att: TaskAttachment) => void
   onPreview: (att: TaskAttachment) => void
 }
 
-function AttachmentRow({ attachment, onRemove, onOpen, onPreview }: RowProps) {
+function AttachmentRow({ attachment, sharePointPath, onRemove, onOpen, onPreview }: RowProps) {
   const canPreview = isImage(attachment.mimeType, attachment.name) || isPDF(attachment.mimeType, attachment.name)
+  const [available, setAvailable] = useState<boolean | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (!sharePointPath || !window.electronAPI?.recipePathExists) return
+    const absPath = `${sharePointPath}/${attachment.sharePointRelativePath}`
+
+    async function check() {
+      const exists = await window.electronAPI.recipePathExists(absPath)
+      setAvailable(exists)
+      if (exists && intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+
+    check()
+    // Poll every 30s until the file appears (SharePoint sync may be in progress)
+    intervalRef.current = setInterval(check, 30_000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [sharePointPath, attachment.sharePointRelativePath])
+
+  const isUnavailable = available === false
+  const isChecking = available === null
 
   return (
-    <div className="group flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-700/60 dark:bg-gray-800/60">
+    <div className={`group flex items-center gap-2 rounded-lg border px-3 py-2 transition-opacity
+      ${isUnavailable
+        ? 'border-gray-100 bg-gray-50/50 opacity-60 dark:border-gray-700/40 dark:bg-gray-800/30'
+        : 'border-gray-100 bg-gray-50 dark:border-gray-700/60 dark:bg-gray-800/60'
+      }`}
+    >
       {/* Icon */}
-      <div className="shrink-0">{getFileIcon(attachment.mimeType, attachment.name)}</div>
-
-      {/* Name + status */}
-      <div className="flex-1 min-w-0">
-        <p className="truncate text-sm font-medium text-gray-800 dark:text-gray-200">
-          {attachment.name}
-        </p>
-        <StatusBadge status={attachment.status} />
+      <div className="shrink-0 relative">
+        {getFileIcon(attachment.mimeType, attachment.name)}
+        {isChecking && (
+          <span className="absolute -bottom-1 -right-1">
+            <Loader2 size={8} className="animate-spin text-gray-400" />
+          </span>
+        )}
       </div>
 
-      {/* Actions — visible on hover */}
+      {/* Name + status + uploader */}
+      <div className="flex-1 min-w-0">
+        <p className={`truncate text-sm font-medium ${isUnavailable ? 'text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'}`}>
+          {attachment.name}
+        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          {isUnavailable ? (
+            <span className="flex items-center gap-1 text-[10px] text-gray-400">
+              <Loader2 size={9} className="animate-spin" />
+              Waiting for SharePoint sync…
+            </span>
+          ) : (
+            <StatusBadge status={attachment.status} />
+          )}
+          {attachment.uploadedByName && (
+            <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
+              {attachment.uploadedByName}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Actions — visible on hover, disabled when unavailable */}
       <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
         {canPreview && (
           <button
             onClick={() => onPreview(attachment)}
+            disabled={isUnavailable || isChecking}
             title="Preview"
-            className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+            className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <ZoomIn size={13} />
           </button>
         )}
         <button
           onClick={() => onOpen(attachment)}
-          title="Open in app"
-          className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+          disabled={isUnavailable || isChecking}
+          title={isUnavailable ? 'File not yet synced to this computer' : 'Open in app'}
+          className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
         >
           <ExternalLink size={13} />
         </button>
@@ -409,6 +462,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
       const emailAtt: EmailAttachment = {
         ...raw,
         uploadedBy: user.uid,
+        uploadedByName: user.name,
         uploadedAt: Timestamp.now(),
         date: raw.date ? new Timestamp(raw.date.seconds, raw.date.nanoseconds) : null,
       }
@@ -485,6 +539,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
               key={att.id}
               attachment={att}
               task={task}
+              sharePointPath={sharePointPath}
               onRemove={handleRemove}
               onOpen={handleOpen}
               onPreview={handlePreview}

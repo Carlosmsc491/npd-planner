@@ -157,6 +157,7 @@ export function useSharePoint() {
       name: fileName,
       sharePointRelativePath: relativePath,
       uploadedBy: user.uid,
+      uploadedByName: user.name,
       uploadedAt: Timestamp.now(),
       status: 'uploading',
       sizeBytes: null,
