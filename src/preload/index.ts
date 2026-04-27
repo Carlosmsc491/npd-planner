@@ -236,6 +236,15 @@ const electronAPI = {
   photoExportZip: (entries: { srcPath: string; archivePath: string }[], destZipPath: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('photo:export-zip', entries, destZipPath),
 
+  // ── Email attachments (.msg) ──────────────────────────────────────────────
+  parseAndAttachEmail: (req: {
+    msgFilePath: string
+    sharePointRoot: string
+    year: string
+    clientName: string
+    taskTitle: string
+  }) => ipcRenderer.invoke('email:parse-and-attach', req),
+
   // ── App utilities ─────────────────────────────────────────────────────────
   getUserDataPath: (): Promise<string> =>
     ipcRenderer.invoke('app:get-user-data-path'),

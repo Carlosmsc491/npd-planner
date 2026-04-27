@@ -63,9 +63,17 @@ export default function RecipeHomePage() {
       }
 
       const cfg = result.config
+      const spPath   = user?.preferences?.sharePointPath ?? ''
+      const normalSP = spPath.replace(/\\/g, '/').replace(/\/$/, '')
+      const normalFP = folderPath.replace(/\\/g, '/')
+      const relativeRootPath = normalSP && normalFP.startsWith(normalSP + '/')
+        ? normalFP.slice(normalSP.length + 1)
+        : undefined
+
       const newId = await createRecipeProject({
         name: cfg.projectName,
         rootPath: folderPath,
+        ...(relativeRootPath !== undefined ? { relativeRootPath } : {}),
         status: 'active',
         createdBy: user?.uid ?? '',
         config: {
@@ -295,7 +303,7 @@ function ProjectRow({
       </td>
       <td className="px-4 py-3 max-w-xs">
         <span className="text-xs font-mono text-gray-400 dark:text-gray-500 truncate block" title={project.rootPath}>
-          {project.rootPath}
+          {project.relativeRootPath ?? project.rootPath}
         </span>
       </td>
       <td className="px-4 py-3">

@@ -110,6 +110,14 @@ interface IElectronAPI {
   getDefaultTemplatePath: () => Promise<string>
   readFileAsDataUrl: (filePath: string) => Promise<string>
   testWriteAccess: (dirPath: string) => Promise<{ success: boolean; error?: string }>
+  // Email attachments (.msg)
+  parseAndAttachEmail: (req: {
+    msgFilePath: string
+    sharePointRoot: string
+    year: string
+    clientName: string
+    taskTitle: string
+  }) => Promise<{ success: boolean; emailAttachment?: unknown; error?: string }>
   // Generic Traze / AWB IPC channels
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, listener: (...args: unknown[]) => void) => void

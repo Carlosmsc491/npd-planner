@@ -1,17 +1,19 @@
 // src/renderer/src/components/recipes/wizard/WizardStep3Structure.tsx
 // Step 3: File manager table layout for folder/recipe structure
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Folder,
-  FileSpreadsheet,
   ChevronRight,
+  ChevronDown,
   Plus,
   MoreHorizontal,
   Copy,
   Search,
+  Undo2,
+  Redo2,
 } from 'lucide-react'
-import { useStructureState, type FlatNode, type TreeNode } from './useStructureState'
+import { useStructureState, type TreeNode, type FolderNode, type RecipeNode } from './useStructureState'
 import { DistributionEditor } from './WizardStepRules'
 import {
   RECIPE_CUSTOMER_OPTIONS,
@@ -95,7 +97,6 @@ export default function WizardStep3Structure({
     addFolder,
     addRecipe,
     toggleFolder,
-    toggleRecipe,
     toggleOverride,
     updateRecipeField,
     updateRecipeOverride,
@@ -108,6 +109,12 @@ export default function WizardStep3Structure({
     hasClipboard,
     setDraggedId,
     getDraggedId,
+    expandedRecipeId,
+    setExpandedRecipeId,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
     // hasAtLeastOneRecipe is tracked by onValidityChange
   } = useStructureState({
     initialFolders: initialNodes,
@@ -120,15 +127,12 @@ export default function WizardStep3Structure({
   useEffect(() => {
     if (!onChange) return
     const wizardFolders = convertTreeToFolders(nodes)
-    // Only call onChange if folders actually changed (to avoid loops)
     const currentFoldersStr = JSON.stringify(folders)
     const newFoldersStr = JSON.stringify(wizardFolders)
     if (currentFoldersStr !== newFoldersStr) {
       onChange(wizardFolders)
     }
   }, [nodes, onChange, folders])
-
-
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -153,296 +157,257 @@ export default function WizardStep3Structure({
 
   // Keyboard handler for inline editing
   const handleEditingKeyDown = (e: React.KeyboardEvent, id: string) => {
-    if (e.key === 'Enter') {
-      renameItem(id, editingValue)
-      setEditingId(null)
-    } else if (e.key === 'Escape') {
-      setEditingId(null)
-    }
+    if (e.key === 'Enter') { renameItem(id, editingValue); setEditingId(null) }
+    else if (e.key === 'Escape') { setEditingId(null) }
   }
 
-  // Start inline editing
-  const startEditing = (node: FlatNode) => {
-    setEditingId(node.id)
-    setEditingValue(node.name)
-  }
-
-  // Handle context menu
-  const handleContextMenu = (event: React.MouseEvent, node: FlatNode) => {
-    event.preventDefault()
+  function openContextMenu(e: React.MouseEvent, nodeId: string, nodeType: 'folder' | 'recipe') {
+    e.preventDefault()
+    e.stopPropagation()
     setContextMenu({
-      x: Math.min(event.clientX, window.innerWidth - 200),
-      y: Math.min(event.clientY, window.innerHeight - 200),
-      nodeId: node.id,
-      nodeType: node.type,
+      x: Math.min(e.clientX, window.innerWidth - 200),
+      y: Math.min(e.clientY, window.innerHeight - 200),
+      nodeId,
+      nodeType,
     })
   }
 
-  // Drag handlers
-  const handleDragStart = (e: React.DragEvent, id: string) => {
-    setDraggedId(id)
-    e.dataTransfer.effectAllowed = 'move'
-  }
+  // Split root nodes
+  const folderNodes = nodes.filter((n): n is FolderNode => n.type === 'folder')
+  const rootRecipes = nodes.filter((n): n is RecipeNode => n.type === 'recipe')
 
-  const handleDragEnd = () => {
-    setDraggedId(null)
-  }
-
-  const handleDragOver = (e: React.DragEvent, node: FlatNode) => {
-    if (node.type !== 'folder') return
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-  }
-
-  const handleDrop = (e: React.DragEvent, targetId: string) => {
-    e.preventDefault()
-    const draggedId = getDraggedId()
-    if (draggedId && draggedId !== targetId) {
-      moveInto(draggedId, targetId)
-    }
-    setDraggedId(null)
-  }
+  // Visibility set for filter support
+  const visibleIds = useMemo(
+    () => new Set(flattenedNodes.filter((n) => n.visible).map((n) => n.id)),
+    [flattenedNodes]
+  )
 
   return (
     <div className="flex flex-col h-full">
-      {/* Top toolbar */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shrink-0">
         <button
-          onClick={() => addFolder()}
+          onClick={() => {
+            const newId = addFolder()
+            setEditingId(newId)
+            setEditingValue('')
+          }}
           className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <Plus size={14} />
           Add Folder
         </button>
+
+        {/* Undo / Redo */}
         <button
-          onClick={() => addRecipe()}
-          className="flex items-center gap-1.5 rounded-lg bg-green-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-600 transition-colors"
+          onClick={undo}
+          disabled={!canUndo}
+          title="Undo"
+          className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
-          <Plus size={14} />
-          Add Recipe
+          <Undo2 size={14} />
         </button>
+        <button
+          onClick={redo}
+          disabled={!canRedo}
+          title="Redo"
+          className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          <Redo2 size={14} />
+        </button>
+
         <div className="flex-1" />
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Filter by name..."
+            placeholder="Search..."
             value={filterQuery}
             onChange={(e) => setFilterQuery(e.target.value)}
-            className="w-48 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 pl-8 pr-3 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
+            className="w-40 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 pl-8 pr-3 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
           />
         </div>
       </div>
 
-      {/* Table */}
-      <div className="flex-1 overflow-y-auto bg-white dark:bg-gray-800">
-        <table className="w-full border-collapse">
-          <thead className="sticky top-0 z-10 bg-white dark:bg-gray-900">
-            <tr className="border-b border-gray-200 dark:border-gray-700">
-              <th className="text-left py-2.5 px-4 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Name
-              </th>
-              <th className="text-left py-2.5 px-4 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-16">
-                Option
-              </th>
-              <th className="text-left py-2.5 px-4 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-24">
-                Price
-              </th>
-              <th className="text-right py-2.5 px-4 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-24">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-            {flattenedNodes.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="py-12 text-center">
-                  <Folder size={32} className="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-                  <p className="text-sm text-gray-400 dark:text-gray-500">
-                    No folders yet. Add your first folder.
-                  </p>
-                </td>
-              </tr>
-            ) : (
-              flattenedNodes.map((node) => {
-                if (!node.visible) return null
-
-                const isEditing = editingId === node.id
-                const namePaddingLeft = node.depth * 20 + 16
-
-                if (node.type === 'folder') {
-                  return (
-                    <React.Fragment key={node.id}>
-                      <tr
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, node.id)}
-                        onDragEnd={handleDragEnd}
-                        onDragOver={(e) => handleDragOver(e, node)}
-                        onDrop={(e) => handleDrop(e, node.id)}
-                        onContextMenu={(e) => handleContextMenu(e, node)}
-                        className="group hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors border-b border-gray-100 dark:border-gray-700/50"
-                      >
-                        <td className="py-2.5 px-4" style={{ paddingLeft: namePaddingLeft }}>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => toggleFolder(node.id)}
-                              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                            >
-                              <ChevronRight
-                                size={16}
-                                className={`transition-transform duration-150 ${node.open ? 'rotate-90' : ''}`}
-                              />
-                            </button>
-                            <Folder size={16} className="text-amber-500 shrink-0" />
-                            {isEditing ? (
-                              <input
-                                type="text"
-                                value={editingValue}
-                                onChange={(e) => setEditingValue(e.target.value)}
-                                onKeyDown={(e) => handleEditingKeyDown(e, node.id)}
-                                onBlur={() => {
-                                  renameItem(node.id, editingValue)
-                                  setEditingId(null)
-                                }}
-                                autoFocus
-                                className="flex-1 min-w-0 bg-white dark:bg-gray-700 border border-green-500 rounded px-2 py-0.5 text-sm text-gray-900 dark:text-white focus:outline-none"
-                              />
-                            ) : (
-                              <>
-                                <span
-                                  className="font-medium text-gray-900 dark:text-white cursor-pointer"
-                                  onDoubleClick={() => startEditing(node)}
-                                >
-                                  {node.name}
-                                </span>
-                                <span className="text-[10px] text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 rounded-full px-2 py-0.5">
-                                  {node.children.length}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-4 text-gray-400 dark:text-gray-500">—</td>
-                        <td className="py-2.5 px-4 text-gray-400 dark:text-gray-500">—</td>
-                        <td className="py-2.5 px-4">
-                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button
-                              onClick={() => addRecipe(node.id)}
-                              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400"
-                              title="Add recipe"
-                            >
-                              <Plus size={14} />
-                            </button>
-                            <button
-                              onClick={(e) => handleContextMenu(e as unknown as React.MouseEvent, node)}
-                              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400"
-                            >
-                              <MoreHorizontal size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    </React.Fragment>
-                  )
-                } else {
-                  // Recipe row
-                  const recipe = node as Extract<TreeNode, { type: 'recipe' }> & { depth: number }
-                  return (
-                    <React.Fragment key={node.id}>
-                      <tr
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, node.id)}
-                        onDragEnd={handleDragEnd}
-                        onClick={() => toggleRecipe(node.id)}
-                        onContextMenu={(e) => handleContextMenu(e, node)}
-                        className="group hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer border-b border-gray-100 dark:border-gray-700/50"
-                      >
-                        <td className="py-2.5 px-4" style={{ paddingLeft: namePaddingLeft }}>
-                          <div className="flex items-center gap-2">
-                            <FileSpreadsheet size={16} className="text-gray-400 shrink-0" />
-                            {isEditing ? (
-                              <input
-                                type="text"
-                                value={editingValue}
-                                onChange={(e) => setEditingValue(e.target.value)}
-                                onKeyDown={(e) => handleEditingKeyDown(e, node.id)}
-                                onBlur={() => {
-                                  renameItem(node.id, editingValue)
-                                  setEditingId(null)
-                                }}
-                                autoFocus
-                                className="flex-1 min-w-0 bg-white dark:bg-gray-700 border border-green-500 rounded px-2 py-0.5 text-sm text-gray-900 dark:text-white focus:outline-none"
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            ) : (
-                              <span
-                                className="text-gray-700 dark:text-gray-300"
-                                onDoubleClick={(e) => {
-                                  e.stopPropagation()
-                                  startEditing(node)
-                                }}
-                              >
-                                {node.name || (
-                                  <span className="text-gray-400 dark:text-gray-500 italic">new recipe...</span>
-                                )}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-4">
-                          {recipe.option && (
-                            <span className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-700 dark:text-gray-300">
-                              {recipe.option}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-4 text-sm text-gray-700 dark:text-gray-300">
-                          {recipe.price}
-                        </td>
-                        <td className="py-2.5 px-4">
-                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                duplicateItem(node.id)
-                              }}
-                              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400"
-                              title="Duplicate"
-                            >
-                              <Copy size={14} />
-                            </button>
-                            <button
-                              onClick={(e) => handleContextMenu(e as unknown as React.MouseEvent, node)}
-                              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400"
-                            >
-                              <MoreHorizontal size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                      {/* Expanded recipe panel */}
-                      {recipe.expanded && (
-                        <tr>
-                          <td colSpan={4} className="p-0">
-                            <div className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
-                              <RecipeEditPanel
-                                recipe={recipe}
-                                defaults={defaults}
-                                onUpdateField={updateRecipeField}
-                                onUpdateOverride={updateRecipeOverride}
-                                onToggleOverride={() => toggleOverride(node.id)}
-                              />
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  )
-                }
-              })
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-3 bg-gray-50 dark:bg-gray-900/40 space-y-2">
+        {nodes.length === 0 ? (
+          /* Empty state */
+          <div className="flex flex-col items-center justify-center py-14 text-center">
+            <Folder size={40} className="text-gray-300 dark:text-gray-600 mb-3" />
+            <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">No folders yet</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
+              Start by adding a folder, then add recipes inside it.
+            </p>
+            <button
+              onClick={() => {
+                const newId = addFolder()
+                setEditingId(newId)
+                setEditingValue('')
+              }}
+              className="flex items-center gap-1.5 rounded-lg bg-green-500 px-4 py-2 text-sm font-medium text-white hover:bg-green-600 transition-colors"
+            >
+              <Plus size={14} />
+              Add First Folder
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Root-level recipes (uncategorized) */}
+            {rootRecipes.filter((r) => visibleIds.has(r.id)).length > 0 && (
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                    Uncategorized
+                  </span>
+                </div>
+                <div className="divide-y divide-gray-100 dark:divide-gray-700/50 bg-white dark:bg-gray-900">
+                  {rootRecipes.filter((r) => visibleIds.has(r.id)).map((recipe) => (
+                    <RecipeRow
+                      key={recipe.id}
+                      recipe={recipe}
+                      isExpanded={expandedRecipeId === recipe.id}
+                      editingId={editingId}
+                      editingValue={editingValue}
+                      defaults={defaults}
+                      onToggle={() => setExpandedRecipeId(expandedRecipeId === recipe.id ? null : recipe.id)}
+                      onStartEditing={() => { setEditingId(recipe.id); setEditingValue(recipe.name) }}
+                      onEditingChange={setEditingValue}
+                      onEditingKeyDown={(e) => handleEditingKeyDown(e, recipe.id)}
+                      onEditingBlur={() => { renameItem(recipe.id, editingValue); setEditingId(null) }}
+                      onDuplicate={() => duplicateItem(recipe.id)}
+                      onContextMenu={(e) => openContextMenu(e, recipe.id, 'recipe')}
+                      onDragStart={(e) => { setDraggedId(recipe.id); e.dataTransfer.effectAllowed = 'move' }}
+                      onDragEnd={() => setDraggedId(null)}
+                      onUpdateField={updateRecipeField}
+                      onUpdateOverride={updateRecipeOverride}
+                      onToggleOverride={() => toggleOverride(recipe.id)}
+                    />
+                  ))}
+                </div>
+              </div>
             )}
-          </tbody>
-        </table>
+
+            {/* Folder cards */}
+            {folderNodes
+              .filter((f) => visibleIds.has(f.id) || f.children.some((c) => visibleIds.has(c.id)))
+              .map((folder) => {
+                const folderRecipes = folder.children.filter(
+                  (c): c is RecipeNode => c.type === 'recipe' && visibleIds.has(c.id)
+                )
+                return (
+                  <div
+                    key={folder.id}
+                    className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      const dragId = getDraggedId()
+                      if (dragId && dragId !== folder.id) moveInto(dragId, folder.id)
+                      setDraggedId(null)
+                    }}
+                  >
+                    {/* Folder header — matches RecipeFolderSection exactly */}
+                    <div
+                      className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 dark:bg-gray-800/60 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors group"
+                      onContextMenu={(e) => openContextMenu(e, folder.id, 'folder')}
+                    >
+                      <button
+                        onClick={() => toggleFolder(folder.id)}
+                        className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                      >
+                        <ChevronRight
+                          size={14}
+                          className={`shrink-0 text-gray-400 transition-transform duration-200 ${folder.open ? 'rotate-90' : ''}`}
+                        />
+                        {editingId === folder.id ? (
+                          <input
+                            type="text"
+                            value={editingValue}
+                            onChange={(e) => setEditingValue(e.target.value)}
+                            onKeyDown={(e) => handleEditingKeyDown(e, folder.id)}
+                            onBlur={() => { renameItem(folder.id, editingValue); setEditingId(null) }}
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex-1 min-w-0 bg-white dark:bg-gray-700 border border-green-500 rounded px-2 py-0.5 text-xs font-semibold text-gray-700 dark:text-gray-300 focus:outline-none"
+                          />
+                        ) : (
+                          <span
+                            className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex-1 truncate"
+                            onDoubleClick={(e) => { e.stopPropagation(); setEditingId(folder.id); setEditingValue(folder.name === 'NEW FOLDER' ? '' : folder.name) }}
+                          >
+                            📁 {folder.name}
+                          </span>
+                        )}
+                      </button>
+
+                      {/* Recipe count badge */}
+                      <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs font-medium shrink-0">
+                        {folder.children.length} recipe{folder.children.length !== 1 ? 's' : ''}
+                      </span>
+
+                      {/* Add recipe — always visible */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); addRecipe(folder.id) }}
+                        title="Add recipe"
+                        className="shrink-0 flex items-center justify-center w-6 h-6 rounded hover:bg-green-100 dark:hover:bg-green-900/30 text-gray-400 hover:text-green-600 dark:hover:text-green-400 transition-colors"
+                      >
+                        <Plus size={13} />
+                      </button>
+
+                      {/* More options — hover only */}
+                      <button
+                        onClick={(e) => openContextMenu(e, folder.id, 'folder')}
+                        className="shrink-0 flex items-center justify-center w-6 h-6 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <MoreHorizontal size={14} />
+                      </button>
+                    </div>
+
+                    {/* Recipe list — animated collapse */}
+                    <div className={`transition-all duration-200 overflow-hidden ${folder.open ? '' : 'max-h-0'}`}>
+                      {folderRecipes.length === 0 ? (
+                        <div className="px-4 py-4 text-center">
+                          <p className="text-xs text-gray-400 dark:text-gray-500 italic">No recipes yet</p>
+                          <button
+                            onClick={() => addRecipe(folder.id)}
+                            className="mt-1.5 text-xs text-green-600 dark:text-green-400 hover:underline font-medium"
+                          >
+                            + Add first recipe
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-gray-100 dark:divide-gray-700/50 bg-white dark:bg-gray-900">
+                          {folderRecipes.map((recipe) => (
+                            <RecipeRow
+                              key={recipe.id}
+                              recipe={recipe}
+                              isExpanded={expandedRecipeId === recipe.id}
+                              editingId={editingId}
+                              editingValue={editingValue}
+                              defaults={defaults}
+                              onToggle={() => setExpandedRecipeId(expandedRecipeId === recipe.id ? null : recipe.id)}
+                              onStartEditing={() => { setEditingId(recipe.id); setEditingValue(recipe.name) }}
+                              onEditingChange={setEditingValue}
+                              onEditingKeyDown={(e) => handleEditingKeyDown(e, recipe.id)}
+                              onEditingBlur={() => { renameItem(recipe.id, editingValue); setEditingId(null) }}
+                              onDuplicate={() => duplicateItem(recipe.id)}
+                              onContextMenu={(e) => openContextMenu(e, recipe.id, 'recipe')}
+                              onDragStart={(e) => { setDraggedId(recipe.id); e.dataTransfer.effectAllowed = 'move' }}
+                              onDragEnd={() => setDraggedId(null)}
+                              onUpdateField={updateRecipeField}
+                              onUpdateOverride={updateRecipeOverride}
+                              onToggleOverride={() => toggleOverride(recipe.id)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+          </>
+        )}
       </div>
 
       {/* Context menu */}
@@ -454,37 +419,164 @@ export default function WizardStep3Structure({
           hasClipboard={hasClipboard}
           onRename={() => {
             const node = flattenedNodes.find((n) => n.id === contextMenu.nodeId)
-            if (node) startEditing(node)
+            if (node) {
+              setEditingId(node.id)
+              setEditingValue(node.name === 'NEW FOLDER' ? '' : node.name)
+            }
             setContextMenu(null)
           }}
-          onDuplicate={() => {
-            duplicateItem(contextMenu.nodeId)
-            setContextMenu(null)
-          }}
-          onCopy={() => {
-            copyItem(contextMenu.nodeId)
-            setContextMenu(null)
-          }}
-          onPaste={() => {
-            pasteItem(contextMenu.nodeId)
-            setContextMenu(null)
-          }}
-          onDelete={() => {
-            deleteItem(contextMenu.nodeId)
-            setContextMenu(null)
-          }}
+          onDuplicate={() => { duplicateItem(contextMenu.nodeId); setContextMenu(null) }}
+          onCopy={() => { copyItem(contextMenu.nodeId); setContextMenu(null) }}
+          onPaste={() => { pasteItem(contextMenu.nodeId); setContextMenu(null) }}
+          onDelete={() => { deleteItem(contextMenu.nodeId); setContextMenu(null) }}
         />
       )}
     </div>
   )
 }
 
+// ── Recipe row component ───────────────────────────────────────────────────
+
+interface RecipeRowProps {
+  recipe: RecipeNode
+  isExpanded: boolean
+  editingId: string | null
+  editingValue: string
+  defaults: WizardDefaults
+  onToggle: () => void
+  onStartEditing: () => void
+  onEditingChange: (v: string) => void
+  onEditingKeyDown: (e: React.KeyboardEvent) => void
+  onEditingBlur: () => void
+  onDuplicate: () => void
+  onContextMenu: (e: React.MouseEvent) => void
+  onDragStart: (e: React.DragEvent) => void
+  onDragEnd: () => void
+  onUpdateField: (id: string, field: 'name' | 'option' | 'price', value: string) => void
+  onUpdateOverride: (id: string, field: keyof RecipeNode, value: unknown) => void
+  onToggleOverride: () => void
+}
+
+function RecipeRow({
+  recipe,
+  isExpanded,
+  editingId,
+  editingValue,
+  defaults,
+  onToggle,
+  onStartEditing,
+  onEditingChange,
+  onEditingKeyDown,
+  onEditingBlur,
+  onDuplicate,
+  onContextMenu,
+  onDragStart,
+  onDragEnd,
+  onUpdateField,
+  onUpdateOverride,
+  onToggleOverride,
+}: RecipeRowProps) {
+  const isEditing = editingId === recipe.id
+
+  return (
+    <>
+      {/* Row — matches RecipeRowItem layout */}
+      <div
+        draggable
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onClick={onToggle}
+        onContextMenu={onContextMenu}
+        className={`group flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors border-l-2 ${
+          isExpanded
+            ? 'border-green-500 bg-green-50 dark:bg-green-900/10'
+            : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50'
+        }`}
+      >
+        {/* State icon — circle placeholder (matches RecipeRowItem's status icon slot) */}
+        <span className="shrink-0 h-3.5 w-3.5 rounded-full border-2 border-gray-300 dark:border-gray-600" />
+
+        {/* Name */}
+        {isEditing ? (
+          <input
+            type="text"
+            value={editingValue}
+            onChange={(e) => onEditingChange(e.target.value)}
+            onKeyDown={onEditingKeyDown}
+            onBlur={onEditingBlur}
+            autoFocus
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 min-w-0 bg-white dark:bg-gray-700 border border-green-500 rounded px-2 py-0.5 text-sm text-gray-900 dark:text-white focus:outline-none"
+          />
+        ) : (
+          <span
+            className="flex-1 min-w-0 text-sm font-medium text-gray-900 dark:text-white truncate"
+            onDoubleClick={(e) => { e.stopPropagation(); onStartEditing() }}
+          >
+            {recipe.name || (
+              <span className="italic font-normal text-gray-400 dark:text-gray-500">new recipe...</span>
+            )}
+          </span>
+        )}
+
+        {/* Price */}
+        {recipe.price && (
+          <span className="text-xs font-mono text-gray-500 dark:text-gray-400 shrink-0 w-14 text-right tabular-nums">
+            {recipe.price}
+          </span>
+        )}
+
+        {/* Option */}
+        {recipe.option && (
+          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 shrink-0 w-6 text-center">
+            {recipe.option}
+          </span>
+        )}
+
+        {/* Chevron + hover actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          <ChevronDown
+            size={13}
+            className={`text-gray-400 transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`}
+          />
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicate() }}
+              title="Duplicate"
+              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400"
+            >
+              <Copy size={12} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onContextMenu(e) }}
+              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400"
+            >
+              <MoreHorizontal size={12} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Expanded edit panel */}
+      {isExpanded && (
+        <div className="bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700">
+          <RecipeEditPanel
+            recipe={recipe}
+            defaults={defaults}
+            onUpdateField={onUpdateField}
+            onUpdateOverride={onUpdateOverride}
+            onToggleOverride={onToggleOverride}
+          />
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── Recipe edit panel component ────────────────────────────────────────────
 
-type RecipeNode = Extract<TreeNode, { type: 'recipe' }>
-
 interface RecipeEditPanelProps {
-  recipe: RecipeNode & { depth: number }
+  recipe: RecipeNode
   defaults: WizardDefaults
   onUpdateField: (id: string, field: 'name' | 'option' | 'price', value: string) => void
   onUpdateOverride: (id: string, field: keyof RecipeNode, value: unknown) => void
@@ -533,9 +625,16 @@ function RecipeEditPanel({
           </label>
           <input
             type="text"
+            inputMode="decimal"
             value={recipe.price}
             onChange={(e) => onUpdateField(recipe.id, 'price', e.target.value)}
-            placeholder="$12.99"
+            onBlur={(e) => {
+              const raw = e.target.value.trim()
+              if (raw && !raw.startsWith('$')) {
+                onUpdateField(recipe.id, 'price', `$${raw}`)
+              }
+            }}
+            placeholder="e.g. $12.99"
             className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
           />
         </div>
@@ -705,6 +804,7 @@ function ContextMenu({ x, y, nodeType: _nodeType, hasClipboard, onRename, onDupl
     <div
       className="fixed z-50 w-40 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1"
       style={{ left: x, top: y }}
+      onMouseDown={(e) => e.stopPropagation()}
     >
       <button
         onClick={onRename}

@@ -155,6 +155,27 @@ export interface TaskAttachment {
   mimeType: string | null
 }
 
+export interface EmailInnerAttachment {
+  id: string
+  name: string
+  sharePointRelativePath: string
+  sizeBytes: number | null
+  mimeType: string | null
+}
+
+export interface EmailAttachment {
+  id: string
+  type: 'email'
+  from: string
+  subject: string
+  date: Timestamp | null
+  bodySnippet: string
+  msgRelativePath: string
+  innerAttachments: EmailInnerAttachment[]
+  uploadedBy: string
+  uploadedAt: Timestamp
+}
+
 export interface RecurringConfig {
   enabled: boolean
   frequency: RecurringFrequency
@@ -200,6 +221,7 @@ export interface Task {
   awbs: AwbEntry[]
   subtasks: Subtask[]
   attachments: TaskAttachment[]
+  emailAttachments: EmailAttachment[]
   recurring: RecurringConfig | null
   completed: boolean
   completedAt: Timestamp | null
@@ -629,7 +651,8 @@ export interface RecipeUserPreferences {
 export interface RecipeProject {
   id: string
   name: string
-  rootPath: string
+  rootPath: string          // absolute path on the creator's machine (legacy)
+  relativeRootPath?: string // path relative to SharePoint root — portable across users/OS
   createdAt: Timestamp
   createdBy: string
   status: 'active' | 'completed' | 'archived'

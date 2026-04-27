@@ -39,6 +39,7 @@ import { PhotoManagerView } from './PhotoManagerView'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification, RenameWithPhotosResult } from '../../types'
 import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Download, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
+import { resolveProjectRootPath } from '../../utils/photoUtils'
 
 export default function RecipeProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -85,10 +86,19 @@ export default function RecipeProjectPage() {
 
   const canEdit = user ? canEditArea(user, 'recipes') : false
 
+  // Resolve the project root path for the current user's machine.
+  // Stored paths may be absolute from another OS (e.g. Windows path on Mac).
+  // resolveProjectRootPath reconstructs the correct local path using the
+  // SharePoint folder name as a landmark — portable across users and OS.
+  const sharePointPath = user?.preferences?.sharePointPath ?? ''
+  const effectiveRootPath = project
+    ? resolveProjectRootPath(project.relativeRootPath ?? project.rootPath, sharePointPath)
+    : ''
+
   const { currentLock, claimFile, unclaimFile } = useRecipeLock()
   const { files, filesByFolder, isLoading: filesLoading, scanError } = useRecipeFiles(
     projectId ?? '',
-    project?.rootPath ?? '',
+    effectiveRootPath,
     scanKey
   )
 
@@ -213,13 +223,13 @@ export default function RecipeProjectPage() {
   const handleOpenInExcel = useCallback(async () => {
     if (!project || !selectedFile) return
     // Use the IPC layer to join paths cross-platform (avoids hardcoded separators)
-    const fullPath = await window.electronAPI.resolveSharePointPath(project.rootPath, selectedFile.relativePath)
+    const fullPath = await window.electronAPI.resolveSharePointPath(effectiveRootPath, selectedFile.relativePath)
     await window.electronAPI.recipeOpenInExcel(fullPath)
-  }, [project, selectedFile])
+  }, [project, selectedFile, effectiveRootPath])
 
   const handleOpenInExcelForFile = useCallback(async (file: RecipeFile) => {
     if (!project) return
-    const fullPath = await window.electronAPI.resolveSharePointPath(project.rootPath, file.relativePath)
+    const fullPath = await window.electronAPI.resolveSharePointPath(effectiveRootPath, file.relativePath)
     await window.electronAPI.recipeOpenInExcel(fullPath)
   }, [project])
 
@@ -320,7 +330,7 @@ export default function RecipeProjectPage() {
   // ── File rename sync with Firestore ─────────────────────────────────────
   const handleFileRenamed = useCallback(async (oldPath: string, newPath: string) => {
     if (!projectId || !project) return
-    const root = project.rootPath.replace(/\\/g, '/')
+    const root = effectiveRootPath.replace(/\\/g, '/')
     const oldRel = oldPath.replace(/\\/g, '/').replace(root + '/', '')
     const newRel = newPath.replace(/\\/g, '/').replace(root + '/', '')
     const oldFileId = `${projectId}::${oldRel}`
@@ -338,7 +348,7 @@ export default function RecipeProjectPage() {
   const handleRename = useCallback(async (result: RenameWithPhotosResult, newDisplayName: string) => {
     if (!projectId || !project || !selectedFile) return
 
-    const root = project.rootPath.replace(/\\/g, '/')
+    const root = effectiveRootPath.replace(/\\/g, '/')
     const newRel = result.newExcelPath.replace(/\\/g, '/').replace(root + '/', '')
     const newFileId = `${projectId}::${newRel.replace(/\//g, '|')}`
     const oldFileId = selectedFile.fileId
@@ -355,7 +365,7 @@ export default function RecipeProjectPage() {
 
     // Write backup index to _PROJECT folder (best-effort)
     // Build a snapshot of the current recipe list with the renamed entry applied
-    const indexPath = `${project.rootPath.replace(/\\/g, '/')}/_PROJECT/_recipe-index.json`
+    const indexPath = `${effectiveRootPath.replace(/\\/g, '/')}/_PROJECT/_recipe-index.json`
     const updatedFiles = files.map(f =>
       f.fileId === oldFileId
         ? { ...f, fileId: newFileId, relativePath: newRel, displayName: newDisplayName }
@@ -392,10 +402,18 @@ export default function RecipeProjectPage() {
       return
     }
 
+    // Compute portable relative path from this user's SharePoint root
+    const normalSP   = sharePointPath.replace(/\\/g, '/').replace(/\/$/, '')
+    const normalNew  = newPath.replace(/\\/g, '/')
+    const relPath    = normalNew.startsWith(normalSP + '/')
+      ? normalNew.slice(normalSP.length + 1)
+      : undefined
+
     // Actualizar en Firestore
     try {
       await updateRecipeProject(projectId, {
         rootPath: newPath,
+        ...(relPath !== undefined ? { relativeRootPath: relPath } : {}),
       })
       // Disparar re-scan con la nueva ruta
       setScanKey(k => k + 1)
@@ -1058,7 +1076,7 @@ export default function RecipeProjectPage() {
         isOpen={fileManagerOpen}
         onClose={() => setFileManagerOpen(false)}
         projectName={project.name}
-        projectRootPath={project.rootPath}
+        projectRootPath={effectiveRootPath}
         projectConfig={project.config}
         lockedFiles={files.filter((f) => f.status === 'in_progress')}
         onFileRenamed={handleFileRenamed}

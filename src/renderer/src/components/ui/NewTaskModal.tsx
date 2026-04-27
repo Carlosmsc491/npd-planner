@@ -99,6 +99,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
         awbs: [],
         subtasks: [],
         attachments: [],
+        emailAttachments: [],
         recurring: null,
         completed: false,
         completedAt: null,

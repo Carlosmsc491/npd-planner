@@ -13,6 +13,7 @@ import { registerRecipeHandlers } from './ipc/recipeIpcHandlers'
 import { registerCameraHandlers } from './ipc/cameraHandlers'
 import { registerExcelHandlers } from './ipc/excelHandlers'
 import { registerCrashReportHandlers } from './ipc/crashReportHandlers'
+import { registerEmailHandlers } from './ipc/emailHandlers'
 import { createSplashWindow, closeSplashWindow } from './splash'
 
 const isDev = process.env.NODE_ENV === 'development' || !!process.env.ELECTRON_RENDERER_URL
@@ -235,6 +236,7 @@ app.whenReady().then(() => {
   registerRecipeHandlers()
   registerExcelHandlers()
   registerCrashReportHandlers()
+  registerEmailHandlers()
   startTrashCleanupService()
   errorReporter.log('App started')
 

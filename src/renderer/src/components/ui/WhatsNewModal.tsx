@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import {
-  X, Camera, Sparkles, Image, FileSpreadsheet, Shield,
+  X, Camera, Sparkles, Image, FileSpreadsheet, Shield, Mail,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.3.0'
+const CURRENT_VERSION = '1.4.0'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Feature {
@@ -15,6 +15,16 @@ interface Feature {
 }
 
 const FEATURES: Feature[] = [
+  {
+    icon: Mail,
+    color: '#378ADD',
+    title: 'Email Attachments (.msg)',
+    description:
+      'Drag an Outlook .msg file onto any task to attach the full email. ' +
+      'NPD Planner reads the email content, copies it and all its inner attachments to SharePoint, ' +
+      'and shows them as a collapsible card inside the task — with individual Open buttons per file. ' +
+      'No Outlook installation required.',
+  },
   {
     icon: Camera,
     color: '#1D9E75',
@@ -35,7 +45,7 @@ const FEATURES: Feature[] = [
   },
   {
     icon: FileSpreadsheet,
-    color: '#378ADD',
+    color: '#1D9E75',
     title: 'Insert Photo into Excel',
     description:
       'From the READY tab, click "Insert into Excel" on any recipe card to automatically ' +

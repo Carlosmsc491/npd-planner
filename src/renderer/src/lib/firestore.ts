@@ -344,7 +344,14 @@ export function subscribeToTasks(
     ),
     (snap) => {
       const tasks = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }) as Task)
+        .map(d => {
+          const data = d.data()
+          return {
+            id: d.id,
+            ...data,
+            emailAttachments: (data['emailAttachments'] ?? []) as import('../types').EmailAttachment[],
+          } as Task
+        })
         .sort((a, b) => {
           const aTime = a.createdAt?.toMillis?.() ?? 0
           const bTime = b.createdAt?.toMillis?.() ?? 0
@@ -1702,6 +1709,7 @@ export async function restoreTaskFromTrash(trashId: string): Promise<void> {
     const restoredTask: Task = {
       id: trashItem.taskId,
       ...trashItem.taskData,
+      emailAttachments: [],
       attachments: trashItem.attachments.map(a => ({
         id: a.id,
         name: a.name,

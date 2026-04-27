@@ -253,7 +253,46 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
   const [nodes, setNodes] = useState<TreeNode[]>(initialFolders)
   const [filterQuery, setFilterQuery] = useState('')
   const [clipboard, setClipboard] = useState<TreeNode | null>(null)
+  const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null)
   const draggedIdRef = useRef<string | null>(null)
+
+  // Undo / Redo history stacks
+  const pastRef = useRef<TreeNode[][]>([])
+  const futureRef = useRef<TreeNode[][]>([])
+  const [canUndo, setCanUndo] = useState(false)
+  const [canRedo, setCanRedo] = useState(false)
+
+  // Call before any mutation that should be undoable
+  const pushHistory = useCallback((currentNodes: TreeNode[]) => {
+    pastRef.current = [...pastRef.current, currentNodes]
+    futureRef.current = []
+    setCanUndo(true)
+    setCanRedo(false)
+  }, [])
+
+  const undo = useCallback(() => {
+    if (pastRef.current.length === 0) return
+    const previous = pastRef.current[pastRef.current.length - 1]
+    pastRef.current = pastRef.current.slice(0, -1)
+    setNodes((current) => {
+      futureRef.current = [...futureRef.current, current]
+      setCanUndo(pastRef.current.length > 0)
+      setCanRedo(true)
+      return previous
+    })
+  }, [])
+
+  const redo = useCallback(() => {
+    if (futureRef.current.length === 0) return
+    const next = futureRef.current[futureRef.current.length - 1]
+    futureRef.current = futureRef.current.slice(0, -1)
+    setNodes((current) => {
+      pastRef.current = [...pastRef.current, current]
+      setCanUndo(true)
+      setCanRedo(futureRef.current.length > 0)
+      return next
+    })
+  }, [])
 
   // Flattened list for rendering
   const flattenedNodes = useMemo(() => {
@@ -296,6 +335,7 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
     (parentId?: string) => {
       const newFolder = createNewFolder()
       setNodes((prev) => {
+        pushHistory(prev)
         let updated: TreeNode[]
         if (parentId) {
           updated = addToFolder(prev, parentId, newFolder)
@@ -307,7 +347,7 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
       })
       return newFolder.id
     },
-    [notifyChange]
+    [notifyChange, pushHistory]
   )
 
   // Add recipe
@@ -315,6 +355,7 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
     (parentId?: string) => {
       const newRecipe = createNewRecipe(defaults)
       setNodes((prev) => {
+        pushHistory(prev)
         let updated: TreeNode[]
         if (parentId) {
           updated = addToFolder(prev, parentId, newRecipe)
@@ -324,9 +365,10 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
         notifyChange(updated)
         return updated
       })
+      setExpandedRecipeId(newRecipe.id) // auto-expand new, collapse all others
       return newRecipe.id
     },
-    [defaults, notifyChange]
+    [defaults, notifyChange, pushHistory]
   )
 
   // Toggle folder open/close
@@ -422,32 +464,29 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
   const moveInto = useCallback(
     (draggedId: string, targetFolderId: string) => {
       setNodes((prev) => {
-        // Find the dragged node
         const nodeToMove = findNode(prev, draggedId)
         if (!nodeToMove || nodeToMove.id === targetFolderId) return prev
-
-        // Remove from current location
+        pushHistory(prev)
         const { tree: withoutNode } = removeNode(prev, draggedId)
-
-        // Add to target folder
         const updated = addToFolder(withoutNode, targetFolderId, nodeToMove)
         notifyChange(updated)
         return updated
       })
     },
-    [notifyChange]
+    [notifyChange, pushHistory]
   )
 
   // Rename item
   const renameItem = useCallback(
     (id: string, newName: string) => {
       setNodes((prev) => {
+        pushHistory(prev)
         const updated = updateNodeInTree(prev, id, (n) => ({ ...n, name: newName }))
         notifyChange(updated)
         return updated
       })
     },
-    [notifyChange]
+    [notifyChange, pushHistory]
   )
 
   // Duplicate item
@@ -456,7 +495,7 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
       setNodes((prev) => {
         const nodeToClone = findNode(prev, id)
         if (!nodeToClone) return prev
-
+        pushHistory(prev)
         const cloned = cloneNode(nodeToClone, defaults)
 
         // Find parent and add after original
@@ -491,7 +530,7 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
         return updated
       })
     },
-    [defaults, notifyChange]
+    [defaults, notifyChange, pushHistory]
   )
 
   // Copy item to clipboard
@@ -510,7 +549,7 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
       setNodes((prev) => {
         const target = findNode(prev, targetId)
         if (!target) return prev
-
+        pushHistory(prev)
         const cloned = cloneNode(clipboard, defaults)
         let updated: TreeNode[]
 
@@ -534,19 +573,20 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
         return updated
       })
     },
-    [clipboard, defaults, notifyChange]
+    [clipboard, defaults, notifyChange, pushHistory]
   )
 
   // Delete item
   const deleteItem = useCallback(
     (id: string) => {
       setNodes((prev) => {
+        pushHistory(prev)
         const { tree: updated } = removeNode(prev, id)
         notifyChange(updated)
         return updated
       })
     },
-    [notifyChange]
+    [notifyChange, pushHistory]
   )
 
   // Collect specs for output
@@ -585,5 +625,11 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
     setDraggedId,
     getDraggedId,
     hasAtLeastOneRecipe,
+    expandedRecipeId,
+    setExpandedRecipeId,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   }
 }

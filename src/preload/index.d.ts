@@ -50,6 +50,14 @@ export interface IElectronAPI {
     }
     error?: string
   }>
+  // Email attachments (.msg)
+  parseAndAttachEmail: (req: {
+    msgFilePath: string
+    sharePointRoot: string
+    year: string
+    clientName: string
+    taskTitle: string
+  }) => Promise<{ success: boolean; emailAttachment?: unknown; error?: string }>
   // Generic Traze / AWB IPC channels
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, listener: (...args: unknown[]) => void) => void

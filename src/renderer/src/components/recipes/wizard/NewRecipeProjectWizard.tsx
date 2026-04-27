@@ -254,9 +254,18 @@ export default function NewRecipeProjectWizard() {
       steps = markStep(steps, 'database', 'running', 'Creating project record…')
       setProgress([...steps])
 
+      // Compute portable relative path from the creator's SharePoint root
+      const spPath    = user.preferences?.sharePointPath ?? ''
+      const normalSP  = spPath.replace(/\\/g, '/').replace(/\/$/, '')
+      const normalRoot = projectRoot.replace(/\\/g, '/')
+      const relativeRootPath = normalSP && normalRoot.startsWith(normalSP + '/')
+        ? normalRoot.slice(normalSP.length + 1)
+        : undefined
+
       const projectId = await createRecipeProject({
         name: data.name.trim(),
         rootPath: projectRoot,
+        ...(relativeRootPath !== undefined ? { relativeRootPath } : {}),
         createdBy: user.uid,
         status: 'active',
         config: {

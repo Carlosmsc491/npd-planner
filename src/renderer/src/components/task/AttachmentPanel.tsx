@@ -6,12 +6,17 @@ import {
   Paperclip, Upload, FileText, Image, FileSpreadsheet,
   File, Trash2, ExternalLink, AlertTriangle, RefreshCw,
   CheckCircle, Clock, X, ZoomIn, ChevronLeft, ChevronRight,
+  Mail,
 } from 'lucide-react'
 import { useSharePoint } from '../../hooks/useSharePoint'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useDivisions } from '../../hooks/useDivisions'
+import { useAuthStore } from '../../store/authStore'
+import { Timestamp } from 'firebase/firestore'
 import * as pdfjsLib from 'pdfjs-dist'
-import type { Task, TaskAttachment } from '../../types'
+import type { Task, TaskAttachment, EmailAttachment } from '../../types'
+import { addEmailAttachment, removeEmailAttachment } from '../../lib/emailAttachments'
+import EmailAttachmentCard from './EmailAttachmentCard'
 
 // Initialize PDF.js worker — different paths for dev vs production
 if (import.meta.env.DEV) {
@@ -310,6 +315,7 @@ function AttachmentRow({ attachment, onRemove, onOpen, onPreview }: RowProps) {
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function AttachmentPanel({ task, readOnly }: Props) {
   const { clients } = useSettingsStore()
+  const { user } = useAuthStore()
   const {
     sharePointPath,
     isElectron,
@@ -324,6 +330,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
   const [feedback, setFeedback] = useState<{ type: 'error' | 'info'; message: string } | null>(null)
   const [preview, setPreview] = useState<{ name: string; base64: string; mimeType: string; type: 'image' | 'pdf' } | null>(null)
   const [settingUp, setSettingUp] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
 
   const clientName = clients.find((c) => c.id === task.clientId)?.name ?? 'Unknown Client'
   const { divisions } = useDivisions(task.clientId)
@@ -377,6 +384,58 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
     }
   }
 
+  async function handleEmailAttach(filePath: string) {
+    if (!isElectron || !sharePointPath || !user) return
+    setAttaching(true)
+    setFeedback(null)
+    try {
+      const result = await window.electronAPI.parseAndAttachEmail({
+        msgFilePath: filePath,
+        sharePointRoot: sharePointPath,
+        year: new Date().getFullYear().toString(),
+        clientName,
+        taskTitle: task.title,
+      })
+      if (!result.success || !result.emailAttachment) {
+        setFeedback({ type: 'error', message: result.error ?? 'Failed to process email.' })
+        return
+      }
+      const raw = result.emailAttachment as {
+        id: string; type: 'email'; from: string; subject: string;
+        date: { seconds: number; nanoseconds: number } | null
+        bodySnippet: string; msgRelativePath: string
+        innerAttachments: EmailAttachment['innerAttachments']
+      }
+      const emailAtt: EmailAttachment = {
+        ...raw,
+        uploadedBy: user.uid,
+        uploadedAt: Timestamp.now(),
+        date: raw.date ? new Timestamp(raw.date.seconds, raw.date.nanoseconds) : null,
+      }
+      await addEmailAttachment(task.id, task.emailAttachments ?? [], emailAtt)
+      setFeedback({ type: 'info', message: `Email "${emailAtt.subject}" attached with ${emailAtt.innerAttachments.length} file(s).` })
+    } catch (err) {
+      setFeedback({ type: 'error', message: String(err) })
+    } finally {
+      setAttaching(false)
+    }
+  }
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length === 0) return
+    for (const file of files) {
+      const ext = file.name.split('.').pop()?.toLowerCase()
+      if (ext === 'msg') {
+        await handleEmailAttach((file as File & { path: string }).path)
+      } else {
+        await attachFile(task, clientName, divisionName)
+      }
+    }
+  }, [sharePointPath, user, task, clientName, divisionName])
+
   // ── No SharePoint path configured ──────────────────────────────────────────
   if (isElectron && !sharePointPath) {
     return (
@@ -409,62 +468,99 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
 
   return (
     <>
-      {/* Attachment list */}
-      <div className="space-y-1.5">
-        {task.attachments.length === 0 && (
-          <p className="text-xs text-gray-400 dark:text-gray-500 italic">No files attached yet.</p>
+      {/* Drop zone wrapper */}
+      <div
+        onDrop={handleDrop}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        className={`rounded-lg transition-all ${dragOver ? 'ring-2 ring-green-400 ring-inset bg-green-50/30 dark:bg-green-900/10' : ''}`}
+      >
+        {/* File attachment list */}
+        <div className="space-y-1.5">
+          {task.attachments.length === 0 && (task.emailAttachments ?? []).length === 0 && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 italic">No files attached yet.</p>
+          )}
+          {task.attachments.map((att) => (
+            <AttachmentRow
+              key={att.id}
+              attachment={att}
+              task={task}
+              onRemove={handleRemove}
+              onOpen={handleOpen}
+              onPreview={handlePreview}
+            />
+          ))}
+        </div>
+
+        {/* Email attachments */}
+        {(task.emailAttachments ?? []).length > 0 && (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide flex items-center gap-1">
+              <Mail size={10} />
+              Emails
+            </p>
+            {(task.emailAttachments ?? []).map((ea) => (
+              <EmailAttachmentCard
+                key={ea.id}
+                attachment={ea}
+                sharePointRoot={sharePointPath}
+                onRemove={(id) => removeEmailAttachment(task.id, task.emailAttachments ?? [], id)}
+              />
+            ))}
+          </div>
         )}
-        {task.attachments.map((att) => (
-          <AttachmentRow
-            key={att.id}
-            attachment={att}
-            task={task}
-            onRemove={handleRemove}
-            onOpen={handleOpen}
-            onPreview={handlePreview}
-          />
-        ))}
+
+        {/* Feedback */}
+        {feedback && (
+          <div className={`mt-2 flex items-start gap-2 rounded-lg p-2 text-xs ${
+            feedback.type === 'error'
+              ? 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
+              : 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400'
+          }`}>
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+            <span className="flex-1">{feedback.message}</span>
+            <button onClick={() => setFeedback(null)}>
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
+        {/* Buttons */}
+        {!readOnly && isElectron && sharePointPath && (
+          <div className="mt-2 flex flex-col gap-1.5">
+            <button
+              onClick={handleAttach}
+              disabled={attaching}
+              className="flex items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs font-medium text-gray-500 transition-colors hover:border-green-400 hover:bg-green-50 hover:text-green-600 disabled:opacity-60 dark:border-gray-700 dark:text-gray-400 dark:hover:border-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400"
+            >
+              {attaching ? <Upload size={13} className="animate-bounce" /> : <Paperclip size={13} />}
+              {attaching ? 'Attaching…' : 'Attach file'}
+            </button>
+            <button
+              onClick={async () => {
+                const filePath = await window.electronAPI.selectFile()
+                if (filePath && filePath.endsWith('.msg')) {
+                  await handleEmailAttach(filePath)
+                }
+              }}
+              disabled={attaching}
+              className="flex items-center gap-2 rounded-lg border border-dashed border-blue-300 px-3 py-2 text-xs font-medium text-blue-500 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:border-blue-700 dark:text-blue-400 dark:hover:border-blue-500 dark:hover:bg-blue-900/20"
+            >
+              <Mail size={13} />
+              Attach email (.msg)
+            </button>
+          </div>
+        )}
+
+        {/* Non-electron fallback */}
+        {!isElectron && (
+          <p className="mt-2 text-xs text-gray-400 dark:text-gray-500 italic">
+            File attachments available in the desktop app only.
+          </p>
+        )}
       </div>
 
-      {/* Feedback */}
-      {feedback && (
-        <div className={`mt-2 flex items-start gap-2 rounded-lg p-2 text-xs ${
-          feedback.type === 'error'
-            ? 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
-            : 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400'
-        }`}>
-          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-          <span className="flex-1">{feedback.message}</span>
-          <button onClick={() => setFeedback(null)}>
-            <X size={12} />
-          </button>
-        </div>
-      )}
-
-      {/* Attach button */}
-      {!readOnly && isElectron && sharePointPath && (
-        <button
-          onClick={handleAttach}
-          disabled={attaching}
-          className="mt-2 flex items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs font-medium text-gray-500 transition-colors hover:border-green-400 hover:bg-green-50 hover:text-green-600 disabled:opacity-60 dark:border-gray-700 dark:text-gray-400 dark:hover:border-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400"
-        >
-          {attaching ? (
-            <Upload size={13} className="animate-bounce" />
-          ) : (
-            <Paperclip size={13} />
-          )}
-          {attaching ? 'Attaching…' : 'Attach file'}
-        </button>
-      )}
-
-      {/* Non-electron fallback attach button */}
-      {!isElectron && (
-        <p className="mt-2 text-xs text-gray-400 dark:text-gray-500 italic">
-          File attachments available in the desktop app only.
-        </p>
-      )}
-
-      {/* Preview modal */}
+      {/* Preview modals */}
       {preview && preview.type === 'pdf' && (
         <PDFPreviewModal
           name={preview.name}
