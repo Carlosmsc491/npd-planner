@@ -94,12 +94,12 @@ export default function App() {
     {/* Update-ready banner — appears when a new version downloaded in background */}
     {updateReady && (
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-[#1D9E75] text-white px-5 py-3 rounded-xl shadow-xl text-sm font-medium">
-        <span>Nueva versión lista — se instala al reiniciar</span>
+        <span>New version ready — installs on restart</span>
         <button
           onClick={() => window.electronAPI.send('app:restart-to-update')}
           className="bg-white text-[#1D9E75] px-3 py-1 rounded-lg font-semibold hover:bg-green-50 transition-colors"
         >
-          Reiniciar ahora
+          Restart now
         </button>
         <button onClick={() => setUpdateReady(false)} className="opacity-70 hover:opacity-100">✕</button>
       </div>

@@ -39,6 +39,38 @@ function getMimeFromExt(filename: string): string | null {
 
 // ── Register IPC handler ──────────────────────────────────────────────────────
 export function registerEmailHandlers(): void {
+
+  // Read a saved .msg file and return full content for in-app viewer
+  ipcMain.handle('email:read-msg', async (_event, filePath: string) => {
+    try {
+      const msgBuffer = readFileSync(filePath) as unknown as ArrayBuffer
+      const reader = new MsgReader(msgBuffer)
+      const fileData = reader.getFileData()
+      if (!fileData) return { success: false, error: 'Could not parse .msg file' }
+
+      const from: string = fileData.senderName
+        ? `${fileData.senderName} <${fileData.senderEmail ?? ''}>`
+        : (fileData.senderEmail ?? 'Unknown')
+
+      const to: string = (fileData.recipients ?? [])
+        .map((r: { email?: string; name?: string }) => r.email ?? r.name ?? '')
+        .filter(Boolean)
+        .join(', ')
+
+      return {
+        success: true,
+        subject: (fileData.subject as string | undefined) ?? '(No subject)',
+        from,
+        to,
+        date: fileData.messageDeliveryTime ?? null,
+        bodyHtml: (fileData.bodyHtml as string | undefined) ?? null,
+        bodyText: (fileData.body as string | undefined) ?? '',
+      }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
   ipcMain.handle('email:parse-and-attach', async (_event, req: {
     msgFilePath: string
     sharePointRoot: string

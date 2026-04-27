@@ -237,6 +237,18 @@ const electronAPI = {
     ipcRenderer.invoke('photo:export-zip', entries, destZipPath),
 
   // ── Email attachments (.msg) ──────────────────────────────────────────────
+  readMsgFile: (filePath: string): Promise<{
+    success: boolean
+    subject?: string
+    from?: string
+    to?: string
+    date?: string | null
+    bodyHtml?: string | null
+    bodyText?: string
+    error?: string
+  }> =>
+    ipcRenderer.invoke('email:read-msg', filePath),
+
   parseAndAttachEmail: (req: {
     msgFilePath: string
     sharePointRoot: string

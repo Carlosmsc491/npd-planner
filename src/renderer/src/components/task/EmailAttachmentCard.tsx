@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { Mail, ChevronDown, Trash2, ExternalLink, Paperclip } from 'lucide-react'
 import type { EmailAttachment, EmailInnerAttachment } from '../../types'
+import EmailViewerModal from './EmailViewerModal'
 
 interface Props {
   attachment: EmailAttachment
@@ -68,17 +69,22 @@ function InnerAttRow({
 export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemove }: Props) {
   const [expanded, setExpanded] = useState(attachment.innerAttachments.length > 0)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [viewerOpen, setViewerOpen] = useState(false)
 
   const dateStr = formatDate(attachment.date)
   const hasInner = attachment.innerAttachments.length > 0
 
+  const msgAbsPath = sharePointRoot && attachment.msgRelativePath
+    ? `${sharePointRoot}/${attachment.msgRelativePath}`
+    : null
+
   function handleOpenEmail() {
-    if (!sharePointRoot || !attachment.msgRelativePath) return
-    const absPath = `${sharePointRoot}/${attachment.msgRelativePath}`
-    window.electronAPI.openFile(absPath)
+    if (!msgAbsPath) return
+    setViewerOpen(true)
   }
 
   return (
+    <>
     <div className="rounded-lg border border-blue-200 dark:border-blue-800/50 border-l-4 border-l-blue-400 bg-blue-50/40 dark:bg-blue-900/10 overflow-hidden">
       {/* Header */}
       <div className="flex items-start gap-2 px-3 py-2.5">
@@ -174,5 +180,14 @@ export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemo
         </div>
       )}
     </div>
+
+    {viewerOpen && msgAbsPath && (
+      <EmailViewerModal
+        msgAbsPath={msgAbsPath}
+        subject={attachment.subject}
+        onClose={() => setViewerOpen(false)}
+      />
+    )}
+    </>
   )
 }

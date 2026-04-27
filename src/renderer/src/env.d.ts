@@ -111,6 +111,16 @@ interface IElectronAPI {
   readFileAsDataUrl: (filePath: string) => Promise<string>
   testWriteAccess: (dirPath: string) => Promise<{ success: boolean; error?: string }>
   // Email attachments (.msg)
+  readMsgFile: (filePath: string) => Promise<{
+    success: boolean
+    subject?: string
+    from?: string
+    to?: string
+    date?: string | null
+    bodyHtml?: string | null
+    bodyText?: string
+    error?: string
+  }>
   parseAndAttachEmail: (req: {
     msgFilePath: string
     sharePointRoot: string
