@@ -72,17 +72,34 @@ export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemo
   const dateStr = formatDate(attachment.date)
   const hasInner = attachment.innerAttachments.length > 0
 
+  function handleOpenEmail() {
+    if (!sharePointRoot || !attachment.msgRelativePath) return
+    const absPath = `${sharePointRoot}/${attachment.msgRelativePath}`
+    window.electronAPI.openFile(absPath)
+  }
+
   return (
     <div className="rounded-lg border border-blue-200 dark:border-blue-800/50 border-l-4 border-l-blue-400 bg-blue-50/40 dark:bg-blue-900/10 overflow-hidden">
       {/* Header */}
       <div className="flex items-start gap-2 px-3 py-2.5">
-        <Mail size={15} className="shrink-0 mt-0.5 text-blue-500 dark:text-blue-400" />
+        <button
+          onClick={handleOpenEmail}
+          title="Open email"
+          disabled={!sharePointRoot}
+          className="shrink-0 mt-0.5 text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 disabled:opacity-40 disabled:cursor-default transition-colors"
+        >
+          <Mail size={15} />
+        </button>
 
         <div className="flex-1 min-w-0">
-          {/* Subject */}
-          <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate leading-tight">
+          {/* Subject — clickable to open .msg */}
+          <button
+            onClick={handleOpenEmail}
+            disabled={!sharePointRoot}
+            className="w-full text-left text-sm font-semibold text-gray-800 dark:text-gray-100 truncate leading-tight hover:text-blue-600 dark:hover:text-blue-300 disabled:opacity-40 disabled:cursor-default transition-colors"
+          >
             {attachment.subject}
-          </p>
+          </button>
           {/* From + date */}
           <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
             {attachment.from}
