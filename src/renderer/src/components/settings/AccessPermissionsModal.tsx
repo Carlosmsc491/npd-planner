@@ -26,8 +26,14 @@ const CORE_AREAS: AreaRow[] = [
 ]
 
 const MODULE_AREAS: AreaRow[] = [
-  { label: 'EliteQuote',       areaId: 'elitequote',      options: ['none', 'view', 'edit'] },
-  { label: 'Files (Settings)', areaId: 'settings_files',  options: ['none', 'view'] },
+  { label: 'NPD Projects',     areaId: 'elitequote',           options: ['none', 'view', 'edit'] },
+]
+
+const SETTINGS_TAB_AREAS: AreaRow[] = [
+  { label: 'Files (SharePoint)', areaId: 'settings_files',   options: ['none', 'view'] },
+  { label: 'Traze / AWB',        areaId: 'settings_traze',   options: ['none', 'view'] },
+  { label: 'Trash',              areaId: 'settings_trash',   options: ['none', 'view'] },
+  { label: 'Recipe Settings',    areaId: 'settings_recipe',  options: ['none', 'view', 'edit'] },
 ]
 
 const PERMISSION_LABELS: Record<AreaPermission, string> = {
@@ -129,6 +135,18 @@ export default function AccessPermissionsModal({ targetUser, boards, onClose }: 
               {/* Modules */}
               <SectionLabel label="Modules" />
               {MODULE_AREAS.map((area) => (
+                <PermissionRow
+                  key={area.areaId}
+                  label={area.label}
+                  options={area.options}
+                  value={getValue(area.areaId)}
+                  onChange={(v) => setPerm(area.areaId, v)}
+                />
+              ))}
+
+              {/* Settings Tabs */}
+              <SectionLabel label="Settings Tabs" />
+              {SETTINGS_TAB_AREAS.map((area) => (
                 <PermissionRow
                   key={area.areaId}
                   label={area.label}

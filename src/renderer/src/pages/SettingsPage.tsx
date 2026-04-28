@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { getAreaPermission } from '../hooks/useAreaPermission'
 import {
   User, Users, Palette, Bell, Keyboard,
   LayoutDashboard, Building2, Tag, FolderOpen, Truck, Trash2, Archive,
@@ -38,6 +39,7 @@ interface TabDef {
   label: string
   icon: LucideIcon
   adminOnly?: boolean
+  memberAreaId?: string   // area permission key that grants member access
 }
 
 interface SectionDef {
@@ -59,25 +61,25 @@ const SETTINGS_SECTIONS: SectionDef[] = [
   {
     label: 'Planner',
     tabs: [
-      { id: 'boards',         label: 'Boards',        icon: LayoutDashboard, adminOnly: true },
-      { id: 'clients',        label: 'Clients',       icon: Building2,       adminOnly: true },
-      { id: 'divisions',      label: 'Divisions',     icon: Layers,          adminOnly: true },
-      { id: 'labels',         label: 'Labels',        icon: Tag,             adminOnly: true },
-      { id: 'dateTypes',      label: 'Date Types',    icon: CalendarClock,   adminOnly: true },
-      { id: 'files',          label: 'Files',         icon: FolderOpen },
-      { id: 'traze',          label: 'Traze',         icon: Truck },
-      { id: 'archive',        label: 'Archive',       icon: Archive,         adminOnly: true },
-      { id: 'trash',          label: 'Trash',         icon: Trash2 },
-      { id: 'import-history', label: 'Import History', icon: History,        adminOnly: true },
+      { id: 'boards',         label: 'Boards',         icon: LayoutDashboard, adminOnly: true },
+      { id: 'clients',        label: 'Clients',        icon: Building2,       adminOnly: true },
+      { id: 'divisions',      label: 'Divisions',      icon: Layers,          adminOnly: true },
+      { id: 'labels',         label: 'Labels',         icon: Tag,             adminOnly: true },
+      { id: 'dateTypes',      label: 'Date Types',     icon: CalendarClock,   adminOnly: true },
+      { id: 'files',          label: 'Files',          icon: FolderOpen,      memberAreaId: 'settings_files' },
+      { id: 'traze',          label: 'Traze',          icon: Truck,           memberAreaId: 'settings_traze' },
+      { id: 'archive',        label: 'Archive',        icon: Archive,         adminOnly: true },
+      { id: 'trash',          label: 'Trash',          icon: Trash2,          memberAreaId: 'settings_trash' },
+      { id: 'import-history', label: 'Import History', icon: History,         adminOnly: true },
     ],
   },
   {
     label: 'Recipe Manager',
     tabs: [
-      { id: 'recipe-cells',    label: 'Rule Cells',     icon: Grid2X2 },
-      { id: 'recipe-holidays', label: 'Holidays',       icon: CalendarDays },
-      { id: 'recipe-sleeve',   label: 'Sleeve Pricing', icon: DollarSign },
-      { id: 'recipe-general',  label: 'General',        icon: Settings2 },
+      { id: 'recipe-cells',    label: 'Rule Cells',     icon: Grid2X2,      memberAreaId: 'settings_recipe' },
+      { id: 'recipe-holidays', label: 'Holidays',       icon: CalendarDays, memberAreaId: 'settings_recipe' },
+      { id: 'recipe-sleeve',   label: 'Sleeve Pricing', icon: DollarSign,   memberAreaId: 'settings_recipe' },
+      { id: 'recipe-general',  label: 'General',        icon: Settings2,    memberAreaId: 'settings_recipe' },
     ],
   },
   {
@@ -98,8 +100,12 @@ export default function SettingsPage() {
 
   const visibleSections: SectionDef[] = SETTINGS_SECTIONS.map((s) => ({
     ...s,
-    tabs: s.tabs.filter((t) => !t.adminOnly || isAdmin),
-  }))
+    tabs: s.tabs.filter((t) => {
+      if (t.adminOnly) return isAdmin
+      if (!isAdmin && t.memberAreaId) return getAreaPermission(t.memberAreaId) !== 'none'
+      return true
+    }),
+  })).filter((s) => s.tabs.length > 0)
   const allVisibleTabs = visibleSections.flatMap((s) => s.tabs)
 
   const tabFromUrl = searchParams.get('tab') as SettingsTab | null

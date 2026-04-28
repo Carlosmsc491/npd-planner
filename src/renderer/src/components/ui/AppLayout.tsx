@@ -327,7 +327,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
           )}
 
           {/* ── NPD Recipes section ──────────────────────────────────── */}
-          {getAreaPermission('recipes') !== 'none' && (
+          {(getAreaPermission('elitequote') !== 'none' || getAreaPermission('recipes') !== 'none') && (
             <>
               <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
                 NPD Recipes
@@ -346,7 +346,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
             </>
           )}
 
-          {isAdmin && !isPhotographer && (
+          {!isPhotographer && (isAdmin || getAreaPermission('settings_files') !== 'none' || getAreaPermission('settings_traze') !== 'none' || getAreaPermission('settings_trash') !== 'none' || getAreaPermission('settings_recipe') !== 'none') && (
             <Link
               to="/settings"
               className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mt-4 transition-colors ${
