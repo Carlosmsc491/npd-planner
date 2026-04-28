@@ -1,8 +1,8 @@
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
-import { auth } from './lib/firebase'
-import { getUser } from './lib/firestore'
+import { onSnapshot, doc } from 'firebase/firestore'
+import { auth, db } from './lib/firebase'
 import { useAuthStore } from './store/authStore'
 import ProtectedRoute from './components/ui/ProtectedRoute'
 import { useAreaPermission } from './hooks/useAreaPermission'
@@ -57,18 +57,29 @@ export default function App() {
   }, [navigate])
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    let unsubscribeUser: (() => void) | null = null
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      if (unsubscribeUser) { unsubscribeUser(); unsubscribeUser = null }
+
       if (firebaseUser) {
-        const appUser = await getUser(firebaseUser.uid)
-        // Only update store if we got a doc — if null, LoginPage is mid-registration
-        // and will call setUser itself after creating the doc
-        if (appUser !== null) setUser(appUser)
+        unsubscribeUser = onSnapshot(doc(db, 'users', firebaseUser.uid), (snap) => {
+          if (snap.exists()) {
+            setUser(snap.data() as import('./types').AppUser)
+          }
+          // If doc doesn't exist yet, LoginPage is mid-registration and will call setUser
+          setLoading(false)
+        })
       } else {
         setUser(null)
+        setLoading(false)
       }
-      setLoading(false)
     })
-    return unsubscribe
+
+    return () => {
+      unsubscribeAuth()
+      if (unsubscribeUser) unsubscribeUser()
+    }
   }, [setUser, setLoading])
 
   // Apply theme based on user preferences
