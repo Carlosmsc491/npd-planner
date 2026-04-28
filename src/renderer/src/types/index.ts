@@ -22,7 +22,7 @@ export const DEFAULT_AREA_PERMISSIONS: AreaPermissions = {
   my_space:        'view',
   calendar:        'view',
   analytics:       'none',
-  elitequote:      'none',
+  npd_projects:    'none',
   settings_files:  'none',
   settings_traze:  'none',
   settings_trash:  'none',

@@ -26,7 +26,7 @@ const CORE_AREAS: AreaRow[] = [
 ]
 
 const MODULE_AREAS: AreaRow[] = [
-  { label: 'NPD Projects',     areaId: 'elitequote',           options: ['none', 'view', 'edit'] },
+  { label: 'NPD Projects',     areaId: 'npd_projects',         options: ['none', 'view', 'edit'] },
 ]
 
 const SETTINGS_TAB_AREAS: AreaRow[] = [

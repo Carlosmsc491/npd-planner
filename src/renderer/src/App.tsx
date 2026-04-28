@@ -146,7 +146,7 @@ export default function App() {
         <Route element={<ProtectedRoute areaId="analytics" />}>
           <Route path="/analytics" element={<AnalyticsPage />} />
         </Route>
-        <Route element={<ProtectedRoute areaId="elitequote" />}>
+        <Route element={<ProtectedRoute areaId="npd_projects" />}>
           <Route path="/recipes" element={<RecipeHomePage />} />
           <Route path="/recipes/new" element={<NewRecipeProjectWizard />} />
           <Route path="/recipes/:projectId" element={<RecipeProjectPage />} />

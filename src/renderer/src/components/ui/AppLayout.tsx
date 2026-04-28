@@ -327,7 +327,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
           )}
 
           {/* ── NPD Recipes section ──────────────────────────────────── */}
-          {(getAreaPermission('elitequote') !== 'none' || getAreaPermission('recipes') !== 'none') && (
+          {getAreaPermission('npd_projects') !== 'none' && (
             <>
               <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
                 NPD Recipes

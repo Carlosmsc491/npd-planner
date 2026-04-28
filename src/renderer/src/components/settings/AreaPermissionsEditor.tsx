@@ -34,7 +34,7 @@ const CORE_ROWS: { label: string; key: string; levels: AreaPermission[] }[] = [
   { label: 'My Space',        key: 'my_space',       levels: ['none', 'view'] },
   { label: 'Master Calendar', key: 'calendar',       levels: ['none', 'view'] },
   { label: 'Analytics',       key: 'analytics',      levels: ['none', 'view'] },
-  { label: 'EliteQuote',      key: 'elitequote',     levels: ['none', 'view', 'edit'] },
+  { label: 'NPD Projects',    key: 'npd_projects',   levels: ['none', 'view', 'edit'] },
 ]
 
 export function AreaPermissionsEditor({ user, boards, currentUser }: Props) {

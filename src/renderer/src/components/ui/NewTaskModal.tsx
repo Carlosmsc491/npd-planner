@@ -1,12 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Timestamp } from 'firebase/firestore'
-import { createTask, createDivision } from '../../lib/firestore'
+import { createTask, createDivision, subscribeToUsers } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useDivisions } from '../../hooks/useDivisions'
 import { BOARD_BUCKETS } from '../../utils/colorUtils'
 import { toFirestoreDate } from '../../utils/dateUtils'
-import type { Board, TaskStatus, TaskPriority } from '../../types'
+import type { Board, TaskStatus, TaskPriority, AppUser } from '../../types'
 
 interface Props {
   board: Board
@@ -22,6 +22,15 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
   const [title, setTitle] = useState('')
   const [clientId, setClientId] = useState('')
   const [divisionId, setDivisionId] = useState('')
+  const [personId, setPersonId] = useState('')
+  const [users, setUsers] = useState<AppUser[]>([])
+  const isPersonBoard = board.type === 'trips' || board.type === 'vacations'
+
+  useEffect(() => {
+    if (!isPersonBoard) return
+    const unsub = subscribeToUsers(setUsers)
+    return unsub
+  }, [isPersonBoard])
   const [bucket, setBucket] = useState(defaultBucket ?? '')
   const [status] = useState<TaskStatus>('todo')
   const [priority, setPriority] = useState<TaskPriority>('normal')
@@ -73,7 +82,8 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim()) { setError('Title is required'); return }
-    if (!clientId) { setError('Client is required'); return }
+    if (!isPersonBoard && !clientId) { setError('Client is required'); return }
+    if (isPersonBoard && !personId) { setError('Person is required'); return }
     if (!user) return
 
     setSaving(true)
@@ -83,12 +93,12 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
       const id = await createTask({
         boardId: board.id,
         title: title.trim(),
-        clientId,
-        divisionId: divisionId || null,
+        clientId: isPersonBoard ? '' : clientId,
+        divisionId: isPersonBoard ? null : (divisionId || null),
         bucket,
         status,
         priority,
-        assignees: [],
+        assignees: isPersonBoard && personId ? [personId] : [],
         labelIds: [],
         dateStart: dateTs,
         dateEnd: dateTs,
@@ -144,39 +154,53 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
             />
           </div>
 
-          {/* Client */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client *</label>
-            {showNewClient ? (
-              <div className="flex gap-2">
-                <input autoFocus value={newClientName} onChange={(e) => setNewClientName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateClient() } if (e.key === 'Escape') setShowNewClient(false) }}
-                  placeholder="New client name"
-                  className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-                />
-                <button type="button" onClick={handleCreateClient} className="rounded-lg bg-green-500 px-3 py-2 text-sm font-medium text-white hover:bg-green-600">Add</button>
-                <button type="button" onClick={() => setShowNewClient(false)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500">Cancel</button>
-              </div>
-            ) : (
-              <select value={clientId} onChange={(e) => {
-                if (e.target.value === '__new__') {
-                  setShowNewClient(true)
-                } else {
-                  setClientId(e.target.value)
-                  setDivisionId('') // Reset division when client changes
-                }
-              }}
+          {/* Person (trips/vacations) or Client (planner) */}
+          {isPersonBoard ? (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Person *</label>
+              <select value={personId} onChange={(e) => setPersonId(e.target.value)}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
               >
-                <option value="">— Select client —</option>
-                {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                <option value="__new__">+ New Client</option>
+                <option value="">— Select person —</option>
+                {users.filter(u => u.status === 'active').map((u) => (
+                  <option key={u.uid} value={u.uid}>{u.name}</option>
+                ))}
               </select>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client *</label>
+              {showNewClient ? (
+                <div className="flex gap-2">
+                  <input autoFocus value={newClientName} onChange={(e) => setNewClientName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateClient() } if (e.key === 'Escape') setShowNewClient(false) }}
+                    placeholder="New client name"
+                    className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
+                  />
+                  <button type="button" onClick={handleCreateClient} className="rounded-lg bg-green-500 px-3 py-2 text-sm font-medium text-white hover:bg-green-600">Add</button>
+                  <button type="button" onClick={() => setShowNewClient(false)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500">Cancel</button>
+                </div>
+              ) : (
+                <select value={clientId} onChange={(e) => {
+                  if (e.target.value === '__new__') {
+                    setShowNewClient(true)
+                  } else {
+                    setClientId(e.target.value)
+                    setDivisionId('')
+                  }
+                }}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
+                >
+                  <option value="">— Select client —</option>
+                  {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value="__new__">+ New Client</option>
+                </select>
+              )}
+            </div>
+          )}
 
-          {/* Division - only shown when client is selected */}
-          {clientId && (
+          {/* Division - only shown when client is selected (planner only) */}
+          {!isPersonBoard && clientId && (
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Division</label>
               {showNewDivision ? (

@@ -1,5 +1,5 @@
 import { useAuthStore } from '../store/authStore'
-import type { AreaPermission } from '../types'
+import type { AreaPermission, AreaPermissions } from '../types'
 
 // Core features every member gets by default (no explicit grant needed)
 const MEMBER_DEFAULTS: Record<string, AreaPermission> = {
@@ -7,6 +7,23 @@ const MEMBER_DEFAULTS: Record<string, AreaPermission> = {
   my_tasks:  'view',
   my_space:  'view',
   calendar:  'view',
+}
+
+// Legacy key aliases — maps current key → old Firestore keys to check as fallback
+const LEGACY_ALIASES: Record<string, string[]> = {
+  npd_projects: ['elitequote', 'recipes'],
+}
+
+function resolvePermission(perms: AreaPermissions | undefined, areaId: string): AreaPermission {
+  if (perms?.[areaId] !== undefined) return perms[areaId] as AreaPermission
+  // Check legacy keys for backward compat with existing Firestore data
+  const aliases = LEGACY_ALIASES[areaId]
+  if (aliases) {
+    for (const alias of aliases) {
+      if (perms?.[alias] !== undefined) return perms[alias] as AreaPermission
+    }
+  }
+  return MEMBER_DEFAULTS[areaId] ?? 'none'
 }
 
 /**
@@ -18,7 +35,7 @@ export function useAreaPermission(areaId: string): AreaPermission {
   const user = useAuthStore((s) => s.user)
   if (!user) return 'none'
   if (user.role === 'owner' || user.role === 'admin') return 'edit'
-  return user.areaPermissions?.[areaId] ?? MEMBER_DEFAULTS[areaId] ?? 'none'
+  return resolvePermission(user.areaPermissions, areaId)
 }
 
 /**
@@ -36,5 +53,5 @@ export function getAreaPermission(areaId: string): AreaPermission {
   const user = useAuthStore.getState().user
   if (!user) return 'none'
   if (user.role === 'owner' || user.role === 'admin') return 'edit'
-  return user.areaPermissions?.[areaId] ?? MEMBER_DEFAULTS[areaId] ?? 'none'
+  return resolvePermission(user.areaPermissions, areaId)
 }

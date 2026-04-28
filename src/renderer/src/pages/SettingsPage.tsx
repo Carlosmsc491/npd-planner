@@ -1002,7 +1002,7 @@ const DEFAULT_PERM_AREAS: { label: string; areaId: string; options: AreaPermissi
   { label: 'My Space',         areaId: 'my_space',       options: ['none', 'view'] },
   { label: 'Master Calendar',  areaId: 'calendar',       options: ['none', 'view'] },
   { label: 'Analytics',        areaId: 'analytics',      options: ['none', 'view'] },
-  { label: 'EliteQuote',       areaId: 'elitequote',     options: ['none', 'view', 'edit'] },
+  { label: 'NPD Projects',     areaId: 'npd_projects',   options: ['none', 'view', 'edit'] },
   { label: 'Files (Settings)', areaId: 'settings_files', options: ['none', 'view'] },
 ]
 
