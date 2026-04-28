@@ -37,6 +37,7 @@ interface IElectronAPI {
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>
   sendNotification: (title: string, body: string, taskId: string, boardType: string, silent?: boolean) => void
   getAppVersion: () => Promise<string>
+  onErrorData: (callback: (data: unknown) => void) => void
   onUpdateAvailable: (callback: () => void) => () => void
   onUpdateDownloaded: (callback: () => void) => () => void
   onNotificationClicked: (callback: (taskId: string) => void) => () => void

@@ -89,6 +89,10 @@ const electronAPI = {
   sendErrorReport: (report: unknown) =>
     ipcRenderer.invoke('error-report:send', report),
 
+  onErrorData: (callback: (data: unknown) => void) => {
+    ipcRenderer.on('error-data', (_event, data) => callback(data))
+  },
+
   saveCrashLocal: (report: unknown) =>
     ipcRenderer.invoke('crash:save-local', report),
 

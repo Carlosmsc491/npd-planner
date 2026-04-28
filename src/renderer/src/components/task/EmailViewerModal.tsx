@@ -225,7 +225,7 @@ export default function EmailViewerModal({ msgAbsPath, subject, onClose }: Props
     if (!content) return
     const replyTo = content.from.match(/<([^>]+)>/)?.[1] ?? content.from
     const mailto = `mailto:${replyTo}?subject=${encodeURIComponent('Re: ' + content.subject)}`
-    window.location.href = mailto
+    window.electronAPI.openExternal(mailto)
   }
 
   function handleForward() {
@@ -233,7 +233,7 @@ export default function EmailViewerModal({ msgAbsPath, subject, onClose }: Props
     const bodySnippet = (content.bodyText ?? '').slice(0, 500)
     const fwdBody = `\n\n-------- Forwarded Message --------\nFrom: ${content.from}\nDate: ${formatDate(content.date)}\nSubject: ${content.subject}\n\n${bodySnippet}`
     const mailto = `mailto:?subject=${encodeURIComponent('Fwd: ' + content.subject)}&body=${encodeURIComponent(fwdBody)}`
-    window.location.href = mailto
+    window.electronAPI.openExternal(mailto)
   }
 
   const isThread = segments.length > 1
