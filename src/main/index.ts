@@ -81,10 +81,6 @@ function createWindow(): BrowserWindow {
   // DevTools disabled in production - use Ctrl+Shift+R to reload if needed
   // win.webContents.openDevTools()
 
-  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
-    console.error('[Main] Failed to load:', errorCode, errorDescription)
-  })
-  
   win.webContents.on('dom-ready', () => {
     console.log('[Main] DOM ready')
   })
@@ -145,16 +141,36 @@ function createWindow(): BrowserWindow {
     }
   })
 
-  win.on('ready-to-show', () => {
-    console.log('[Main] Window ready to show')
+  let windowShown = false
+  function showMainWindow() {
+    if (windowShown) return
+    windowShown = true
     const remainingTime = Math.max(0, splashMinTime - Date.now())
     setTimeout(() => {
       closeSplashWindow()
       setTimeout(() => {
-        win.show()
+        if (!win.isDestroyed()) win.show()
       }, 700)
     }, remainingTime)
+  }
+
+  win.on('ready-to-show', () => {
+    console.log('[Main] Window ready to show')
+    showMainWindow()
   })
+
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.error('[Main] Failed to load — forcing window show:', errorCode, errorDescription)
+    showMainWindow()
+  })
+
+  // Safety net: if ready-to-show never fires within 20s, force-show the window
+  setTimeout(() => {
+    if (!windowShown) {
+      console.warn('[Main] Splash timeout — forcing window show after 20s')
+      showMainWindow()
+    }
+  }, 20_000)
   
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
     console.log('[Main] Loading dev URL:', process.env.ELECTRON_RENDERER_URL)
