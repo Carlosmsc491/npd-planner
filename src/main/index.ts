@@ -227,9 +227,7 @@ app.whenReady().then(() => {
     return `data:${mime};base64,${buffer.toString('base64')}`
   })
 
-  ipcMain.handle('file:exists', (_event, filePath: string): boolean => {
-    try { return fs.existsSync(filePath) } catch { return false }
-  })
+
 
   ipcMain.handle('storage:test-write-access', async (_event, dirPath: string) => {
     try {
