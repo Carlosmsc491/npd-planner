@@ -36,14 +36,16 @@ export default function App() {
   const { setUser, setLoading, user } = useAuthStore()
   const { open: searchOpen, openSearch, closeSearch } = useGlobalSearchState()
   const [updateReady, setUpdateReady] = useState(false)
+  const [updateAvailable, setUpdateAvailable] = useState(false)
   const navigate = useNavigate()
 
   useKeyboardShortcuts(openSearch)
 
   // Listen for auto-update events from main process
   useEffect(() => {
-    const offReady = window.electronAPI.onUpdateDownloaded(() => setUpdateReady(true))
-    return () => { offReady() }
+    const offAvailable = window.electronAPI.onUpdateAvailable(() => setUpdateAvailable(true))
+    const offReady = window.electronAPI.onUpdateDownloaded(() => { setUpdateReady(true); setUpdateAvailable(false) })
+    return () => { offAvailable(); offReady() }
   }, [])
 
   // Listen for desktop notification clicks — navigate to the task
@@ -89,6 +91,14 @@ export default function App() {
     {/* Welcome Wizard — shown on first login when SharePoint path not set */}
     {user?.status === 'active' && !user?.preferences?.sharePointPath && (
       <WelcomeWizard user={user} onComplete={() => window.location.reload()} />
+    )}
+
+    {/* Update available — downloading in background */}
+    {updateAvailable && !updateReady && (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-blue-600 text-white px-5 py-3 rounded-xl shadow-xl text-sm font-medium">
+        <span>A new update is downloading in the background…</span>
+        <button onClick={() => setUpdateAvailable(false)} className="opacity-70 hover:opacity-100">✕</button>
+      </div>
     )}
 
     {/* Update-ready banner — appears when a new version downloaded in background */}
