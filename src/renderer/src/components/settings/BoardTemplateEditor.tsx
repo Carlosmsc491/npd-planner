@@ -50,49 +50,79 @@ function getSuggestedIcon(label: string): string {
 // Patch any builtin select property that is missing its default options
 function patchBuiltinOptions(props: BoardProperty[], boardType: string): BoardProperty[] {
   const buckets = BOARD_BUCKETS[boardType] ?? []
-  const patched = props.map((p) => {
+  return props.map((p) => {
     if (p.id === 'builtin-status' && (!p.options || p.options.length === 0))
       return { ...p, options: STATUS_OPTIONS }
     if (p.id === 'builtin-priority' && (!p.options || p.options.length === 0))
       return { ...p, options: PRIORITY_OPTIONS }
     if (p.id === 'builtin-bucket' && (!p.options || p.options.length === 0) && buckets.length > 0)
       return { ...p, options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })) }
+    // Patch builtin-type for vacations: add default options if missing
+    if (p.id === 'builtin-type' && boardType === 'vacations' && (!p.options || p.options.length === 0))
+      return {
+        ...p, display: p.display ?? true,
+        options: [
+          { id: 'type-vacation',     label: 'Vacation',     color: '#378ADD' },
+          { id: 'type-sick',         label: 'Sick Day',     color: '#EF4444' },
+          { id: 'type-birthday',     label: 'Birthday',     color: '#EC4899' },
+          { id: 'type-compensation', label: 'Compensation', color: '#F59E0B' },
+        ],
+      }
     return p
   })
-  return patched
 }
 
-// Add missing default properties that don't exist yet
-function addMissingProperties(props: BoardProperty[]): BoardProperty[] {
-  const existingIds = new Set(props.map((p) => p.id))
-  const defaults = getDefaultProperties('planner')
-  const missing = defaults.filter((p) => !existingIds.has(p.id))
-  
-  if (missing.length === 0) return props
-  
-  // Add missing properties at the end, preserving their relative order
-  const maxOrder = props.reduce((max, p) => Math.max(max, p.order), -1)
-  const withMissing = [...props, ...missing.map((p, i) => ({ ...p, order: maxOrder + 1 + i }))]
-  
-  // Sort by order
-  return withMissing.sort((a, b) => a.order - b.order)
-}
-
-// Default properties seeded when a board has none yet
+// Default properties seeded when a board has none yet — per board type
 function getDefaultProperties(boardType: string): BoardProperty[] {
   const buckets = BOARD_BUCKETS[boardType] ?? []
+  const bucketOptions = buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] }))
+
+  const base: BoardProperty[] = [
+    { id: 'builtin-client',    name: 'Client',      icon: 'User',          type: 'text',      order: 0 },
+    { id: 'builtin-status',    name: 'Status',      icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
+    { id: 'builtin-date',      name: 'Date',        icon: 'CalendarRange', type: 'daterange', order: 2 },
+    { id: 'builtin-assignees', name: 'Assigned To', icon: 'Users',         type: 'person',    order: 3 },
+    { id: 'builtin-bucket',    name: 'Bucket',      icon: 'Layers',        type: 'select',    order: 4, options: bucketOptions },
+  ]
+
+  if (boardType === 'planner') {
+    return [
+      ...base.slice(0, 2),
+      { id: 'builtin-priority', name: 'Priority',   icon: 'Zap',  type: 'select', order: 2, options: PRIORITY_OPTIONS },
+      ...base.slice(2).map((p) => ({ ...p, order: p.order + 1 })),
+      { id: 'builtin-awb', name: 'AWB',         icon: 'Plane', type: 'text', order: 6 },
+      { id: 'builtin-po',  name: 'P.O. Number', icon: 'Hash',  type: 'text', order: 7 },
+    ]
+  }
+
+  if (boardType === 'vacations') {
+    return [
+      ...base,
+      {
+        id: 'builtin-type', name: 'Type', icon: 'Tag', type: 'select', order: 5, display: true,
+        options: [
+          { id: 'type-vacation',     label: 'Vacation',     color: '#378ADD' },
+          { id: 'type-sick',         label: 'Sick Day',     color: '#EF4444' },
+          { id: 'type-birthday',     label: 'Birthday',     color: '#EC4899' },
+          { id: 'type-compensation', label: 'Compensation', color: '#F59E0B' },
+        ],
+      },
+    ]
+  }
+
+  if (boardType === 'trips') {
+    return [
+      ...base.slice(0, 2),
+      { id: 'builtin-priority', name: 'Priority', icon: 'Zap', type: 'select', order: 2, options: PRIORITY_OPTIONS },
+      ...base.slice(2).map((p) => ({ ...p, order: p.order + 1 })),
+    ]
+  }
+
+  // custom boards
   return [
-    { id: 'builtin-client',      name: 'Client',      icon: 'User',          type: 'text',      order: 0 },
-    { id: 'builtin-status',      name: 'Status',      icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
-    { id: 'builtin-priority',    name: 'Priority',    icon: 'Zap',           type: 'select',    order: 2, options: PRIORITY_OPTIONS },
-    { id: 'builtin-date',        name: 'Date',        icon: 'CalendarRange', type: 'daterange', order: 3 },
-    { id: 'builtin-assignees',   name: 'Assigned To', icon: 'Users',         type: 'person',    order: 4 },
-    {
-      id: 'builtin-bucket', name: 'Bucket', icon: 'Layers', type: 'select', order: 5,
-      options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })),
-    },
-    { id: 'builtin-awb',         name: 'AWB',         icon: 'Plane',         type: 'text',      order: 6 },
-    { id: 'builtin-po',          name: 'P.O. Number', icon: 'Hash',          type: 'text',      order: 7 },
+    ...base.slice(0, 2),
+    { id: 'builtin-priority', name: 'Priority', icon: 'Zap', type: 'select', order: 2, options: PRIORITY_OPTIONS },
+    ...base.slice(2).map((p) => ({ ...p, order: p.order + 1 })),
   ]
 }
 
@@ -110,23 +140,16 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   const [properties, setProperties] = useState<BoardProperty[]>(() => {
     const existing = board.customProperties ?? []
     if (existing.length === 0) return getDefaultProperties(board.type)
-    let props = patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type)
-    // Add missing default properties on initial load
-    props = addMissingProperties(props)
-    return props
+    return patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type)
   })
 
   // Sync local properties state when board.customProperties changes from Firestore
-  // Also add missing default properties if needed
   useEffect(() => {
     const existing = board.customProperties ?? []
     if (existing.length === 0) {
       setProperties(getDefaultProperties(board.type))
     } else {
-      let props = patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type)
-      // Add missing default properties
-      props = addMissingProperties(props)
-      setProperties(props)
+      setProperties(patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type))
     }
   }, [board.customProperties, board.type])
   const [showAddModal, setShowAddModal]       = useState(false)
@@ -162,11 +185,6 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
       }
       
       // Add missing default properties (like eventdates, description)
-      const withMissing = addMissingProperties(updated)
-      if (withMissing.length !== updated.length) {
-        updated = withMissing
-      }
-      
       // Save if any changes were made
       if (JSON.stringify(updated) !== JSON.stringify(existing)) {
         setProperties(updated)
