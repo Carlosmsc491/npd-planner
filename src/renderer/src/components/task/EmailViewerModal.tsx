@@ -224,7 +224,7 @@ export default function EmailViewerModal({ msgAbsPath, subject, onClose }: Props
   function handleReply() {
     if (!content) return
     const replyTo = content.from.match(/<([^>]+)>/)?.[1] ?? content.from
-    const mailto = `mailto:${encodeURIComponent(replyTo)}?subject=${encodeURIComponent('Re: ' + content.subject)}`
+    const mailto = `mailto:${replyTo}?subject=${encodeURIComponent('Re: ' + content.subject)}`
     window.location.href = mailto
   }
 
