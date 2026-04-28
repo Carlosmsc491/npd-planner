@@ -48,17 +48,26 @@ export function resolveProjectRootPath(storedPath: string, sharePointPath: strin
     return storedPath
   }
 
-  // 3. Cross-platform legacy: find the SharePoint folder name in the stored path
-  const spParts    = normalSP.split('/')
-  const spFolder   = spParts[spParts.length - 1]  // e.g. "Documents - NPD-SECURE"
-  const parts      = normalStored.split('/')
-  let idx = -1
-  for (let i = parts.length - 1; i >= 0; i--) {
-    if (parts[i] === spFolder) { idx = i; break }
-  }
-  if (idx !== -1) {
-    const relative = parts.slice(idx + 1).join('/')
-    return `${normalSP}/${relative}`
+  // 3. Find deepest common folder segment between SP path and stored path.
+  //    Works even when the project folder is above or beside the SP root.
+  //    e.g. stored = ...elacymek/.../Documents - NPD-SECURE/TEST
+  //         spPath = ...cmsalazar/.../Documents - NPD-SECURE/REPORTS/NPD-PLANNER
+  //    → finds "Documents - NPD-SECURE", reconstructs as spRoot/TEST
+  const storedParts = normalStored.split('/')
+  const spParts     = normalSP.split('/')
+  for (let spIdx = spParts.length - 1; spIdx >= 1; spIdx--) {
+    const segment = spParts[spIdx]
+    if (!segment) continue
+    // Find this segment in the stored path (search from end)
+    let stIdx = -1
+    for (let i = storedParts.length - 1; i >= 0; i--) {
+      if (storedParts[i] === segment) { stIdx = i; break }
+    }
+    if (stIdx !== -1) {
+      const spBase     = spParts.slice(0, spIdx + 1).join('/')
+      const storedTail = storedParts.slice(stIdx + 1).join('/')
+      return storedTail ? `${spBase}/${storedTail}` : spBase
+    }
   }
 
   // 4. Fallback
