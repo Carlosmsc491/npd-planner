@@ -242,16 +242,7 @@ function PermissionRow({
         <span>{label}</span>
       </div>
       <div className="flex items-center gap-3">
-        {(['none', 'view', 'edit'] as AreaPermission[]).map((opt) => {
-          const available = options.includes(opt)
-          if (!available) {
-            return (
-              <span key={opt} className="flex items-center gap-1 text-xs text-gray-300 dark:text-gray-600 w-14">
-                <span className="h-3.5 w-3.5 rounded-full border border-gray-200 dark:border-gray-700" />
-                <span className="text-gray-300 dark:text-gray-600">N/A</span>
-              </span>
-            )
-          }
+        {options.map((opt) => {
           const selected = value === opt
           return (
             <label key={opt} className="flex items-center gap-1 text-xs cursor-pointer w-14">
