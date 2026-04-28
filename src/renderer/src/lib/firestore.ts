@@ -74,15 +74,7 @@ export function subscribeToUsers(callback: (users: AppUser[]) => void): Unsubscr
 
 export async function updateUserStatus(uid: string, status: AppUser['status']): Promise<void> {
   try {
-    const updates: Record<string, unknown> = { status }
-    // When approving a member, apply default permissions if configured
-    if (status === 'active') {
-      const defaults = await getDefaultPermissions()
-      if (defaults) {
-        updates.areaPermissions = defaults
-      }
-    }
-    await updateDoc(doc(db, COLLECTIONS.USERS, uid), updates)
+    await updateDoc(doc(db, COLLECTIONS.USERS, uid), { status })
   } catch (err) {
     throw new Error(`Failed to update user status: ${err}`)
   }

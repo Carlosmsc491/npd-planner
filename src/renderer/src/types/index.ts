@@ -17,11 +17,16 @@ export type AccessLevel = 'none' | 'view' | 'edit'
 export type AreaPermissions = Record<string, AreaPermission>
 
 export const DEFAULT_AREA_PERMISSIONS: AreaPermissions = {
-  projects:  'view',
-  recipes:   'none',
-  analytics: 'none',
-  settings:  'none',
-  // board_{boardId} keys are added individually when assigning boards
+  dashboard:       'view',
+  my_tasks:        'view',
+  my_space:        'view',
+  calendar:        'view',
+  analytics:       'none',
+  elitequote:      'none',
+  settings_files:  'none',
+  settings_traze:  'none',
+  settings_trash:  'none',
+  settings_recipe: 'none',
 }
 
 export interface PendingApproval {
