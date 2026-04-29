@@ -113,14 +113,76 @@ body {
 .fc .fc-day-today {
   background-color: var(--fc-today-bg-color) !important;
 }
-/* Events: always show as blocks with correct color */
+/* ─── Day cells — subtle grey so the grid has depth in light mode ─── */
+.fc .fc-daygrid-day:not(.fc-day-today) {
+  background-color: #fafafa;
+}
+.dark .fc .fc-daygrid-day:not(.fc-day-today) {
+  background-color: transparent;
+}
+/* Weekend cells — slightly darker to distinguish from weekdays */
+.fc .fc-day-sat:not(.fc-day-today),
+.fc .fc-day-sun:not(.fc-day-today) {
+  background-color: #f0f0f0;
+}
+.dark .fc .fc-day-sat:not(.fc-day-today),
+.dark .fc .fc-day-sun:not(.fc-day-today) {
+  background-color: rgba(0, 0, 0, 0.18);
+}
+/* Weekend column headers */
+.fc .fc-col-header-cell.fc-day-sat,
+.fc .fc-col-header-cell.fc-day-sun {
+  background-color: #e8e8e8;
+}
+.dark .fc .fc-col-header-cell.fc-day-sat,
+.dark .fc .fc-col-header-cell.fc-day-sun {
+  background-color: rgba(0, 0, 0, 0.25);
+}
+/* Holiday cells — very subtle red tint */
+.fc .fc-day-holiday:not(.fc-day-today) {
+  background-color: rgba(239, 68, 68, 0.05) !important;
+}
+.dark .fc .fc-day-holiday:not(.fc-day-today) {
+  background-color: rgba(239, 68, 68, 0.10) !important;
+}
+/* Column header row */
+.fc .fc-col-header-cell {
+  background-color: #f3f4f6;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6b7280;
+  padding: 4px 0;
+}
+.dark .fc .fc-col-header-cell {
+  background-color: #1f2937;
+  color: #9ca3af;
+}
+
+/* ─── Events ─── */
 .fc-event {
-  border-radius: 4px;
-  border: none !important;
+  border-radius: 5px;
+  /* Show only a 3px left accent — FullCalendar sets border-color via inline style */
+  border-width: 0 0 0 3px !important;
+  border-style: solid !important;
   overflow: visible !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+.dark .fc-event {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 .fc-event-main {
   overflow: hidden;
+}
+/* Events with markers: force taller bar so title + icons don't overlap */
+.fc-daygrid-event.has-markers {
+  min-height: 36px !important;
+}
+.fc-daygrid-event.has-markers .fc-event-main {
+  display: flex !important;
+  align-items: stretch !important;
+  min-height: 36px !important;
 }
 
 /* ─── Resize handles ─── */

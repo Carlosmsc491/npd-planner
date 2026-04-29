@@ -238,7 +238,24 @@ export async function deleteBoard(id: string): Promise<void> {
 
 export async function updateBoardProperties(id: string, customProperties: BoardProperty[]): Promise<void> {
   try {
-    await updateDoc(doc(db, COLLECTIONS.BOARDS, id), { customProperties })
+    // Firestore rejects undefined values — strip them from every property object
+    const sanitized = customProperties.map((p) => {
+      const clean: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(p)) {
+        if (v !== undefined) clean[k] = v
+      }
+      if (Array.isArray(clean.options)) {
+        clean.options = (clean.options as Record<string, unknown>[]).map((opt) => {
+          const o: Record<string, unknown> = {}
+          for (const [k, v] of Object.entries(opt)) {
+            if (v !== undefined) o[k] = v
+          }
+          return o
+        })
+      }
+      return clean
+    })
+    await updateDoc(doc(db, COLLECTIONS.BOARDS, id), { customProperties: sanitized })
   } catch (err) {
     throw new Error(`Failed to update board properties: ${err}`)
   }

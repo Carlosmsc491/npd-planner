@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import {
-  X, Camera, Sparkles, Image, FileSpreadsheet, Shield, Mail,
+  X, Sparkles, CalendarDays, Filter, EyeOff, Flag, Sun,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.4.0'
+const CURRENT_VERSION = '1.5.0'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Feature {
@@ -16,60 +16,49 @@ interface Feature {
 
 const FEATURES: Feature[] = [
   {
-    icon: Mail,
+    icon: CalendarDays,
+    color: '#1D9E75',
+    title: 'Event Dates as Calendar Bars',
+    description:
+      'Task dates (Preparation, Ship, Set Up, Show Day) now appear as independent colored bars ' +
+      'in the calendar — grouped directly below their parent task bar. Each bar shows the date type ' +
+      'icon, label, and parent task name. Drag the parent task to reschedule; event date bars follow automatically.',
+  },
+  {
+    icon: Filter,
     color: '#378ADD',
-    title: 'Email Attachments (.msg)',
+    title: 'Bucket & Task Filters on Calendars',
     description:
-      'Drag an Outlook .msg file onto any task to attach the full email. ' +
-      'NPD Planner reads the email content, copies it and all its inner attachments to SharePoint, ' +
-      'and shows them as a collapsible card inside the task — with individual Open buttons per file. ' +
-      'No Outlook installation required.',
+      'Both the Master Calendar and each board calendar now have filter dropdowns. ' +
+      'Filter by Bucket to focus on a specific group, or search and select individual tasks. ' +
+      'Active filters show a count badge and a Clear button. Filters are independent per calendar.',
   },
   {
-    icon: Camera,
-    color: '#1D9E75',
-    title: 'Photo Manager — Selection & Cleaning',
-    description:
-      'The Photo Manager now has 4 tabs: CAMERA (all captured photos), SELECTED (star candidates), ' +
-      'CLEANED (drop background-removed PNGs per recipe), and READY (processed final photos). ' +
-      'Select multiple photos, delete, Save As, or export as ZIP directly from the manager.',
-  },
-  {
-    icon: Image,
-    color: '#8B5CF6',
-    title: 'Photo Visibility for All Users',
-    description:
-      'Captured photos are now stored with portable paths so every team member ' +
-      'sees the same photos in the Photo Manager — no more "file not found" for users ' +
-      'other than the photographer. Photos sync automatically through SharePoint.',
-  },
-  {
-    icon: FileSpreadsheet,
-    color: '#1D9E75',
-    title: 'Insert Photo into Excel',
-    description:
-      'From the READY tab, click "Insert into Excel" on any recipe card to automatically ' +
-      'place the final JPG into cells G8:M35 of the Spec Sheet using Python. ' +
-      'Requires openpyxl + Pillow: pip3 install openpyxl pillow.',
-  },
-  {
-    icon: Sparkles,
+    icon: EyeOff,
     color: '#F59E0B',
-    title: 'Default Quote Template',
+    title: 'Hide Event Dates Toggle',
     description:
-      'The "ELITE QUOTE BOUQUET 2026.xlsx" template is now bundled with the app. ' +
-      'New recipe projects automatically use it — no manual setup needed. ' +
-      'The Browse button remains available if you need to switch templates.',
+      'Use the "Hide Event Dates" button on any calendar to collapse all date-type sub-bars ' +
+      'and show only the main task bars. Toggle back on with "Show Event Dates". ' +
+      'Useful when you want a cleaner view without the detailed breakdown.',
   },
   {
-    icon: Shield,
+    icon: Flag,
     color: '#EF4444',
-    title: 'Security & Stability',
+    title: '🇺🇸 US Holidays on Calendars',
     description:
-      'Fixed a path traversal vulnerability in SharePoint file resolution. ' +
-      'Fixed PowerShell command injection in ZIP export. ' +
-      'Added crash reporting with local save and owner notification. ' +
-      'Fixed photo deletion button in capture sessions.',
+      'Enable the "🇺🇸 Holidays" button to display all US federal and cultural holidays ' +
+      'as red-bordered bars on every calendar view. Includes New Year\'s, MLK Day, Memorial Day, ' +
+      'Independence Day, Thanksgiving, Christmas, Valentine\'s Day, Mother\'s Day, and more.',
+  },
+  {
+    icon: Sun,
+    color: '#8B5CF6',
+    title: 'Weekend & Holiday Cell Highlighting',
+    description:
+      'Saturday and Sunday cells are now slightly darker than weekdays, making the work week ' +
+      'easier to scan at a glance. Holiday dates also get a subtle red tint when holidays are enabled. ' +
+      'Both styles work in light and dark mode.',
   },
 ]
 

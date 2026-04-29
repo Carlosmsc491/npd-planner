@@ -27,8 +27,10 @@ const STATUS_OPTIONS: SelectOption[] = [
 ]
 
 const PRIORITY_OPTIONS: SelectOption[] = [
-  { id: 'priority-normal', label: 'Normal', color: '#9CA3AF', icon: 'Minus' },
-  { id: 'priority-high',   label: 'High',   color: '#EF4444', icon: 'AlertCircle' },
+  { id: 'priority-low',    label: 'Low',    color: '#9CA3AF', icon: 'ArrowDown'    },
+  { id: 'priority-normal', label: 'Normal', color: '#6B7280', icon: 'Minus'        },
+  { id: 'priority-high',   label: 'High',   color: '#F59E0B', icon: 'AlertCircle'  },
+  { id: 'priority-urgent', label: 'Urgent', color: '#EF4444', icon: 'AlertCircle'  },
 ]
 
 // Suggest an icon based on option label/name
@@ -47,14 +49,51 @@ function getSuggestedIcon(label: string): string {
   return 'CircleDot'
 }
 
+// Allowlist of which builtin properties are valid per board type.
+// Any builtin NOT in a board's allowlist is stripped automatically.
+// User-added custom properties (non-"builtin-" prefix) always pass through.
+const ALLOWED_BUILTINS: Record<string, Set<string>> = {
+  planner: new Set([
+    'builtin-client', 'builtin-status', 'builtin-priority',
+    'builtin-date', 'builtin-assignees', 'builtin-bucket',
+    'builtin-awb', 'builtin-po', 'builtin-division', 'builtin-labels',
+  ]),
+  trips: new Set([
+    'builtin-client', 'builtin-status', 'builtin-priority',
+    'builtin-date', 'builtin-bucket', 'builtin-labels',
+  ]),
+  vacations: new Set([
+    'builtin-client', 'builtin-status',
+    'builtin-date', 'builtin-bucket', 'builtin-type', 'builtin-labels',
+  ]),
+  custom: new Set([
+    'builtin-client', 'builtin-status', 'builtin-priority',
+    'builtin-date', 'builtin-assignees', 'builtin-bucket', 'builtin-labels',
+  ]),
+}
+
+// Strip builtin properties that don't belong to this board type.
+// Custom (user-created) properties always pass through unchanged.
+function stripForeignBuiltins(props: BoardProperty[], boardType: string): BoardProperty[] {
+  const allowed = ALLOWED_BUILTINS[boardType] ?? ALLOWED_BUILTINS.custom
+  return props
+    .filter((p) => !p.id.startsWith('builtin-') || allowed.has(p.id))
+    .map((p, i) => ({ ...p, order: i }))
+}
+
 // Patch any builtin select property that is missing its default options
 function patchBuiltinOptions(props: BoardProperty[], boardType: string): BoardProperty[] {
   const buckets = BOARD_BUCKETS[boardType] ?? []
   return props.map((p) => {
     if (p.id === 'builtin-status' && (!p.options || p.options.length === 0))
       return { ...p, options: STATUS_OPTIONS }
-    if (p.id === 'builtin-priority' && (!p.options || p.options.length === 0))
-      return { ...p, options: PRIORITY_OPTIONS }
+    // Patch priority: seed if empty, or add missing Low/Urgent if only has 2 options
+    if (p.id === 'builtin-priority') {
+      if (!p.options || p.options.length === 0) return { ...p, options: PRIORITY_OPTIONS }
+      const hasLow    = p.options.some(o => o.label.toLowerCase() === 'low')
+      const hasUrgent = p.options.some(o => o.label.toLowerCase() === 'urgent')
+      if (!hasLow || !hasUrgent) return { ...p, options: PRIORITY_OPTIONS }
+    }
     if (p.id === 'builtin-bucket' && (!p.options || p.options.length === 0) && buckets.length > 0)
       return { ...p, options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })) }
     // Patch builtin-type for vacations: add default options if missing
@@ -72,34 +111,48 @@ function patchBuiltinOptions(props: BoardProperty[], boardType: string): BoardPr
   })
 }
 
-// Default properties seeded when a board has none yet — per board type
+// Default properties seeded when a board has none yet — mirrors exactly what TaskPage renders per board type
 function getDefaultProperties(boardType: string): BoardProperty[] {
   const buckets = BOARD_BUCKETS[boardType] ?? []
   const bucketOptions = buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] }))
 
-  const base: BoardProperty[] = [
-    { id: 'builtin-client',    name: 'Client',      icon: 'User',          type: 'text',      order: 0 },
-    { id: 'builtin-status',    name: 'Status',      icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
-    { id: 'builtin-date',      name: 'Date',        icon: 'CalendarRange', type: 'daterange', order: 2 },
-    { id: 'builtin-assignees', name: 'Assigned To', icon: 'Users',         type: 'person',    order: 3 },
-    { id: 'builtin-bucket',    name: 'Bucket',      icon: 'Layers',        type: 'select',    order: 4, options: bucketOptions },
-  ]
-
+  // ── PLANNER: matches TaskPage order exactly
+  // Customer → Bucket → Status → Assigned To → Priority → Date → Order Status (AWB + PO)
   if (boardType === 'planner') {
     return [
-      ...base.slice(0, 2),
-      { id: 'builtin-priority', name: 'Priority',   icon: 'Zap',  type: 'select', order: 2, options: PRIORITY_OPTIONS },
-      ...base.slice(2).map((p) => ({ ...p, order: p.order + 1 })),
-      { id: 'builtin-awb', name: 'AWB',         icon: 'Plane', type: 'text', order: 6 },
-      { id: 'builtin-po',  name: 'P.O. Number', icon: 'Hash',  type: 'text', order: 7 },
+      { id: 'builtin-client',    name: 'Customer',      icon: 'User',          type: 'text',      order: 0 },
+      { id: 'builtin-bucket',    name: 'Bucket',        icon: 'Layers',        type: 'select',    order: 1, options: bucketOptions },
+      { id: 'builtin-status',    name: 'Status',        icon: 'CircleDot',     type: 'select',    order: 2, options: STATUS_OPTIONS },
+      { id: 'builtin-assignees', name: 'Assigned To',   icon: 'Users',         type: 'person',    order: 3 },
+      { id: 'builtin-priority',  name: 'Priority',      icon: 'Zap',           type: 'select',    order: 4, options: PRIORITY_OPTIONS },
+      { id: 'builtin-date',      name: 'Date',          icon: 'CalendarRange', type: 'daterange', order: 5 },
+      { id: 'builtin-awb',       name: 'Order Status',  icon: 'Plane',         type: 'text',      order: 6 },
+      { id: 'builtin-po',        name: 'P.O. Number',   icon: 'Hash',          type: 'text',      order: 7 },
     ]
   }
 
+  // ── TRIPS: Person · Status · Priority · Date · Bucket
+  // (Person is stored as assignees[0]; builtin-assignees multi-picker not shown)
+  if (boardType === 'trips') {
+    return [
+      { id: 'builtin-client',   name: 'Person',   icon: 'User',          type: 'text',      order: 0 },
+      { id: 'builtin-status',   name: 'Status',   icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
+      { id: 'builtin-priority', name: 'Priority', icon: 'Zap',           type: 'select',    order: 2, options: PRIORITY_OPTIONS },
+      { id: 'builtin-date',     name: 'Date',     icon: 'CalendarRange', type: 'daterange', order: 3 },
+      { id: 'builtin-bucket',   name: 'Bucket',   icon: 'Layers',        type: 'select',    order: 4, options: bucketOptions },
+    ]
+  }
+
+  // ── VACATIONS: Person · Status · Date · Bucket · Type
+  // (No Priority — not shown in TaskPage for vacations)
   if (boardType === 'vacations') {
     return [
-      ...base,
+      { id: 'builtin-client',  name: 'Person', icon: 'User',          type: 'text',      order: 0 },
+      { id: 'builtin-status',  name: 'Status', icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
+      { id: 'builtin-date',    name: 'Date',   icon: 'CalendarRange', type: 'daterange', order: 2 },
+      { id: 'builtin-bucket',  name: 'Bucket', icon: 'Layers',        type: 'select',    order: 3, options: bucketOptions },
       {
-        id: 'builtin-type', name: 'Type', icon: 'Tag', type: 'select', order: 5, display: true,
+        id: 'builtin-type', name: 'Type', icon: 'Tag', type: 'select', order: 4, display: true,
         options: [
           { id: 'type-vacation',     label: 'Vacation',     color: '#378ADD' },
           { id: 'type-sick',         label: 'Sick Day',     color: '#EF4444' },
@@ -110,19 +163,14 @@ function getDefaultProperties(boardType: string): BoardProperty[] {
     ]
   }
 
-  if (boardType === 'trips') {
-    return [
-      ...base.slice(0, 2),
-      { id: 'builtin-priority', name: 'Priority', icon: 'Zap', type: 'select', order: 2, options: PRIORITY_OPTIONS },
-      ...base.slice(2).map((p) => ({ ...p, order: p.order + 1 })),
-    ]
-  }
-
-  // custom boards
+  // ── CUSTOM boards: Person · Status · Priority · Date · Assigned To · Bucket
   return [
-    ...base.slice(0, 2),
-    { id: 'builtin-priority', name: 'Priority', icon: 'Zap', type: 'select', order: 2, options: PRIORITY_OPTIONS },
-    ...base.slice(2).map((p) => ({ ...p, order: p.order + 1 })),
+    { id: 'builtin-client',    name: 'Client',      icon: 'User',          type: 'text',      order: 0 },
+    { id: 'builtin-status',    name: 'Status',       icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
+    { id: 'builtin-priority',  name: 'Priority',     icon: 'Zap',           type: 'select',    order: 2, options: PRIORITY_OPTIONS },
+    { id: 'builtin-date',      name: 'Date',         icon: 'CalendarRange', type: 'daterange', order: 3 },
+    { id: 'builtin-assignees', name: 'Assigned To',  icon: 'Users',         type: 'person',    order: 4 },
+    { id: 'builtin-bucket',    name: 'Bucket',       icon: 'Layers',        type: 'select',    order: 5, options: bucketOptions },
   ]
 }
 
@@ -140,7 +188,8 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   const [properties, setProperties] = useState<BoardProperty[]>(() => {
     const existing = board.customProperties ?? []
     if (existing.length === 0) return getDefaultProperties(board.type)
-    return patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type)
+    const stripped = stripForeignBuiltins([...existing].sort((a, b) => a.order - b.order), board.type)
+    return patchBuiltinOptions(stripped, board.type)
   })
 
   // Sync local properties state when board.customProperties changes from Firestore
@@ -149,14 +198,14 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
     if (existing.length === 0) {
       setProperties(getDefaultProperties(board.type))
     } else {
-      setProperties(patchBuiltinOptions([...existing].sort((a, b) => a.order - b.order), board.type))
+      const stripped = stripForeignBuiltins([...existing].sort((a, b) => a.order - b.order), board.type)
+      setProperties(patchBuiltinOptions(stripped, board.type))
     }
   }, [board.customProperties, board.type])
   const [showAddModal, setShowAddModal]       = useState(false)
   const [renamingId, setRenamingId]           = useState<string | null>(null)
   const [renameValue, setRenameValue]         = useState('')
   const [deletingId, setDeletingId]           = useState<string | null>(null)
-  const [iconPickerId, setIconPickerId]       = useState<string | null>(null)
   const [typePickerId, setTypePickerId]       = useState<string | null>(null)
   const [colorPickerKey, setColorPickerKey]   = useState<string | null>(null) // "propId:optionId" or "icon:propId:optionId"
   const [editingName, setEditingName]         = useState(false)
@@ -174,18 +223,37 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
       updateBoardProperties(board.id, defaults).catch(console.error)
     } else {
       let updated = [...existing]
-      
-      // Patch missing options for existing properties
-      const needsOptionsPatch = existing.some((p) =>
-        (['builtin-status', 'builtin-priority', 'builtin-bucket'].includes(p.id)) &&
-        (!p.options || p.options.length === 0)
-      )
-      if (needsOptionsPatch) {
-        updated = patchBuiltinOptions(updated, board.type)
+
+      // 1. Strip properties that don't belong to this board type
+      updated = stripForeignBuiltins(updated, board.type)
+
+      // 2. Patch missing options for existing properties
+      updated = patchBuiltinOptions(updated, board.type)
+
+      // 3. Add missing required builtins for each board type
+      const buckets = BOARD_BUCKETS[board.type] ?? []
+      const bucketOptions = buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] }))
+
+      if (!updated.some(p => p.id === 'builtin-bucket')) {
+        updated = [...updated, { id: 'builtin-bucket', name: 'Bucket', icon: 'Layers', type: 'select' as const, order: updated.length, options: bucketOptions }]
       }
-      
-      // Add missing default properties (like eventdates, description)
-      // Save if any changes were made
+      if (board.type === 'vacations' && !updated.some(p => p.id === 'builtin-type')) {
+        updated = [
+          ...updated,
+          {
+            id: 'builtin-type', name: 'Type', icon: 'Tag', type: 'select' as const,
+            order: updated.length, display: true,
+            options: [
+              { id: 'type-vacation',     label: 'Vacation',     color: '#378ADD' },
+              { id: 'type-sick',         label: 'Sick Day',     color: '#EF4444' },
+              { id: 'type-birthday',     label: 'Birthday',     color: '#EC4899' },
+              { id: 'type-compensation', label: 'Compensation', color: '#F59E0B' },
+            ],
+          },
+        ]
+      }
+
+      // 4. Save if anything changed
       if (JSON.stringify(updated) !== JSON.stringify(existing)) {
         setProperties(updated)
         updateBoardProperties(board.id, updated).catch(console.error)
@@ -236,11 +304,6 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   async function handleTypeChange(id: string, newType: PropertyType) {
     setTypePickerId(null)
     await saveProperties(properties.map((p) => p.id === id ? { ...p, type: newType } : p))
-  }
-
-  async function handleIconChange(id: string, iconName: string) {
-    setIconPickerId(null)
-    await saveProperties(properties.map((p) => p.id === id ? { ...p, icon: iconName } : p))
   }
 
   async function handleToggleDisplay(id: string) {
@@ -345,424 +408,284 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
         </div>
       )}
 
-      {/* Properties - TaskPage Style */}
-      <div className="space-y-6">
-        <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
-            Properties
+      {/* ── Form preview — mirrors the actual New Task modal layout ── */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+            Fields — drag to reorder
           </h3>
-          
-          {properties.length > 0 && (
-            <div className="space-y-4">
-              {properties.map((prop, i) => {
-                const isOptionType = ['select', 'multiselect', 'tags'].includes(prop.type)
-                const isBuiltin = prop.id.startsWith('builtin-')
-                return (
-                  <div 
-                    key={prop.id}
-                    draggable
-                    onDragStart={() => handleDragStart(i)}
-                    onDragOver={(e) => handleDragOver(e, i)}
-                    onDrop={(e) => handleDrop(e, i)}
-                    onDragEnd={handleDragEnd}
-                    className={`group/prop relative bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 transition-all ${
-                      dragOverIdx === i ? 'border-green-500 border-2' : ''
-                    }`}
-                  >
-                    {/* Drag handle - absolute positioned */}
-                    <div className="absolute left-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/prop:opacity-100 transition-opacity cursor-grab active:cursor-grabbing">
-                      <GripVertical size={16} className="text-gray-300 dark:text-gray-600" />
-                    </div>
+          <span className="text-[10px] text-gray-400 dark:text-gray-500">
+            ⭐ = shown on cards
+          </span>
+        </div>
 
-                    {/* Main row - Icon + Name + Controls */}
-                    <div className="flex items-center gap-3 pl-4">
-                      {/* Icon picker */}
-                      <div className="relative shrink-0">
-                        <button
-                          onClick={() => setIconPickerId(iconPickerId === prop.id ? null : prop.id)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600 hover:border-green-300 transition-all"
-                        >
-                          <DynamicIcon name={prop.icon} size={16} />
-                        </button>
-                        {iconPickerId === prop.id && (
-                          <IconPickerPopover
-                            onSelect={(n) => handleIconChange(prop.id, n)}
-                            onClose={() => setIconPickerId(null)}
-                          />
-                        )}
-                      </div>
+        {/* Title is always first and fixed */}
+        <div className="rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-4 py-3 opacity-50">
+          <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">Title <span className="text-red-500">*</span></p>
+          <div className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-400">Task title</div>
+        </div>
 
-                      {/* Property name - editable */}
-                      <div className="w-32 shrink-0">
-                        {renamingId === prop.id ? (
-                          <input
-                            autoFocus
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onBlur={() => handleRename(prop.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleRename(prop.id)
-                              if (e.key === 'Escape') setRenamingId(null)
-                            }}
-                            className="w-full rounded border border-green-500 bg-white px-2 py-1 text-sm dark:bg-gray-700 dark:text-white focus:outline-none"
-                          />
-                        ) : (
-                          <button
-                            onClick={() => { setRenamingId(prop.id); setRenameValue(prop.name) }}
-                            className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-left hover:underline decoration-dotted"
-                          >
-                            {prop.name}
-                          </button>
-                        )}
-                      </div>
+        {properties.map((prop, i) => {
+          const isOptionType = ['select', 'multiselect', 'tags'].includes(prop.type)
+          const isBuiltin = prop.id.startsWith('builtin-')
+          const isPriority = prop.id === 'builtin-priority'
 
-                      {/* Type selector */}
-                      <div className="relative shrink-0">
-                        <button
-                          onClick={() => setTypePickerId(typePickerId === prop.id ? null : prop.id)}
-                          className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:border-green-300 hover:text-green-600 transition-colors"
-                        >
-                          {PROPERTY_TYPE_LABELS[prop.type]}
-                        </button>
-                        {typePickerId === prop.id && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setTypePickerId(null)} />
-                            <div className="absolute left-0 top-full z-[60] mt-1 w-40 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
-                              {PROPERTY_TYPES.map((t) => (
-                                <button
-                                  key={t}
-                                  onClick={() => handleTypeChange(prop.id, t)}
-                                  className={`w-full px-3 py-2 text-left text-xs transition-colors ${
-                                    prop.type === t
-                                      ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400'
-                                      : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'
-                                  }`}
-                                >
-                                  {PROPERTY_TYPE_LABELS[t]}
-                                </button>
-                              ))}
-                            </div>
-                          </>
-                        )}
-                      </div>
+          return (
+            <div
+              key={prop.id}
+              draggable
+              onDragStart={() => handleDragStart(i)}
+              onDragOver={(e) => handleDragOver(e, i)}
+              onDrop={(e) => handleDrop(e, i)}
+              onDragEnd={handleDragEnd}
+              className={`group/prop relative rounded-xl bg-white dark:bg-gray-800 border transition-all ${
+                dragOverIdx === i
+                  ? 'border-green-500 border-2 shadow-sm'
+                  : 'border-gray-200 dark:border-gray-700'
+              }`}
+            >
+              {/* Drag handle */}
+              <div className="absolute left-1.5 top-3.5 opacity-0 group-hover/prop:opacity-100 transition-opacity cursor-grab active:cursor-grabbing z-10">
+                <GripVertical size={14} className="text-gray-300 dark:text-gray-600" />
+              </div>
 
-                      {/* Spacer */}
-                      <div className="flex-1" />
+              <div className="px-4 pt-3 pb-3 pl-6">
+                {/* Label row */}
+                <div className="flex items-center gap-2 mb-2">
+                  {/* Editable label */}
+                  {renamingId === prop.id ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={() => handleRename(prop.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRename(prop.id)
+                        if (e.key === 'Escape') setRenamingId(null)
+                      }}
+                      className="rounded border border-green-500 bg-white dark:bg-gray-700 dark:text-white px-2 py-0.5 text-xs font-medium focus:outline-none"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => { setRenamingId(prop.id); setRenameValue(prop.name) }}
+                      className="text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-green-600 dark:hover:text-green-400 transition-colors"
+                      title="Click to rename"
+                    >
+                      {prop.name}
+                      {prop.required && <span className="text-red-500 ml-0.5">*</span>}
+                    </button>
+                  )}
 
-                      {/* Actions */}
-                      <div className="flex items-center gap-1 shrink-0">
-                        {deletingId === prop.id ? (
-                          <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 rounded-lg px-2 py-1">
-                            <span className="text-xs text-red-600 dark:text-red-400">Delete?</span>
-                            <button onClick={() => handleDelete(prop.id)} className="text-xs font-semibold text-red-600 hover:text-red-700 dark:text-red-400">Yes</button>
-                            <button onClick={() => setDeletingId(null)} className="text-xs text-gray-400 hover:text-gray-600">No</button>
-                          </div>
-                        ) : (
-                          <>
-                            {/* Star (display on card) */}
-                            <button
-                              onClick={() => handleToggleDisplay(prop.id)}
-                              title={prop.display ? 'Shown on task cards' : 'Show on task cards'}
-                              className={`p-1.5 rounded-lg transition-colors ${
-                                prop.display
-                                  ? 'text-amber-400 bg-amber-50 dark:bg-amber-900/20'
-                                  : 'text-gray-300 hover:text-amber-400 hover:bg-gray-50 dark:text-gray-600 dark:hover:bg-gray-700'
-                              }`}
-                            >
-                              <Star size={16} fill={prop.display ? 'currentColor' : 'none'} />
-                            </button>
-                            {/* Delete */}
-                            {(isOwner || !isBuiltin) && (
-                              <button
-                                onClick={() => handleDeleteProperty(prop.id)}
-                                className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 dark:text-gray-600 dark:hover:text-red-400 dark:hover:bg-red-900/20 transition-colors"
-                                title={isOwner && isBuiltin ? 'Delete system property (Owner only)' : 'Delete property'}
+                  {/* Spacer */}
+                  <div className="flex-1" />
+
+                  {/* Controls — visible on hover */}
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover/prop:opacity-100 transition-opacity">
+                    {/* Type picker */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setTypePickerId(typePickerId === prop.id ? null : prop.id)}
+                        className="rounded px-1.5 py-0.5 text-[10px] font-medium text-gray-400 hover:text-green-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        {PROPERTY_TYPE_LABELS[prop.type]}
+                      </button>
+                      {typePickerId === prop.id && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setTypePickerId(null)} />
+                          <div className="absolute right-0 top-full z-[60] mt-1 w-40 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
+                            {PROPERTY_TYPES.map((t) => (
+                              <button key={t} onClick={() => handleTypeChange(prop.id, t)}
+                                className={`w-full px-3 py-2 text-left text-xs transition-colors ${prop.type === t ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'}`}
                               >
-                                <Trash2 size={16} />
+                                {PROPERTY_TYPE_LABELS[t]}
                               </button>
-                            )}
-                          </>
-                        )}
-                      </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
 
-                    {/* Options row - for select/multiselect/tags */}
-                    {isOptionType && (
-                      <div className="mt-3 pl-[52px]">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {(prop.options ?? []).map((opt) => {
-                            const pickerKey = `${prop.id}:${opt.id}`
-                            const iconPickerKey = `icon:${prop.id}:${opt.id}`
-                            const isPickerOpen = colorPickerKey === pickerKey
-                            const isIconPickerOpen = colorPickerKey === iconPickerKey
-                            const iconName = opt.icon || getSuggestedIcon(opt.label)
-                            
-                            return (
-                              <div key={opt.id} className="group/opt relative flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all"
-                                style={{ 
-                                  backgroundColor: prop.type === 'select' ? opt.color : 'transparent',
-                                  color: prop.type === 'select' ? '#fff' : opt.color,
-                                  border: `2px solid ${opt.color}`
-                                }}
-                              >
-                                {/* Option icon */}
-                                <div className="relative">
-                                  <button
-                                    onClick={() => setColorPickerKey(isIconPickerOpen ? null : iconPickerKey)}
-                                    className="flex items-center justify-center hover:scale-110 transition-transform"
-                                    title="Change icon"
-                                  >
-                                    <DynamicIcon name={iconName} size={12} />
-                                  </button>
-                                  {isIconPickerOpen && (
-                                    <div className="absolute left-0 top-full z-[60] mt-1">
-                                      <IconPickerPopover
-                                        onSelect={(iconName) => {
-                                          const updatedOptions = (prop.options ?? []).map((o) =>
-                                            o.id === opt.id ? { ...o, icon: iconName } : o
-                                          )
-                                          saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
-                                          setColorPickerKey(null)
-                                        }}
-                                        onClose={() => setColorPickerKey(null)}
-                                      />
-                                    </div>
-                                  )}
-                                </div>
-                                
-                                {/* Option label - editable */}
-                                <input
-                                  defaultValue={opt.label}
-                                  onBlur={(e) => {
-                                    const val = e.target.value.trim()
-                                    if (!val || val === opt.label) return
-                                    const updatedOptions = (prop.options ?? []).map((o) =>
-                                      o.id === opt.id ? { ...o, label: val } : o
-                                    )
-                                    saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
-                                  }}
-                                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                                  className="bg-transparent border-none focus:outline-none focus:ring-0 px-0 py-0 text-xs font-medium min-w-[60px]"
-                                  style={{ 
-                                    color: prop.type === 'select' ? '#fff' : opt.color,
-                                    width: `${opt.label.length + 2}ch`
-                                  }}
-                                />
-                                
-                                {/* Color picker */}
-                                <div className="relative ml-1">
-                                  <button
-                                    onClick={() => setColorPickerKey(isPickerOpen ? null : pickerKey)}
-                                    className="h-3 w-3 rounded-full border border-white/50 hover:scale-125 transition-transform"
-                                    style={{ backgroundColor: opt.color }}
-                                    title="Change color"
-                                  />
-                                  {isPickerOpen && (
-                                    <div className="absolute left-0 top-full z-[60] mt-1">
-                                      <ColorPickerPopover
-                                        color={opt.color}
-                                        onChange={(newColor) => {
-                                          const updatedOptions = (prop.options ?? []).map((o) =>
-                                            o.id === opt.id ? { ...o, color: newColor } : o
-                                          )
-                                          saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
-                                        }}
-                                        onClose={() => setColorPickerKey(null)}
-                                      />
-                                    </div>
-                                  )}
-                                </div>
-                                
-                                {/* Delete option */}
-                                <button
-                                  onClick={() => {
-                                    const updatedOptions = (prop.options ?? []).filter((o) => o.id !== opt.id)
-                                    saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
-                                  }}
-                                  className="ml-1 opacity-0 group-hover/opt:opacity-100 hover:opacity-100 transition-opacity"
-                                  style={{ color: prop.type === 'select' ? 'rgba(255,255,255,0.7)' : opt.color }}
-                                >
-                                  <X size={12} />
-                                </button>
+                    {/* Star */}
+                    <button
+                      onClick={() => handleToggleDisplay(prop.id)}
+                      title={prop.display ? 'Shown on task cards' : 'Show on task cards'}
+                      className={`p-1 rounded transition-colors ${prop.display ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400 dark:text-gray-600'}`}
+                    >
+                      <Star size={13} fill={prop.display ? 'currentColor' : 'none'} />
+                    </button>
+
+                    {/* Delete */}
+                    {deletingId === prop.id ? (
+                      <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 rounded px-1.5 py-0.5">
+                        <span className="text-[10px] text-red-600 dark:text-red-400">Delete?</span>
+                        <button onClick={() => handleDelete(prop.id)} className="text-[10px] font-semibold text-red-600 dark:text-red-400">Yes</button>
+                        <button onClick={() => setDeletingId(null)} className="text-[10px] text-gray-400">No</button>
+                      </div>
+                    ) : (isOwner || !isBuiltin) ? (
+                      <button
+                        onClick={() => handleDeleteProperty(prop.id)}
+                        className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 dark:text-gray-600 dark:hover:text-red-400 dark:hover:bg-red-900/20 transition-colors"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Widget preview — mirrors the actual form input */}
+                {isPriority ? (
+                  /* Priority: pill buttons like in TaskPage */
+                  <div className="flex flex-wrap gap-1.5 pointer-events-none">
+                    {(prop.options ?? PRIORITY_OPTIONS).map((opt) => (
+                      <span key={opt.id}
+                        className="flex items-center gap-1 rounded-full border-2 px-2.5 py-1 text-xs font-medium"
+                        style={{ borderColor: opt.color, color: opt.color }}
+                      >
+                        <DynamicIcon name={opt.icon ?? getSuggestedIcon(opt.label)} size={11} />
+                        {opt.label}
+                      </span>
+                    ))}
+                  </div>
+                ) : prop.id === 'builtin-assignees' || prop.type === 'person' ? (
+                  /* Person: chips */
+                  <div className="flex gap-1.5 pointer-events-none">
+                    {['WH', 'EE', 'CS'].map((initials) => (
+                      <span key={initials} className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-600 px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400">
+                        <span className="h-4 w-4 rounded-full bg-green-500 flex items-center justify-center text-[8px] font-bold text-white">{initials}</span>
+                        {initials === 'WH' ? 'Walter' : initials === 'EE' ? 'Evelyn' : 'Carlos'}
+                      </span>
+                    ))}
+                    <span className="flex items-center gap-1 rounded-full border border-dashed border-gray-200 dark:border-gray-600 px-2 py-0.5 text-xs text-gray-400">
+                      <Plus size={10} /> Add
+                    </span>
+                  </div>
+                ) : prop.type === 'daterange' ? (
+                  /* Date range: two inputs */
+                  <div className="flex items-center gap-2 pointer-events-none">
+                    <div className="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-400">MM/DD/YYYY</div>
+                    <span className="text-gray-400 text-xs">→</span>
+                    <div className="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-400">MM/DD/YYYY</div>
+                  </div>
+                ) : prop.id === 'builtin-awb' ? (
+                  /* Order Status: block label */
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2.5 pointer-events-none">
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">P.O. / ORDER # · Air Waybills</p>
+                  </div>
+                ) : prop.id === 'builtin-po' ? null /* rendered inside Order Status */ : (
+                  /* All others: generic input or select preview */
+                  isOptionType ? (
+                    <div className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-400 flex items-center justify-between pointer-events-none">
+                      <span>{prop.options?.[0]?.label ?? '— Select —'}</span>
+                      <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    </div>
+                  ) : (
+                    <div className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-400 pointer-events-none">
+                      {prop.type === 'checkbox' ? (
+                        <span className="flex items-center gap-2"><span className="h-4 w-4 rounded border-2 border-gray-300 dark:border-gray-500 inline-block" /> {prop.name}</span>
+                      ) : prop.type === 'number' ? '0' : prop.name + '...'}
+                    </div>
+                  )
+                )}
+
+                {/* Options editor — for select/multiselect/tags */}
+                {isOptionType && !isPriority && (
+                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                    {(prop.options ?? []).map((opt) => {
+                      const pickerKey = `${prop.id}:${opt.id}`
+                      const iconPickerKey = `icon:${prop.id}:${opt.id}`
+                      const isPickerOpen = colorPickerKey === pickerKey
+                      const isIconPickerOpen = colorPickerKey === iconPickerKey
+                      const iconName = opt.icon || getSuggestedIcon(opt.label)
+                      return (
+                        <div key={opt.id} className="group/opt relative flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-all"
+                          style={{ backgroundColor: prop.type === 'select' ? opt.color : 'transparent', color: prop.type === 'select' ? '#fff' : opt.color, border: `2px solid ${opt.color}` }}
+                        >
+                          <div className="relative">
+                            <button onClick={() => setColorPickerKey(isIconPickerOpen ? null : iconPickerKey)} className="flex items-center justify-center hover:scale-110 transition-transform" title="Change icon">
+                              <DynamicIcon name={iconName} size={11} />
+                            </button>
+                            {isIconPickerOpen && (
+                              <div className="absolute left-0 top-full z-[60] mt-1">
+                                <IconPickerPopover onSelect={(n) => { saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: (p.options ?? []).map((o) => o.id === opt.id ? { ...o, icon: n } : o) } : p)); setColorPickerKey(null) }} onClose={() => setColorPickerKey(null)} />
                               </div>
-                            )
-                          })}
-                          
-                          {/* Add option button */}
-                          <button
-                            onClick={() => {
-                              const newOption: SelectOption = {
-                                id: crypto.randomUUID(),
-                                label: 'New',
-                                color: OPTION_COLORS[(prop.options ?? []).length % OPTION_COLORS.length],
-                                icon: 'Circle'
-                              }
-                              const updatedOptions = [...(prop.options ?? []), newOption]
-                              saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: updatedOptions } : p))
-                            }}
-                            className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-green-600 hover:border-green-300 border-2 border-dashed border-gray-200 dark:border-gray-600 transition-colors"
+                            )}
+                          </div>
+                          <input
+                            defaultValue={opt.label}
+                            onBlur={(e) => { const val = e.target.value.trim(); if (!val || val === opt.label) return; saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: (p.options ?? []).map((o) => o.id === opt.id ? { ...o, label: val } : o) } : p)) }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                            className="bg-transparent border-none focus:outline-none focus:ring-0 px-0 py-0 text-xs font-medium"
+                            style={{ color: prop.type === 'select' ? '#fff' : opt.color, width: `${opt.label.length + 2}ch`, minWidth: '40px' }}
+                          />
+                          <div className="relative ml-0.5">
+                            <button onClick={() => setColorPickerKey(isPickerOpen ? null : pickerKey)} className="h-2.5 w-2.5 rounded-full border border-white/50 hover:scale-125 transition-transform" style={{ backgroundColor: opt.color }} title="Change color" />
+                            {isPickerOpen && (
+                              <div className="absolute left-0 top-full z-[60] mt-1">
+                                <ColorPickerPopover color={opt.color} onChange={(newColor) => { saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: (p.options ?? []).map((o) => o.id === opt.id ? { ...o, color: newColor } : o) } : p)) }} onClose={() => setColorPickerKey(null)} />
+                              </div>
+                            )}
+                          </div>
+                          <button onClick={() => { saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: (p.options ?? []).filter((o) => o.id !== opt.id) } : p)) }}
+                            className="ml-0.5 opacity-0 group-hover/opt:opacity-100 transition-opacity"
+                            style={{ color: prop.type === 'select' ? 'rgba(255,255,255,0.7)' : opt.color }}
                           >
-                            <Plus size={12} />
-                            Add
+                            <X size={11} />
                           </button>
                         </div>
-                      </div>
-                    )}
-
-                    {/* Required toggle for non-option types */}
-                    {!isOptionType && prop.id !== 'builtin-client' && prop.id !== 'builtin-labels' && (
-                      <div className="mt-3 pl-[52px] flex items-center gap-3">
-                        <span className="text-xs text-gray-500 dark:text-gray-400">Required field</span>
-                        <button
-                          onClick={() => saveProperties(properties.map((p) =>
-                            p.id === prop.id ? { ...p, required: !p.required } : p
-                          ))}
-                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                            prop.required ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
-                          }`}
-                        >
-                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
-                            prop.required ? 'translate-x-4' : 'translate-x-1'
-                          }`} />
-                        </button>
-                      </div>
-                    )}
+                      )
+                    })}
+                    <button
+                      onClick={() => { const newOpt: SelectOption = { id: crypto.randomUUID(), label: 'New', color: OPTION_COLORS[(prop.options ?? []).length % OPTION_COLORS.length], icon: 'Circle' }; saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: [...(p.options ?? []), newOpt] } : p)) }}
+                      className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-gray-400 hover:text-green-600 hover:border-green-300 border-2 border-dashed border-gray-200 dark:border-gray-600 transition-colors"
+                    >
+                      <Plus size={10} /> Add
+                    </button>
                   </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+                )}
 
-        {/* Add property button */}
+                {/* Priority options editor */}
+                {isPriority && (
+                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                    {(prop.options ?? PRIORITY_OPTIONS).map((opt) => {
+                      const pickerKey = `${prop.id}:${opt.id}`
+                      const isPickerOpen = colorPickerKey === pickerKey
+                      return (
+                        <div key={opt.id} className="group/opt relative flex items-center gap-1 rounded-full border-2 px-2.5 py-1 text-xs font-medium"
+                          style={{ borderColor: opt.color, color: opt.color }}
+                        >
+                          <input
+                            defaultValue={opt.label}
+                            onBlur={(e) => { const val = e.target.value.trim(); if (!val || val === opt.label) return; saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: (p.options ?? []).map((o) => o.id === opt.id ? { ...o, label: val } : o) } : p)) }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                            className="bg-transparent border-none focus:outline-none focus:ring-0 px-0 py-0 text-xs font-medium"
+                            style={{ color: opt.color, width: `${opt.label.length + 2}ch`, minWidth: '40px' }}
+                          />
+                          <div className="relative">
+                            <button onClick={() => setColorPickerKey(isPickerOpen ? null : pickerKey)} className="h-2.5 w-2.5 rounded-full hover:scale-125 transition-transform" style={{ backgroundColor: opt.color }} />
+                            {isPickerOpen && (
+                              <div className="absolute left-0 top-full z-[60] mt-1">
+                                <ColorPickerPopover color={opt.color} onChange={(newColor) => { saveProperties(properties.map((p) => p.id === prop.id ? { ...p, options: (p.options ?? []).map((o) => o.id === opt.id ? { ...o, color: newColor } : o) } : p)) }} onClose={() => setColorPickerKey(null)} />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+
+        {/* Add property */}
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-4 text-sm text-gray-500 dark:text-gray-400 hover:border-green-500 hover:text-green-600 dark:hover:border-green-600 dark:hover:text-green-400 transition-all hover:bg-green-50 dark:hover:bg-green-900/10"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hover:border-green-500 hover:text-green-600 dark:hover:border-green-600 dark:hover:text-green-400 transition-all hover:bg-green-50 dark:hover:bg-green-900/10"
         >
-          <Plus size={18} />
-          Add Property
+          <Plus size={16} />
+          Add Field
         </button>
-
-        {/* Live Preview */}
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="bg-gray-50 dark:bg-gray-800/60 px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-              Preview — How tasks will appear
-            </p>
-            <span className="text-[10px] text-gray-400">
-              {properties.filter(p => p.display).length} displayed
-            </span>
-          </div>
-          <div className="p-5 bg-white dark:bg-gray-800">
-            <div className="space-y-4">
-              {properties.filter(p => p.display).map((prop) => {
-                const opts = prop.options || []
-                const opt = opts[0]
-                return (
-                  <div key={prop.id} className="flex items-start gap-3">
-                    <span className="w-5 flex items-center justify-center shrink-0 text-gray-400 mt-0.5">
-                      <DynamicIcon name={prop.icon} size={14} />
-                    </span>
-                    <span className="w-28 shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">{prop.name}</span>
-                    <span className="flex-1">
-                      {prop.id === 'builtin-title' && (
-                        <span className="font-medium text-gray-900 dark:text-white">Sample Task Title</span>
-                      )}
-                      {prop.id === 'builtin-status' && (
-                        <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: STATUS_OPTIONS[1]?.color, color: '#fff' }}>
-                          {STATUS_OPTIONS[1]?.label || 'In Progress'}
-                        </span>
-                      )}
-                      {prop.id === 'builtin-priority' && (
-                        <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: (prop.options?.[1] ?? PRIORITY_OPTIONS[1])?.color, color: '#fff' }}>
-                          <DynamicIcon name={(prop.options?.[1] ?? PRIORITY_OPTIONS[1])?.icon || getSuggestedIcon((prop.options?.[1] ?? PRIORITY_OPTIONS[1])?.label || '')} size={12} />
-                          {(prop.options?.[1] ?? PRIORITY_OPTIONS[1])?.label || 'High'}
-                        </span>
-                      )}
-                      {prop.id === 'builtin-date' && (
-                        <span className="text-gray-600 dark:text-gray-300 text-xs">
-                          Jan 15, 2026 → Jan 20, 2026
-                        </span>
-                      )}
-                      {prop.id === 'builtin-client' && (
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="h-2 w-2 rounded-full bg-green-500" />
-                          <span className="text-gray-600 dark:text-gray-300">Sample Client</span>
-                        </span>
-                      )}
-                      {prop.id === 'builtin-division' && (
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="h-2 w-2 rounded-full bg-purple-500" />
-                          <span className="text-gray-600 dark:text-gray-300">Sample Division</span>
-                        </span>
-                      )}
-                      {prop.type === 'text' && (
-                        <span className="text-gray-500 dark:text-gray-400 italic">Text value...</span>
-                      )}
-                      {prop.type === 'number' && (
-                        <span className="font-mono text-gray-600 dark:text-gray-300">1,234</span>
-                      )}
-                      {prop.type === 'date' && (
-                        <span className="text-gray-600 dark:text-gray-300">Jan 15, 2026</span>
-                      )}
-                      {prop.type === 'daterange' && (
-                        <span className="text-gray-600 dark:text-gray-300 text-xs">Jan 15 → Jan 20</span>
-                      )}
-                      {prop.type === 'url' && (
-                        <span className="text-green-600 dark:text-green-400 underline">https://example.com</span>
-                      )}
-                      {prop.type === 'email' && (
-                        <span className="text-gray-600 dark:text-gray-300">user@eliteflower.com</span>
-                      )}
-                      {prop.type === 'phone' && (
-                        <span className="text-gray-600 dark:text-gray-300">+1 (555) 123-4567</span>
-                      )}
-                      {prop.type === 'checkbox' && (
-                        <span className="inline-flex items-center gap-1.5 text-gray-500">
-                          <span className="h-4 w-4 rounded border-2 border-green-500 bg-green-500 flex items-center justify-center">
-                            <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                          </span>
-                          Yes
-                        </span>
-                      )}
-                      {prop.type === 'select' && opt && (
-                        <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: opt.color, color: '#fff' }}>
-                          {opt.label}
-                        </span>
-                      )}
-                      {(prop.type === 'multiselect' || prop.type === 'tags') && opt && (
-                        <span className="inline-flex flex-wrap gap-1">
-                          <span className="rounded-full px-2.5 py-0.5 text-xs font-medium border-2" style={{ borderColor: opt.color, color: opt.color }}>
-                            {opt.label}
-                          </span>
-                          {opts[1] && (
-                            <span className="rounded-full px-2.5 py-0.5 text-xs font-medium border-2" style={{ borderColor: opts[1].color, color: opts[1].color }}>
-                              {opts[1].label}
-                            </span>
-                          )}
-                        </span>
-                      )}
-                      {prop.type === 'person' && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs border border-green-500 bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">
-                          <span className="h-4 w-4 rounded-full bg-green-500 flex items-center justify-center text-[8px] font-bold text-white">JD</span>
-                          John
-                        </span>
-                      )}
-                      {!['builtin-title','builtin-status','builtin-priority','builtin-date','builtin-client','builtin-division','text','number','date','daterange','url','email','phone','checkbox','select','multiselect','tags','person'].includes(prop.type) && (
-                        <span className="text-gray-400 italic">Preview not available</span>
-                      )}
-                    </span>
-                  </div>
-                )
-              })}
-              {properties.filter(p => p.display).length === 0 && (
-                <p className="text-sm text-gray-400 italic text-center py-4">
-                  No display properties set. Star a property to show it on tasks.
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
 
       {showAddModal && (
