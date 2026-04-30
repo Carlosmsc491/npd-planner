@@ -205,7 +205,7 @@ export default function RecipeSettingsTab({ userId, section }: Props) {
         description='Maps recipe price strings (e.g. "$12.99") to sleeve price values.'
         action={
           <button
-            onClick={() => update({ sleeveByPrice: { ...settings.sleeveByPrice, '': '' } })}
+            onClick={() => update({ sleeveByPrice: { ...settings.sleeveByPrice, '$': '' } })}
             className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline"
           >
             <Plus size={12} />
@@ -216,6 +216,8 @@ export default function RecipeSettingsTab({ userId, section }: Props) {
         <PriceTable
           data={settings.sleeveByPrice}
           keyPlaceholder='Price (e.g. "$12.99")'
+          sortNumeric
+          normalizeKey={normalizePriceKey}
           onChange={(data) => update({ sleeveByPrice: data })}
         />
       </Section>}
@@ -328,16 +330,43 @@ function Section({
   )
 }
 
+function normalizePriceKey(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return trimmed
+  const stripped = trimmed.startsWith('$') ? trimmed.slice(1) : trimmed
+  const n = parseFloat(stripped)
+  if (isNaN(n)) return trimmed
+  // If no decimal, assume .99 price point (e.g. "7" → "$7.99")
+  const withDecimal = stripped.includes('.') ? stripped : `${stripped}.99`
+  return `$${withDecimal}`
+}
+
+function sortByPrice(entries: [string, string][]): [string, string][] {
+  return [...entries].sort(([a], [b]) => {
+    const na = parseFloat(a.replace('$', ''))
+    const nb = parseFloat(b.replace('$', ''))
+    if (isNaN(na) && isNaN(nb)) return a.localeCompare(b)
+    if (isNaN(na)) return 1
+    if (isNaN(nb)) return -1
+    return na - nb
+  })
+}
+
 function PriceTable({
   data,
   keyPlaceholder,
+  sortNumeric,
+  normalizeKey,
   onChange,
 }: {
   data: Record<string, string>
   keyPlaceholder: string
+  sortNumeric?: boolean
+  normalizeKey?: (k: string) => string
   onChange: (data: Record<string, string>) => void
 }) {
-  const entries = Object.entries(data)
+  const rawEntries = Object.entries(data)
+  const entries = sortNumeric ? sortByPrice(rawEntries) : rawEntries
 
   if (entries.length === 0) {
     return <p className="text-xs text-gray-400 dark:text-gray-500 italic">No entries defined.</p>
@@ -352,9 +381,25 @@ function PriceTable({
             value={key}
             placeholder={keyPlaceholder}
             onChange={(e) => {
-              const next = [...entries]
-              next[i] = [e.target.value, value]
-              onChange(Object.fromEntries(next))
+              const next = Object.fromEntries(entries)
+              const oldKey = key
+              const newKey = e.target.value
+              // Replace old key with new (possibly un-normalized) key
+              const updated: Record<string, string> = {}
+              for (const [k, v] of Object.entries(next)) {
+                updated[k === oldKey ? newKey : k] = v
+              }
+              onChange(updated)
+            }}
+            onBlur={(e) => {
+              if (!normalizeKey) return
+              const normalized = normalizeKey(e.target.value)
+              if (normalized === key) return
+              const updated: Record<string, string> = {}
+              for (const [k, v] of entries) {
+                updated[k === key ? normalized : k] = v
+              }
+              onChange(updated)
             }}
             className="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-sm font-mono text-gray-900 dark:text-white focus:outline-none focus:border-green-500"
           />
@@ -364,15 +409,15 @@ function PriceTable({
             value={value}
             placeholder="Sleeve price"
             onChange={(e) => {
-              const next = [...entries]
-              next[i] = [key, e.target.value]
-              onChange(Object.fromEntries(next))
+              const updated = Object.fromEntries(entries)
+              updated[key] = e.target.value
+              onChange(updated)
             }}
             className="w-28 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-green-500"
           />
           <button
             onClick={() => {
-              const next = entries.filter((_, j) => j !== i)
+              const next = entries.filter(([k]) => k !== key)
               onChange(Object.fromEntries(next))
             }}
             className="text-gray-400 hover:text-red-500 transition-colors"
