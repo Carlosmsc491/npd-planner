@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes wave {
+  0%   { transform: rotate(  0deg); }
+  10%  { transform: rotate(-14deg); }
+  20%  { transform: rotate( 12deg); }
+  30%  { transform: rotate(-14deg); }
+  40%  { transform: rotate( 12deg); }
+  50%  { transform: rotate( -8deg); }
+  60%  { transform: rotate(  8deg); }
+  70%  { transform: rotate(  0deg); }
+  100% { transform: rotate(  0deg); }
+}
+
+.animate-wave {
+  animation: wave 1.6s ease-in-out 1;
+}
+
 * {
   box-sizing: border-box;
   padding: 0;

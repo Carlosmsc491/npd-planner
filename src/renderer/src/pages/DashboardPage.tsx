@@ -9,11 +9,24 @@ import { getBoardColor } from '../utils/colorUtils'
 import { isOverdue } from '../utils/dateUtils'
 import type { Task } from '../types'
 
+const WAVE_KEY = 'npd:dashboard_waved'
+
 export default function DashboardPage() {
   const { user } = useAuthStore()
   const { boards } = useBoardStore()
   const navigate = useNavigate()
   const [allTasks, setAllTasks] = useState<Task[]>([])
+  const [waving, setWaving] = useState(false)
+
+  useEffect(() => {
+    if (!sessionStorage.getItem(WAVE_KEY)) {
+      sessionStorage.setItem(WAVE_KEY, '1')
+      setWaving(true)
+      const t = setTimeout(() => setWaving(false), 2500)
+      return () => clearTimeout(t)
+    }
+    return undefined
+  }, [])
 
   const seededRef = useRef(false)
   useEffect(() => {
@@ -78,7 +91,13 @@ export default function DashboardPage() {
       <div className="p-6 w-full">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Good {getGreeting()}, {user?.name?.split(' ')[0] ?? 'there'} 👋
+            Good {getGreeting()}, {user?.name?.split(' ')[0] ?? 'there'}{' '}
+            <span
+              className={waving ? 'inline-block animate-wave' : 'inline-block'}
+              style={{ transformOrigin: '70% 70%' }}
+            >
+              👋
+            </span>
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Here's what's happening today.</p>
         </div>
