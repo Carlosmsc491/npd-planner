@@ -481,6 +481,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
+    e.stopPropagation()
     setDragOver(false)
     const files = Array.from(e.dataTransfer.files)
     if (files.length === 0) return
@@ -529,7 +530,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
       {/* Drop zone wrapper */}
       <div
         onDrop={handleDrop}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true) }}
         onDragLeave={() => setDragOver(false)}
         className={`rounded-lg transition-all ${dragOver ? 'ring-2 ring-green-400 ring-inset bg-green-50/30 dark:bg-green-900/10' : ''}`}
       >
@@ -594,19 +595,6 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
             >
               {attaching ? <Upload size={13} className="animate-bounce" /> : <Paperclip size={13} />}
               {attaching ? 'Attaching…' : 'Attach file'}
-            </button>
-            <button
-              onClick={async () => {
-                const filePath = await window.electronAPI.selectFile()
-                if (filePath && filePath.toLowerCase().endsWith('.msg')) {
-                  await handleEmailAttach(filePath)
-                }
-              }}
-              disabled={attaching}
-              className="flex items-center gap-2 rounded-lg border border-dashed border-blue-300 px-3 py-2 text-xs font-medium text-blue-500 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:border-blue-700 dark:text-blue-400 dark:hover:border-blue-500 dark:hover:bg-blue-900/20"
-            >
-              <Mail size={13} />
-              Attach email (.msg) — or drag &amp; drop
             </button>
           </div>
         )}

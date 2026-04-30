@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { onSnapshot, doc } from 'firebase/firestore'
 import {
@@ -9,6 +9,10 @@ import {
 import { nanoid } from 'nanoid'
 import { db } from '../../lib/firebase'
 import { updateTaskField, createNotification, createDivision } from '../../lib/firestore'
+import { addEmailAttachment } from '../../lib/emailAttachments'
+import { useSharePoint } from '../../hooks/useSharePoint'
+import { Timestamp } from 'firebase/firestore'
+import type { EmailAttachment } from '../../types'
 import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useSettingsStore } from '../../store/settingsStore'
@@ -44,6 +48,9 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   const { user } = useAuthStore()
   const { setSelectedTask } = useTaskStore()
   const { clients, labels } = useSettingsStore()
+  const { sharePointPath, isElectron } = useSharePoint()
+  const [pageDragOver, setPageDragOver] = useState(false)
+  const [pageEmailFeedback, setPageEmailFeedback] = useState<string | null>(null)
 
   // Live task state — updated by onSnapshot so properties reflect real-time changes
   const [task, setTask] = useState<Task>(initialTask)
@@ -406,8 +413,70 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     cancelEditingDate()
   }
 
+  const clientName = clients.find((c) => c.id === task.clientId)?.name ?? 'Unknown Client'
+
+  const handlePageDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault()
+    setPageDragOver(false)
+    if (!isElectron || !sharePointPath || !user) return
+    const files = Array.from(e.dataTransfer.files)
+    for (const file of files) {
+      const f = file as File & { path: string }
+      if (!f.name.toLowerCase().endsWith('.msg') || !f.path) continue
+      try {
+        const result = await window.electronAPI.parseAndAttachEmail({
+          msgFilePath: f.path,
+          sharePointRoot: sharePointPath,
+          year: new Date().getFullYear().toString(),
+          clientName,
+          taskTitle: task.title,
+        })
+        if (!result.success || !result.emailAttachment) {
+          setPageEmailFeedback(result.error ?? 'Failed to process email.')
+          continue
+        }
+        const raw = result.emailAttachment as {
+          id: string; type: 'email'; from: string; subject: string;
+          date: { seconds: number; nanoseconds: number } | null
+          bodySnippet: string; msgRelativePath: string
+          innerAttachments: EmailAttachment['innerAttachments']
+        }
+        const emailAtt: EmailAttachment = {
+          ...raw,
+          uploadedBy: user.uid,
+          uploadedByName: user.name,
+          uploadedAt: Timestamp.now(),
+          date: raw.date ? new Timestamp(raw.date.seconds, raw.date.nanoseconds) : null,
+        }
+        await addEmailAttachment(task.id, task.emailAttachments ?? [], emailAtt)
+        setPageEmailFeedback(`Email "${emailAtt.subject}" attached.`)
+        setTimeout(() => setPageEmailFeedback(null), 4000)
+      } catch (err) {
+        setPageEmailFeedback(String(err))
+      }
+    }
+  }, [isElectron, sharePointPath, user, clientName, task])
+
   return (
-    <div className="flex h-full flex-col bg-white dark:bg-gray-900">
+    <div
+      className="flex h-full flex-col bg-white dark:bg-gray-900 relative"
+      onDragOver={(e) => { e.preventDefault(); setPageDragOver(true) }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setPageDragOver(false) }}
+      onDrop={handlePageDrop}
+    >
+      {/* Page-level email drop overlay */}
+      {pageDragOver && (
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-blue-400 bg-blue-50/40 dark:bg-blue-900/20">
+          <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Drop email (.msg) to attach</p>
+        </div>
+      )}
+      {/* Email drop feedback */}
+      {pageEmailFeedback && (
+        <div className="absolute bottom-4 left-4 right-4 z-50 flex items-center gap-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 px-3 py-2 text-xs text-blue-700 dark:text-blue-300 shadow">
+          <span className="flex-1">{pageEmailFeedback}</span>
+          <button onClick={() => setPageEmailFeedback(null)} className="shrink-0">✕</button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-start justify-between px-6 pt-5 pb-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-start gap-2 flex-1 min-w-0 pr-2">
