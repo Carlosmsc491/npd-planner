@@ -35,6 +35,30 @@ import {
   DEFAULT_RECIPE_RULE_CELLS as RULE_CELLS_DEFAULTS,
   DEFAULT_RECIPE_DISTRIBUTION as DIST_DEFAULTS,
 } from '../types'
+
+export const SLEEVE_BY_PRICE_DEFAULTS: Record<string, number> = {
+  '$7.99':   0.25,
+  '$11.99':  0.30,
+  '$12.99':  0.30,
+  '$14.99':  0.35,
+  '$15.99':  0.35,
+  '$16.99':  0.40,
+  '$17.99':  0.40,
+  '$19.99':  0.40,
+  '$21.99':  0.40,
+  '$26.99':  0.40,
+  '$24.99':  0.50,
+  '$29.99':  0.50,
+  '$34.99':  0.50,
+  '$43.99':  0.50,
+  '$39.99':  0.60,
+  '$44.99':  0.60,
+  '$45.99':  0.60,
+  '$49.99':  0.60,
+  '$59.99':  0.60,
+  '$75.99':  0.60,
+  '$100.99': 0.60,
+}
 import { nanoid } from 'nanoid'
 
 // ─────────────────────────────────────────
@@ -498,7 +522,7 @@ export async function initDefaultRecipeSettings(userId: string): Promise<RecipeS
       CHRISTMAS: 'XMAS COLORS',
       EVERYDAY:  'EVERYDAY',
     },
-    sleeveByPrice: {},
+    sleeveByPrice: { ...SLEEVE_BY_PRICE_DEFAULTS },
     sleeveByStems: {},
     distributionDefaults: { ...DIST_DEFAULTS },
     lockTimeoutSeconds: 300,
@@ -552,7 +576,7 @@ export async function initDefaultRecipeProjectSettings(
       CHRISTMAS: 'XMAS COLORS',
       EVERYDAY:  'EVERYDAY',
     },
-    sleeveByPrice: {},
+    sleeveByPrice: { ...SLEEVE_BY_PRICE_DEFAULTS },
     sleeveByStems: {},
   }
   await saveRecipeProjectSettings(projectId, settings)

@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { Plus, Trash2, RotateCcw, Save, Loader2, Lock } from 'lucide-react'
 import { nanoid } from 'nanoid'
-import { getRecipeSettings, saveRecipeSettings, initDefaultRecipeSettings } from '../../../lib/recipeFirestore'
+import { getRecipeSettings, saveRecipeSettings, initDefaultRecipeSettings, SLEEVE_BY_PRICE_DEFAULTS } from '../../../lib/recipeFirestore'
 import { DistributionEditor } from '../wizard/WizardStepRules'
 import { useTaskStore } from '../../../store/taskStore'
 import { useAuthStore } from '../../../store/authStore'
@@ -50,7 +50,11 @@ export default function RecipeSettingsTab({ userId, section }: Props) {
   useEffect(() => {
     getRecipeSettings(userId).then(async (s) => {
       if (s) {
-        setSettings(s)
+        // Merge sleeve price defaults for existing users who have empty sleeveByPrice
+        const merged = Object.keys(s.sleeveByPrice ?? {}).length === 0
+          ? { ...s, sleeveByPrice: { ...SLEEVE_BY_PRICE_DEFAULTS } }
+          : s
+        setSettings(merged)
       } else {
         const defaults = await initDefaultRecipeSettings(userId)
         setSettings(defaults)
