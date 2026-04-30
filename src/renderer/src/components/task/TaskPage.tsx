@@ -420,17 +420,36 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     setPageDragOver(false)
     if (!isElectron || !sharePointPath || !user) return
     const files = Array.from(e.dataTransfer.files)
+
+    // DEBUG — show exactly what was received so we can diagnose
     if (files.length === 0) {
-      setPageEmailFeedback('No file received — save the email to disk first, then drag the file.')
-      setTimeout(() => setPageEmailFeedback(null), 5000)
+      const types = Array.from(e.dataTransfer.types).join(', ')
+      setPageEmailFeedback(`⚠ Drop received 0 files. dataTransfer.types: [${types}]`)
+      setTimeout(() => setPageEmailFeedback(null), 10000)
       return
     }
+    const debugInfo = files.map((f) => {
+      const ff = f as File & { path?: string }
+      return `"${ff.name}" path="${ff.path ?? '(empty)'}"`
+    }).join(' | ')
+    setPageEmailFeedback(`DEBUG: ${files.length} file(s): ${debugInfo}`)
+    setTimeout(() => setPageEmailFeedback(null), 10000)
+
     for (const file of files) {
       const f = file as File & { path: string }
       const lower = f.name.toLowerCase()
       const isMsg = lower.endsWith('.msg')
       const isEml = lower.endsWith('.eml')
-      if ((!isMsg && !isEml) || !f.path) continue
+      if (!isMsg && !isEml) {
+        setPageEmailFeedback(`Skipped "${f.name}" — not .eml or .msg`)
+        setTimeout(() => setPageEmailFeedback(null), 6000)
+        continue
+      }
+      if (!f.path) {
+        setPageEmailFeedback(`Skipped "${f.name}" — path is empty (virtual file)`)
+        setTimeout(() => setPageEmailFeedback(null), 6000)
+        continue
+      }
       try {
         const common = {
           sharePointRoot: sharePointPath,
