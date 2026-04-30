@@ -45,9 +45,9 @@ const FEATURES: Feature[] = [
   {
     icon: Flag,
     color: '#EF4444',
-    title: '🇺🇸 US Holidays on Calendars',
+    title: 'US Holidays on Calendars',
     description:
-      'Enable the "🇺🇸 Holidays" button to display all US federal and cultural holidays ' +
+      'Enable the "US Holidays" button to display all US federal and cultural holidays ' +
       'as red-bordered bars on every calendar view. Includes New Year\'s, MLK Day, Memorial Day, ' +
       'Independence Day, Thanksgiving, Christmas, Valentine\'s Day, Mother\'s Day, and more.',
   },

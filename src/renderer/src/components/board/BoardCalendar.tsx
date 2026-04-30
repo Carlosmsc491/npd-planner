@@ -42,7 +42,7 @@ function lastWeekday(year: number, month: number, weekday: number): string {
 }
 
 function mkHol(id: string, name: string, start: string): object {
-  return { id, title: `🇺🇸 ${name}`, start, allDay: true, backgroundColor: '#EF444420', borderColor: '#EF4444', textColor: '#991B1B', editable: false, extendedProps: { isHoliday: true, _groupOrder: 999999 } }
+  return { id, title: `US: ${name}`, start, allDay: true, backgroundColor: '#EF444420', borderColor: '#EF4444', textColor: '#991B1B', editable: false, extendedProps: { isHoliday: true, _groupOrder: 999999 } }
 }
 
 interface Props {
@@ -341,7 +341,7 @@ export default function BoardCalendar({ tasks, board, onOpenTask, onDateClick }:
               : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
-          🇺🇸 Holidays
+          US Holidays
         </button>
       </div>
 
