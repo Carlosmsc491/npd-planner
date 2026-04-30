@@ -97,14 +97,36 @@ interface RecipeSpec {
 /** Get the cell value from a worksheet as a string */
 function getCellStringValue(ws: ExcelJS.Worksheet, cellAddr: string): string {
   const cell = ws.getCell(cellAddr)
-  if (cell.value === null || cell.value === undefined) return ''
-  if (typeof cell.value === 'object' && 'result' in (cell.value as ExcelJS.CellFormulaValue)) {
-    const formula = cell.value as ExcelJS.CellFormulaValue
-    const result = formula.result
-    if (result === null || result === undefined) return ''
-    return String(result)
+  return resolveExcelValue(cell.value)
+}
+
+function resolveExcelValue(value: ExcelJS.CellValue): string {
+  if (value === null || value === undefined) return ''
+
+  if (typeof value === 'object') {
+    // Formula cell: { formula, result }
+    if ('result' in (value as ExcelJS.CellFormulaValue)) {
+      const result = (value as ExcelJS.CellFormulaValue).result
+      if (result === null || result === undefined) return ''
+      // Formula error object e.g. { error: '#N/A' }
+      if (typeof result === 'object' && 'error' in (result as unknown as Record<string, unknown>)) return ''
+      return resolveExcelValue(result as ExcelJS.CellValue)
+    }
+
+    // Rich text: { richText: [{ text: string }] }
+    if ('richText' in (value as unknown as Record<string, unknown>)) {
+      const rt = (value as { richText: { text: string }[] }).richText
+      return rt.map((r) => r.text ?? '').join('')
+    }
+
+    // Date object
+    if (value instanceof Date) return value.toLocaleDateString()
+
+    // Anything else — return empty rather than "[object Object]"
+    return ''
   }
-  return String(cell.value)
+
+  return String(value)
 }
 
 

@@ -12,6 +12,8 @@ interface BasicsData {
   templatePath: string
   sourceMode: 'from_scratch' | 'import'
   dueDate: string | null
+  useProjectNameForSpec: boolean   // true = E4 gets project name; false = use specSheetName
+  specSheetName: string            // custom Spec Sheet E4 value when useProjectNameForSpec=false
 }
 
 interface Props {
@@ -83,8 +85,8 @@ export default function WizardStepBasics({ data, onChange }: Props) {
       </div>
 
       {/* Project name */}
-      <div>
-        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+      <div className="space-y-2">
+        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
           Project Name <span className="text-red-500">*</span>
         </label>
         <input
@@ -95,6 +97,29 @@ export default function WizardStepBasics({ data, onChange }: Props) {
           placeholder="e.g. Valentine's Day 2026"
           className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
         />
+
+        {/* Spec Sheet E4 name option */}
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={data.useProjectNameForSpec}
+            onChange={(e) => onChange({ useProjectNameForSpec: e.target.checked, specSheetName: '' })}
+            className="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600 text-green-500 focus:ring-green-500"
+          />
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            Use same project name in Spec Sheet (cell E4)
+          </span>
+        </label>
+
+        {!data.useProjectNameForSpec && (
+          <input
+            type="text"
+            value={data.specSheetName}
+            onChange={(e) => onChange({ specSheetName: e.target.value })}
+            placeholder="Spec Sheet name for E4…"
+            className="w-full rounded-lg border border-green-400 dark:border-green-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
+          />
+        )}
       </div>
 
       {/* Root folder */}

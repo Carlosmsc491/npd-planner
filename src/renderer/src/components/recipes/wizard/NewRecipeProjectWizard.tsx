@@ -47,6 +47,8 @@ interface WizardData {
   templatePath: string
   sourceMode: 'from_scratch' | 'import'
   dueDate: string | null
+  useProjectNameForSpec: boolean
+  specSheetName: string
   // Step 2
   customerDefault: string
   holidayDefault: string
@@ -77,6 +79,8 @@ export default function NewRecipeProjectWizard() {
     templatePath: '',
     sourceMode: 'from_scratch',
     dueDate: null,
+    useProjectNameForSpec: true,
+    specSheetName: '',
     customerDefault: RECIPE_CUSTOMER_OPTIONS[0],
     holidayDefault: RECIPE_HOLIDAY_OPTIONS[0],
     wetPackDefault: false,
@@ -226,7 +230,7 @@ export default function NewRecipeProjectWizard() {
               { sheet: 'Quote',      cell: 'AC23', value: recipe.pickNeededOverride || '' },
               { sheet: 'Quote',      cell: 'AB25', value: sleevePrice },
               { sheet: 'Quote',      cell: 'AC25', value: sleevePrice ? 'Y' : '' },
-              { sheet: 'Spec Sheet', cell: 'E4',   value: data.name.trim() },
+              { sheet: 'Spec Sheet', cell: 'E4',   value: data.useProjectNameForSpec ? data.name.trim() : (data.specSheetName.trim() || data.name.trim()) },
               ...distUpdates,
             ],
           })
@@ -428,6 +432,8 @@ export default function NewRecipeProjectWizard() {
                 templatePath: data.templatePath,
                 sourceMode: data.sourceMode,
                 dueDate: data.dueDate,
+                useProjectNameForSpec: data.useProjectNameForSpec,
+                specSheetName: data.specSheetName,
               }}
               onChange={patchData}
             />

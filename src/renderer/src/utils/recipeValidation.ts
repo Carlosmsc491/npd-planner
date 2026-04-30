@@ -234,7 +234,8 @@ export async function validateRecipeFile(
   }
 
   // ── R11 — Final Naming (informational) ──────────────────────────────────
-  const finalName = `${effectiveName} DONE BY ${currentUser.toUpperCase()}.xlsx`
+  const firstName = currentUser.trim().split(/\s+/)[0]
+  const finalName = `${effectiveName} DONE BY ${firstName.toUpperCase()}.xlsx`
   changes.push({
     field:          'Final File Name',
     cell:           '—',
