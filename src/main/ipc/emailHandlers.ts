@@ -1,10 +1,11 @@
 // src/main/ipc/emailHandlers.ts
-// IPC handler for parsing Outlook .msg files and copying to SharePoint
+// IPC handler for parsing Outlook .msg / .eml files and copying to SharePoint
 
 import { ipcMain } from 'electron'
 import { join } from 'path'
 import { mkdirSync, writeFileSync, readFileSync, copyFileSync } from 'fs'
 import MsgReader from '@kenjiuno/msgreader'
+import { simpleParser } from 'mailparser'
 
 // ── Sanitize folder/file names ───────────────────────────────────────────────
 function sanitizeName(name: string): string {
@@ -37,8 +38,108 @@ function getMimeFromExt(filename: string): string | null {
   return map[ext] ?? null
 }
 
-// ── Register IPC handler ──────────────────────────────────────────────────────
+// ── Shared: build the emailAttachment record and write files to SharePoint ─────
+interface ParsedEmail {
+  from: string
+  subject: string
+  body: string
+  date: Date | null
+  attachments: Array<{ fileName: string; content: Buffer }>
+}
+
+function buildAndSaveEmailAttachment(
+  parsed: ParsedEmail,
+  srcFilePath: string | null,
+  srcBuffer: Buffer | null,
+  sharePointRoot: string,
+  year: string,
+  clientName: string,
+  taskTitle: string,
+  fileExt: string,
+) {
+  const { from, subject, body, date, attachments } = parsed
+  const bodySnippet = body.replace(/<[^>]*>/g, '').trim().slice(0, 200)
+
+  const safeClient  = sanitizeName(clientName)
+  const safeTask    = sanitizeName(taskTitle)
+  const safeSubject = sanitizeName(subject).slice(0, 60)
+  const emailFileName = `${safeSubject}${fileExt}`
+
+  const taskFolder     = join(sharePointRoot, year, safeClient, safeTask)
+  const emailSubFolder = join(taskFolder, safeSubject)
+  const emailDestPath  = join(taskFolder, emailFileName)
+
+  mkdirSync(taskFolder, { recursive: true })
+  if (srcFilePath) {
+    copyFileSync(srcFilePath, emailDestPath)
+  } else if (srcBuffer) {
+    writeFileSync(emailDestPath, srcBuffer)
+  }
+
+  const innerAttachments: Array<{
+    id: string; name: string; sharePointRelativePath: string
+    sizeBytes: number | null; mimeType: string | null
+  }> = []
+
+  if (attachments.length > 0) {
+    mkdirSync(emailSubFolder, { recursive: true })
+    for (const att of attachments) {
+      if (!att.fileName || !att.content) continue
+      try {
+        const safeAttName = sanitizeName(att.fileName)
+        writeFileSync(join(emailSubFolder, safeAttName), att.content)
+        innerAttachments.push({
+          id: crypto.randomUUID(),
+          name: att.fileName,
+          sharePointRelativePath: `${year}/${safeClient}/${safeTask}/${safeSubject}/${safeAttName}`,
+          sizeBytes: att.content.byteLength,
+          mimeType: getMimeFromExt(att.fileName),
+        })
+      } catch { /* skip failed attachment */ }
+    }
+  }
+
+  return {
+    id: crypto.randomUUID(),
+    type: 'email' as const,
+    from,
+    subject,
+    date: date ? { seconds: Math.floor(date.getTime() / 1000), nanoseconds: 0 } : null,
+    bodySnippet,
+    msgRelativePath: `${year}/${safeClient}/${safeTask}/${emailFileName}`,
+    innerAttachments,
+    uploadedBy: '',
+    uploadedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 },
+  }
+}
+
+// ── Register IPC handlers ──────────────────────────────────────────────────────
 export function registerEmailHandlers(): void {
+
+  // Read a saved .eml file and return full content for in-app viewer
+  ipcMain.handle('email:read-eml', async (_event, filePath: string) => {
+    try {
+      const rawBuf = readFileSync(filePath)
+      const mail = await simpleParser(rawBuf)
+
+      const from = mail.from?.text ?? 'Unknown'
+      const to = mail.to
+        ? (Array.isArray(mail.to) ? mail.to : [mail.to]).map((a) => a.text).join(', ')
+        : ''
+
+      return {
+        success: true,
+        subject: mail.subject ?? '(No subject)',
+        from,
+        to,
+        date: mail.date?.toISOString() ?? null,
+        bodyHtml: mail.html || null,
+        bodyText: mail.text ?? '',
+      }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
 
   // Read a saved .msg file and return full content for in-app viewer
   ipcMain.handle('email:read-msg', async (_event, filePath: string) => {
@@ -71,111 +172,68 @@ export function registerEmailHandlers(): void {
     }
   })
 
+  // ── .msg (MAPI) ────────────────────────────────────────────────────────────
   ipcMain.handle('email:parse-and-attach', async (_event, req: {
-    msgFilePath: string
-    sharePointRoot: string
-    year: string
-    clientName: string
-    taskTitle: string
+    msgFilePath: string; sharePointRoot: string; year: string; clientName: string; taskTitle: string
   }) => {
     try {
       const { msgFilePath, sharePointRoot, year, clientName, taskTitle } = req
-
-      // Read and parse .msg
-      const msgBuffer = readFileSync(msgFilePath) as unknown as ArrayBuffer
-      const reader = new MsgReader(msgBuffer)
+      const rawBuf = readFileSync(msgFilePath)
+      const reader = new MsgReader(rawBuf as unknown as ArrayBuffer)
       const fileData = reader.getFileData()
+      if (!fileData) return { success: false, error: 'Could not parse .msg file.' }
 
-      if (!fileData) {
-        return { success: false, error: 'Could not parse .msg file.' }
-      }
-
-      // Extract metadata
       const from: string = fileData.senderName
         ? `${fileData.senderName} <${fileData.senderEmail ?? ''}>`
         : (fileData.senderEmail ?? 'Unknown')
-      const subject: string = fileData.subject ?? '(No subject)'
-      const body: string = (fileData.body ?? fileData.bodyHtml ?? '') as string
-      const bodySnippet: string = body.replace(/<[^>]*>/g, '').trim().slice(0, 200)
-      const msgDate: Date | null = fileData.messageDeliveryTime
-        ? new Date(fileData.messageDeliveryTime as string)
-        : null
 
-      // Build SharePoint paths
-      const safeClient = sanitizeName(clientName)
-      const safeTask = sanitizeName(taskTitle)
-      const safeSubject = sanitizeName(subject).slice(0, 60)
-      const msgFileName = `${safeSubject}.msg`
+      const atts = (fileData.attachments ?? []).map((att) => {
+        const data = reader.getAttachment(att)
+        return { fileName: att.fileName ?? '', content: data?.content ? Buffer.from(data.content) : Buffer.alloc(0) }
+      }).filter((a) => a.fileName && a.content.byteLength > 0)
 
-      const taskFolder = join(sharePointRoot, year, safeClient, safeTask)
-      const emailSubFolder = join(taskFolder, safeSubject)
-
-      // Create task folder and copy .msg
-      mkdirSync(taskFolder, { recursive: true })
-      const msgDestPath = join(taskFolder, msgFileName)
-      copyFileSync(msgFilePath, msgDestPath)
-
-      // Process inner attachments
-      const innerAttachments: Array<{
-        id: string
-        name: string
-        sharePointRelativePath: string
-        sizeBytes: number | null
-        mimeType: string | null
-      }> = []
-
-      const attachments = fileData.attachments ?? []
-
-      if (attachments.length > 0) {
-        mkdirSync(emailSubFolder, { recursive: true })
-
-        for (const att of attachments) {
-          if (!att.fileName) continue
-
-          try {
-            const attData = reader.getAttachment(att)
-            if (!attData?.content) continue
-
-            const safeAttName = sanitizeName(att.fileName)
-            const attDestPath = join(emailSubFolder, safeAttName)
-            writeFileSync(attDestPath, Buffer.from(attData.content))
-
-            const relativePath = `${year}/${safeClient}/${safeTask}/${safeSubject}/${safeAttName}`
-
-            innerAttachments.push({
-              id: crypto.randomUUID(),
-              name: att.fileName,
-              sharePointRelativePath: relativePath,
-              sizeBytes: attData.content.byteLength,
-              mimeType: getMimeFromExt(att.fileName),
-            })
-          } catch (attErr) {
-            console.error(`[EmailHandler] Failed to extract attachment ${att.fileName}:`, attErr)
-          }
-        }
-      }
-
-      const msgRelativePath = `${year}/${safeClient}/${safeTask}/${msgFileName}`
-
-      const emailAttachment = {
-        id: crypto.randomUUID(),
-        type: 'email' as const,
+      const parsed: ParsedEmail = {
         from,
-        subject,
-        date: msgDate
-          ? { seconds: Math.floor(msgDate.getTime() / 1000), nanoseconds: 0 }
-          : null,
-        bodySnippet,
-        msgRelativePath,
-        innerAttachments,
-        uploadedBy: '',  // renderer fills this with current user uid
-        uploadedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 },
+        subject: (fileData.subject as string | undefined) ?? '(No subject)',
+        body: ((fileData.body ?? fileData.bodyHtml ?? '') as string),
+        date: fileData.messageDeliveryTime ? new Date(fileData.messageDeliveryTime as string) : null,
+        attachments: atts,
       }
 
+      const emailAttachment = buildAndSaveEmailAttachment(parsed, msgFilePath, null, sharePointRoot, year, clientName, taskTitle, '.msg')
       return { success: true, emailAttachment }
-
     } catch (err) {
-      console.error('[EmailHandler] Error:', err)
+      console.error('[EmailHandler] .msg error:', err)
+      return { success: false, error: String(err) }
+    }
+  })
+
+  // ── .eml (RFC 2822 / Internet Message Format) ───────────────────────────────
+  ipcMain.handle('email:parse-and-attach-eml', async (_event, req: {
+    emlFilePath: string; sharePointRoot: string; year: string; clientName: string; taskTitle: string
+  }) => {
+    try {
+      const { emlFilePath, sharePointRoot, year, clientName, taskTitle } = req
+      const rawBuf = readFileSync(emlFilePath)
+      const mail = await simpleParser(rawBuf)
+
+      const from = mail.from?.text ?? 'Unknown'
+      const atts = (mail.attachments ?? [])
+        .filter((a) => a.filename && a.content)
+        .map((a) => ({ fileName: a.filename!, content: a.content }))
+
+      const parsed: ParsedEmail = {
+        from,
+        subject: mail.subject ?? '(No subject)',
+        body: mail.html || mail.text || '',
+        date: mail.date ?? null,
+        attachments: atts,
+      }
+
+      const emailAttachment = buildAndSaveEmailAttachment(parsed, emlFilePath, null, sharePointRoot, year, clientName, taskTitle, '.eml')
+      return { success: true, emailAttachment }
+    } catch (err) {
+      console.error('[EmailHandler] .eml error:', err)
       return { success: false, error: String(err) }
     }
   })

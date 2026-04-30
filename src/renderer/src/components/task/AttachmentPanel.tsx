@@ -446,13 +446,15 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
     setAttaching(true)
     setFeedback(null)
     try {
-      const result = await window.electronAPI.parseAndAttachEmail({
-        msgFilePath: filePath,
+      const common = {
         sharePointRoot: sharePointPath,
         year: new Date().getFullYear().toString(),
         clientName,
         taskTitle: task.title,
-      })
+      }
+      const result = filePath.toLowerCase().endsWith('.eml')
+        ? await window.electronAPI.parseAndAttachEml({ emlFilePath: filePath, ...common })
+        : await window.electronAPI.parseAndAttachEmail({ msgFilePath: filePath, ...common })
       if (!result.success || !result.emailAttachment) {
         setFeedback({ type: 'error', message: result.error ?? 'Failed to process email.' })
         return

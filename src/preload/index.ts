@@ -264,6 +264,25 @@ const electronAPI = {
     taskTitle: string
   }) => ipcRenderer.invoke('email:parse-and-attach', req),
 
+  parseAndAttachEml: (req: {
+    emlFilePath: string
+    sharePointRoot: string
+    year: string
+    clientName: string
+    taskTitle: string
+  }) => ipcRenderer.invoke('email:parse-and-attach-eml', req),
+
+  readEmlFile: (filePath: string): Promise<{
+    success: boolean
+    subject?: string
+    from?: string
+    to?: string
+    date?: string | null
+    bodyHtml?: string | null
+    bodyText?: string
+    error?: string
+  }> => ipcRenderer.invoke('email:read-eml', filePath),
+
   // ── App utilities ─────────────────────────────────────────────────────────
   getUserDataPath: (): Promise<string> =>
     ipcRenderer.invoke('app:get-user-data-path'),

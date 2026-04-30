@@ -420,17 +420,27 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     setPageDragOver(false)
     if (!isElectron || !sharePointPath || !user) return
     const files = Array.from(e.dataTransfer.files)
+    if (files.length === 0) {
+      setPageEmailFeedback('No file received — save the email to disk first, then drag the file.')
+      setTimeout(() => setPageEmailFeedback(null), 5000)
+      return
+    }
     for (const file of files) {
       const f = file as File & { path: string }
-      if (!f.name.toLowerCase().endsWith('.msg') || !f.path) continue
+      const lower = f.name.toLowerCase()
+      const isMsg = lower.endsWith('.msg')
+      const isEml = lower.endsWith('.eml')
+      if ((!isMsg && !isEml) || !f.path) continue
       try {
-        const result = await window.electronAPI.parseAndAttachEmail({
-          msgFilePath: f.path,
+        const common = {
           sharePointRoot: sharePointPath,
           year: new Date().getFullYear().toString(),
           clientName,
           taskTitle: task.title,
-        })
+        }
+        const result = isEml
+          ? await window.electronAPI.parseAndAttachEml({ emlFilePath: f.path, ...common })
+          : await window.electronAPI.parseAndAttachEmail({ msgFilePath: f.path, ...common })
         if (!result.success || !result.emailAttachment) {
           setPageEmailFeedback(result.error ?? 'Failed to process email.')
           continue
@@ -467,7 +477,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
       {/* Page-level email drop overlay */}
       {pageDragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-blue-400 bg-blue-50/40 dark:bg-blue-900/20">
-          <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Drop email (.msg) to attach</p>
+          <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Drop email (.eml or .msg) to attach</p>
         </div>
       )}
       {/* Email drop feedback */}

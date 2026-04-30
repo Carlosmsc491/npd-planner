@@ -131,6 +131,24 @@ interface IElectronAPI {
     clientName: string
     taskTitle: string
   }) => Promise<{ success: boolean; emailAttachment?: unknown; error?: string }>
+  // Email attachments (.eml)
+  readEmlFile: (filePath: string) => Promise<{
+    success: boolean
+    subject?: string
+    from?: string
+    to?: string
+    date?: string | null
+    bodyHtml?: string | null
+    bodyText?: string
+    error?: string
+  }>
+  parseAndAttachEml: (req: {
+    emlFilePath: string
+    sharePointRoot: string
+    year: string
+    clientName: string
+    taskTitle: string
+  }) => Promise<{ success: boolean; emailAttachment?: unknown; error?: string }>
   // Generic Traze / AWB IPC channels
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, listener: (...args: unknown[]) => void) => void

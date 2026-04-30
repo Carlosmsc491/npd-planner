@@ -154,7 +154,10 @@ export default function EmailViewerModal({ msgAbsPath, subject, onClose }: Props
   useEffect(() => {
     setLoading(true)
     setError(null)
-    window.electronAPI.readMsgFile(msgAbsPath).then(res => {
+    const reader = msgAbsPath.toLowerCase().endsWith('.eml')
+      ? window.electronAPI.readEmlFile(msgAbsPath)
+      : window.electronAPI.readMsgFile(msgAbsPath)
+    reader.then(res => {
       if (!res.success) {
         setError(res.error ?? 'Could not read email file.')
         setLoading(false)
