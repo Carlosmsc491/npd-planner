@@ -94,12 +94,15 @@ export default function RecipeProjectPage() {
   const effectiveRootPath = project
     ? resolveProjectRootPath(project.relativeRootPath ?? project.rootPath, sharePointPath)
     : ''
+  // Last segment of the root path (e.g. "EASTER") used as label for files with no subfolder
+  const rootFolderLabel = effectiveRootPath.split(/[/\\]/).filter(Boolean).pop() ?? project?.name ?? '(root)'
 
   const { currentLock, claimFile, unclaimFile } = useRecipeLock()
   const { files, filesByFolder, isLoading: filesLoading, scanError } = useRecipeFiles(
     projectId ?? '',
     effectiveRootPath,
-    scanKey
+    scanKey,
+    rootFolderLabel
   )
 
   // ── Load project from Firestore ──────────────────────────────────────────
@@ -231,7 +234,13 @@ export default function RecipeProjectPage() {
     if (!project) return
     const fullPath = await window.electronAPI.resolveSharePointPath(effectiveRootPath, file.relativePath)
     await window.electronAPI.recipeOpenInExcel(fullPath)
-  }, [project])
+  }, [project, effectiveRootPath])
+
+  const handleClaimForFile = useCallback(async (file: RecipeFile) => {
+    if (!projectId || !user) return
+    setSelectedFile(file)
+    await claimFile(projectId, file.id, user.name)
+  }, [projectId, user, claimFile])
 
   // ── Assign handler ──────────────────────────────────────────────────────
   const handleAssign = useCallback(async (uid: string | null, name: string | null) => {
@@ -451,7 +460,7 @@ export default function RecipeProjectPage() {
     const grouped: Record<string, RecipeFile[]> = {}
     for (const file of filteredFiles) {
       const parts = file.relativePath.split('/')
-      const folder = parts.length > 1 ? parts[0] : '(root)'
+      const folder = parts.length > 1 ? parts[0] : rootFolderLabel
       if (!grouped[folder]) grouped[folder] = []
       grouped[folder].push(file)
     }
@@ -909,7 +918,9 @@ export default function RecipeProjectPage() {
                       {scanError}
                     </p>
                     <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                      Make sure your SharePoint folder is mounted and the path is correct.
+                      {sharePointPath
+                        ? `Your SP root: ${sharePointPath}`
+                        : '⚠ SharePoint path not configured in Settings → General'}
                     </p>
                   </div>
                   <button
@@ -953,6 +964,7 @@ export default function RecipeProjectPage() {
                       selectedFileIds={selectedFileIds}
                       onSelectFile={setSelectedFile}
                       onOpenInExcel={handleOpenInExcelForFile}
+                      onClaim={handleClaimForFile}
                       onCheckToggle={toggleCheck}
                     />
                   ))
@@ -992,6 +1004,7 @@ export default function RecipeProjectPage() {
                 selectedFileIds={selectedFileIds}
                 onSelectFile={setSelectedFile}
                 onOpenInExcel={handleOpenInExcelForFile}
+                onClaim={handleClaimForFile}
                 onCheckToggle={toggleCheck}
               />
             ) : (

@@ -62,7 +62,7 @@ function getRowStyle(file: RecipeFile, currentUserName: string): RowStyle {
       return {
         row:        'bg-orange-50 dark:bg-orange-900/10',
         badge:      'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-        badgeLabel: 'Lock Expired',
+        badgeLabel: file.lockedBy ? `Lock Expired — ${file.lockedBy}` : 'Lock Expired',
         icon:       <AlertTriangle size={13} className="text-orange-500" />,
       }
     case 'done':
