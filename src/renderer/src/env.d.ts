@@ -149,6 +149,12 @@ interface IElectronAPI {
     clientName: string
     taskTitle: string
   }) => Promise<{ success: boolean; emailAttachment?: unknown; error?: string }>
+  selectEmailFile: () => Promise<string | null>
+  // Outlook Add-in bridge
+  onOutlookEmail: (callback: (taskId: string, emailAttachment: unknown) => void) => () => void
+  onOutlookGetBoards: (callback: () => void) => () => void
+  sendBoardsToOutlook: (data: unknown) => void
+  copyOutlookManifest: () => Promise<{ success: boolean; destPath?: string; error?: string }>
   // Generic Traze / AWB IPC channels
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, listener: (...args: unknown[]) => void) => void

@@ -1,9 +1,15 @@
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
-import { onSnapshot, doc } from 'firebase/firestore'
+import { onSnapshot, doc, getDoc, Timestamp } from 'firebase/firestore'
 import { auth, db } from './lib/firebase'
 import { useAuthStore } from './store/authStore'
+import { useBoardStore } from './store/boardStore'
+import { useTaskStore } from './store/taskStore'
+import { useSettingsStore } from './store/settingsStore'
+import { BOARD_BUCKETS } from './utils/colorUtils'
+import { addEmailAttachment } from './lib/emailAttachments'
+import type { EmailAttachment } from './types'
 import ProtectedRoute from './components/ui/ProtectedRoute'
 import { useAreaPermission } from './hooks/useAreaPermission'
 import LoginPage from './pages/LoginPage'
@@ -55,6 +61,97 @@ export default function App() {
     })
     return () => { offNotificationClicked() }
   }, [navigate])
+
+  // ── Outlook Add-in listeners ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!window.electronAPI?.onOutlookGetBoards) return
+
+    const offGetBoards = window.electronAPI.onOutlookGetBoards(() => {
+      const { boards } = useBoardStore.getState()
+      const { tasks } = useTaskStore.getState()
+      const { clients } = useSettingsStore.getState()
+      const sharePointPath = localStorage.getItem('npd_sharepoint_path') ?? ''
+
+      const data = {
+        sharePointRoot: sharePointPath ?? '',
+        boards: boards.map((board) => {
+          const bucketProp = board.customProperties?.find(
+            (p) => p.id === 'builtin-bucket' || p.name === 'Bucket'
+          )
+          const bucketOptions = bucketProp?.options?.length
+            ? bucketProp.options
+            : (BOARD_BUCKETS[board.type] ?? []).map((b) => ({ id: b, label: b, color: '#9CA3AF' }))
+
+          const boardTasks = tasks.filter((t) => t.boardId === board.id && !t.completed)
+
+          return {
+            id: board.id,
+            name: board.name,
+            buckets: bucketOptions.map((bucket) => ({
+              id: bucket.id,
+              name: bucket.label,
+              tasks: boardTasks
+                .filter((t) => t.bucket === bucket.label)
+                .map((t) => {
+                  const client = clients.find((c) => c.id === t.clientId)
+                  return {
+                    id: t.id,
+                    title: t.title,
+                    clientName: client?.name ?? 'Unknown Client',
+                    year: new Date().getFullYear().toString(),
+                  }
+                }),
+            })),
+          }
+        }),
+      }
+
+      window.electronAPI.sendBoardsToOutlook(data)
+    })
+
+    const offEmail = window.electronAPI.onOutlookEmail(async (taskId, rawAttachment) => {
+      const currentUser = auth.currentUser
+      if (!currentUser) return
+
+      const { user } = useAuthStore.getState()
+
+      const raw = rawAttachment as {
+        id: string
+        type: 'email'
+        from: string
+        subject: string
+        date: { seconds: number; nanoseconds: number } | null
+        bodySnippet: string
+        msgRelativePath: string
+        innerAttachments: EmailAttachment['innerAttachments']
+        uploadedAt: { seconds: number; nanoseconds: number }
+      }
+
+      try {
+        const taskSnap = await getDoc(doc(db, 'tasks', taskId))
+        const currentEmailAttachments: EmailAttachment[] = taskSnap.exists()
+          ? (taskSnap.data().emailAttachments ?? [])
+          : []
+
+        const emailAtt: EmailAttachment = {
+          ...raw,
+          uploadedBy: currentUser.uid,
+          uploadedByName: user?.name ?? '',
+          uploadedAt: Timestamp.now(),
+          date: raw.date ? new Timestamp(raw.date.seconds, raw.date.nanoseconds) : null,
+        }
+
+        await addEmailAttachment(taskId, currentEmailAttachments, emailAtt)
+      } catch (err) {
+        console.error('[Outlook] Failed to save email attachment:', err)
+      }
+    })
+
+    return () => {
+      offGetBoards()
+      offEmail()
+    }
+  }, [])
 
   useEffect(() => {
     let unsubscribeUser: (() => void) | null = null

@@ -14,6 +14,7 @@ import { registerCameraHandlers } from './ipc/cameraHandlers'
 import { registerExcelHandlers } from './ipc/excelHandlers'
 import { registerCrashReportHandlers } from './ipc/crashReportHandlers'
 import { registerEmailHandlers } from './ipc/emailHandlers'
+import { startOutlookServer } from './ipc/outlookServer'
 import { createSplashWindow, closeSplashWindow } from './splash'
 
 const isDev = process.env.NODE_ENV === 'development' || !!process.env.ELECTRON_RENDERER_URL
@@ -259,6 +260,23 @@ app.whenReady().then(() => {
   errorReporter.log('App started')
 
   const mainWindow = createWindow()
+
+  // Outlook Add-in HTTP server — localhost:3847, only after mainWindow is ready
+  startOutlookServer(mainWindow)
+
+  // Copy Outlook manifest to user Desktop so they can sideload it in Outlook
+  ipcMain.handle('outlook:copy-manifest', async (): Promise<{ success: boolean; destPath?: string; error?: string }> => {
+    try {
+      const src = app.isPackaged
+        ? path.join(process.resourcesPath, 'outlook-addin', 'NPD_Planner_Manifest.xml')
+        : path.join(__dirname, '../../resources/outlook-addin', 'NPD_Planner_Manifest.xml')
+      const dest = path.join(app.getPath('desktop'), 'NPD_Planner_Manifest.xml')
+      fs.copyFileSync(src, dest)
+      return { success: true, destPath: dest }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
 
   // Camera / photo capture handlers (Mac only, gphoto2 tethering)
   registerCameraHandlers(mainWindow)

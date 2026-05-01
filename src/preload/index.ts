@@ -283,6 +283,29 @@ const electronAPI = {
     error?: string
   }> => ipcRenderer.invoke('email:read-eml', filePath),
 
+  selectEmailFile: (): Promise<string | null> =>
+    ipcRenderer.invoke('email:select-file'),
+
+  // ── Outlook Add-in bridge ─────────────────────────────────────────────────
+  onOutlookEmail: (callback: (taskId: string, emailAttachment: unknown) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { taskId: string; emailAttachment: unknown }) =>
+      callback(data.taskId, data.emailAttachment)
+    ipcRenderer.on('outlook:save-email-attachment', listener)
+    return () => ipcRenderer.removeListener('outlook:save-email-attachment', listener)
+  },
+
+  onOutlookGetBoards: (callback: () => void): (() => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('outlook:get-boards', listener)
+    return () => ipcRenderer.removeListener('outlook:get-boards', listener)
+  },
+
+  sendBoardsToOutlook: (data: unknown): void =>
+    ipcRenderer.send('outlook:boards-response', data),
+
+  copyOutlookManifest: (): Promise<{ success: boolean; destPath?: string; error?: string }> =>
+    ipcRenderer.invoke('outlook:copy-manifest'),
+
   // ── App utilities ─────────────────────────────────────────────────────────
   getUserDataPath: (): Promise<string> =>
     ipcRenderer.invoke('app:get-user-data-path'),

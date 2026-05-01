@@ -163,11 +163,29 @@ export default function RecipeFileManagerDialog({
     if (!name) return
     setNewFileDialog((s) => s ? { ...s, saving: true, error: null } : s)
 
-    const result = await window.electronAPI.recipeCreateFileFromTemplate(
+    let result = await window.electronAPI.recipeCreateFileFromTemplate(
       projectConfig.templatePath,
       currentPath,
       name
     )
+
+    // If the project's stored template path doesn't exist on this machine
+    // (cross-user scenario), fall back to the bundled default template
+    if (!result.success && result.error === 'Template file not found') {
+      try {
+        const defaultTemplate = await window.electronAPI.getDefaultTemplatePath()
+        if (defaultTemplate) {
+          result = await window.electronAPI.recipeCreateFileFromTemplate(
+            defaultTemplate,
+            currentPath,
+            name
+          )
+        }
+      } catch {
+        // fallback also failed — show original error below
+      }
+    }
+
     if (result.success) {
       setNewFileDialog(null)
       setToast({ id: nanoid(), message: 'Recipe file created', type: 'success' })

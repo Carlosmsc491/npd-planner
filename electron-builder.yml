@@ -23,6 +23,10 @@ extraResources:
     to: scripts/insert_photo.py
   - from: "resources/templates/ELITE QUOTE BOUQUET 2026.xlsx"
     to: "templates/ELITE QUOTE BOUQUET 2026.xlsx"
+  - from: resources/outlook-addin
+    to: outlook-addin
+    filter:
+      - "**/*"
 asarUnpack:
   - resources/**
 win:

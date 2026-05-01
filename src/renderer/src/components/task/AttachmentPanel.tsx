@@ -489,9 +489,10 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
     if (files.length === 0) return
     for (const file of files) {
       const ext = file.name.split('.').pop()?.toLowerCase()
-      if (ext === 'msg') {
-        await handleEmailAttach((file as File & { path: string }).path)
-      } else {
+      const f = file as File & { path: string }
+      if ((ext === 'msg' || ext === 'eml') && f.path) {
+        await handleEmailAttach(f.path)
+      } else if (ext !== 'msg' && ext !== 'eml') {
         await attachFile(task, clientName, divisionName)
       }
     }
@@ -597,6 +598,17 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
             >
               {attaching ? <Upload size={13} className="animate-bounce" /> : <Paperclip size={13} />}
               {attaching ? 'Attaching…' : 'Attach file'}
+            </button>
+            <button
+              onClick={async () => {
+                const filePath = await window.electronAPI.selectEmailFile()
+                if (filePath) await handleEmailAttach(filePath)
+              }}
+              disabled={attaching}
+              className="flex items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs font-medium text-gray-500 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:border-gray-700 dark:text-gray-400 dark:hover:border-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+            >
+              <Mail size={13} />
+              Attach email (.eml / .msg)
             </button>
           </div>
         )}

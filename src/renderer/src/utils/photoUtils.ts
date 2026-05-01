@@ -33,7 +33,10 @@ export function resolvePhotoPath(storedPath: string, rootPath: string): string {
  */
 export function resolveProjectRootPath(storedPath: string, sharePointPath: string): string {
   if (!storedPath) return storedPath
-  if (!sharePointPath) return storedPath
+  if (!sharePointPath) {
+    console.warn('[resolveProjectRootPath] sharePointPath is empty — user SP not configured. storedPath:', storedPath)
+    return storedPath
+  }
 
   const normalStored = storedPath.replace(/\\/g, '/')
   const normalSP     = sharePointPath.replace(/\\/g, '/').replace(/\/$/, '')
@@ -70,7 +73,8 @@ export function resolveProjectRootPath(storedPath: string, sharePointPath: strin
     }
   }
 
-  // 4. Fallback
+  // 4. Fallback — no common segment found
+  console.warn('[resolveProjectRootPath] No common segment found.', { storedPath, sharePointPath })
   return storedPath
 }
 

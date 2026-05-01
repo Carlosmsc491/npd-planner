@@ -421,19 +421,16 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     if (!isElectron || !sharePointPath || !user) return
     const files = Array.from(e.dataTransfer.files)
 
-    // DEBUG — show exactly what was received so we can diagnose
     if (files.length === 0) {
-      const types = Array.from(e.dataTransfer.types).join(', ')
-      setPageEmailFeedback(`⚠ Drop received 0 files. dataTransfer.types: [${types}]`)
-      setTimeout(() => setPageEmailFeedback(null), 10000)
+      const types = Array.from(e.dataTransfer.types)
+      if (types.includes('multimaillistconversationrows') || types.includes('text/x-moz-message')) {
+        setPageEmailFeedback('Outlook emails cannot be dragged directly. Save the email as .eml first, then drop it here — or use the "Attach email" button in the Files section.')
+      } else {
+        setPageEmailFeedback('No files received. Try using the "Attach email" button instead.')
+      }
+      setTimeout(() => setPageEmailFeedback(null), 8000)
       return
     }
-    const debugInfo = files.map((f) => {
-      const ff = f as File & { path?: string }
-      return `"${ff.name}" path="${ff.path ?? '(empty)'}"`
-    }).join(' | ')
-    setPageEmailFeedback(`DEBUG: ${files.length} file(s): ${debugInfo}`)
-    setTimeout(() => setPageEmailFeedback(null), 10000)
 
     for (const file of files) {
       const f = file as File & { path: string }
