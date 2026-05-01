@@ -67,7 +67,7 @@ const SETTINGS_SECTIONS: SectionDef[] = [
       { id: 'labels',         label: 'Labels',         icon: Tag,             adminOnly: true },
       { id: 'dateTypes',      label: 'Date Types',     icon: CalendarClock,   adminOnly: true },
       { id: 'files',          label: 'Files',          icon: FolderOpen,      memberAreaId: 'settings_files' },
-      { id: 'outlook',        label: 'Outlook Add-in', icon: Mail },
+      { id: 'outlook',        label: 'Outlook Add-in (beta)', icon: Mail },
       { id: 'traze',          label: 'Traze',          icon: Truck,           memberAreaId: 'settings_traze' },
       { id: 'archive',        label: 'Archive',        icon: Archive,         adminOnly: true },
       { id: 'trash',          label: 'Trash',          icon: Trash2,          memberAreaId: 'settings_trash' },
