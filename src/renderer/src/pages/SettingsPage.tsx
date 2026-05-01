@@ -5,7 +5,7 @@ import {
   User, Users, Palette, Bell, Keyboard,
   LayoutDashboard, Building2, Tag, FolderOpen, Truck, Trash2, Archive,
   Grid2X2, CalendarDays, DollarSign, Settings2, History, Layers, CalendarClock,
-  CameraIcon, CheckCircle2, XCircle, Loader2, AlertCircle, Mail, Download,
+  CameraIcon, CheckCircle2, XCircle, Loader2, AlertCircle, Download,
   type LucideIcon,
 } from 'lucide-react'
 import AppLayout from '../components/ui/AppLayout'
@@ -67,7 +67,6 @@ const SETTINGS_SECTIONS: SectionDef[] = [
       { id: 'labels',         label: 'Labels',         icon: Tag,             adminOnly: true },
       { id: 'dateTypes',      label: 'Date Types',     icon: CalendarClock,   adminOnly: true },
       { id: 'files',          label: 'Files',          icon: FolderOpen,      memberAreaId: 'settings_files' },
-      { id: 'outlook',        label: 'Outlook Add-in (beta)', icon: Mail },
       { id: 'traze',          label: 'Traze',          icon: Truck,           memberAreaId: 'settings_traze' },
       { id: 'archive',        label: 'Archive',        icon: Archive,         adminOnly: true },
       { id: 'trash',          label: 'Trash',          icon: Trash2,          memberAreaId: 'settings_trash' },
