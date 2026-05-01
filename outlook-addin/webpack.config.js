@@ -1,8 +1,19 @@
 const path = require('path')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 
-module.exports = (env, argv) => {
+module.exports = async (env, argv) => {
   const isDev = argv.mode === 'development'
+
+  let httpsOptions = true
+  if (isDev) {
+    try {
+      const devCerts = require('office-addin-dev-certs')
+      httpsOptions = await devCerts.getHttpsServerOptions()
+    } catch {
+      // Fallback to webpack built-in HTTPS if certs not installed yet
+      httpsOptions = true
+    }
+  }
 
   return {
     entry: './src/taskpane/index.tsx',
@@ -43,7 +54,7 @@ module.exports = (env, argv) => {
     ],
     devServer: {
       port: 3000,
-      server: isDev ? 'https' : 'http',
+      server: isDev ? { type: 'https', options: httpsOptions } : 'http',
       headers: {
         'Access-Control-Allow-Origin': '*',
       },
