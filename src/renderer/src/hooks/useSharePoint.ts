@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { Timestamp } from 'firebase/firestore'
 import { useAuthStore } from '../store/authStore'
-import { updateUserPreferences, updateTaskAttachments, updateAttachmentStatus } from '../lib/firestore'
+import { updateUserPreferences, updateTaskAttachments, updateAttachmentStatus, updateTaskField } from '../lib/firestore'
 import type { Task, TaskAttachment, AttachmentStatus, FileUploadJob } from '../types'
 
 const LS_KEY = 'npd_sharepoint_path'
@@ -138,19 +138,21 @@ export function useSharePoint() {
     const parts = sourcePath.replace(/\\/g, '/').split('/')
     const fileName = parts[parts.length - 1]
 
-    // Build destination
+    // Build destination — use pre-resolved folder name if already set on the task
     const year = new Date().getFullYear().toString()
     const safeClient = sanitizeName(clientName || 'Unknown Client')
     const safeTitle = sanitizeName(task.title)
     const safeDivision = divisionName ? sanitizeName(divisionName) : undefined
+    const preResolvedFolder = task.sharePointFolderName ?? undefined
 
     // Use ||| delimiter so main process can path.join safely
+    const taskFolder = preResolvedFolder ?? safeTitle
     const destPath = safeDivision
-      ? [sharePointPath, year, safeClient, safeDivision, safeTitle, fileName].join('|||')
-      : [sharePointPath, year, safeClient, safeTitle, fileName].join('|||')
+      ? [sharePointPath, year, safeClient, safeDivision, taskFolder, fileName].join('|||')
+      : [sharePointPath, year, safeClient, taskFolder, fileName].join('|||')
     const relativePath = safeDivision
-      ? [year, safeClient, safeDivision, safeTitle, fileName].join('/')
-      : [year, safeClient, safeTitle, fileName].join('/')
+      ? [year, safeClient, safeDivision, taskFolder, fileName].join('/')
+      : [year, safeClient, taskFolder, fileName].join('/')
 
     const attachment: TaskAttachment = {
       id: crypto.randomUUID(),
@@ -169,10 +171,19 @@ export function useSharePoint() {
     await updateTaskAttachments(task.id, optimistic)
 
     try {
-      const result = await window.electronAPI.copyFile(sourcePath, destPath, true)
+      const result = await window.electronAPI.copyFile(sourcePath, destPath, true, preResolvedFolder)
       if (result.success) {
-        const synced: TaskAttachment = { ...attachment, status: 'synced' }
+        // If the main process resolved a different folder name, update the attachment's relative path
+        const actualFolder = result.resolvedFolderName ?? taskFolder
+        const actualRelativePath = safeDivision
+          ? [year, safeClient, safeDivision, actualFolder, fileName].join('/')
+          : [year, safeClient, actualFolder, fileName].join('/')
+        const synced: TaskAttachment = { ...attachment, sharePointRelativePath: actualRelativePath, status: 'synced' }
         await updateTaskAttachments(task.id, optimistic.map((a) => (a.id === attachment.id ? synced : a)))
+        // Persist resolved folder name on the task so all subsequent uploads use it
+        if (!task.sharePointFolderName && result.resolvedFolderName) {
+          updateTaskField(task.id, 'sharePointFolderName', result.resolvedFolderName, user.uid, user.name).catch(() => {/* non-blocking */})
+        }
         return { success: true, attachment: synced }
       } else {
         const errAtt: TaskAttachment = { ...attachment, status: 'error' }

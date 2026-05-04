@@ -39,30 +39,19 @@ export function buildDestinationPath(
   clientName: string,
   taskTitle: string,
   fileName: string,
-  divisionName?: string
+  divisionName?: string,
+  resolvedFolderName?: string  // pre-resolved task folder name — skips dedup in main process
 ): string {
   const sanitize = (s: string) =>
     s.replace(/[<>:"/\\|?*]/g, '-').replace(/\s+/g, ' ').trim()
 
-  const segments = divisionName
-    ? [
-        sharePointRoot,
-        String(year),
-        sanitize(clientName),
-        sanitize(divisionName),
-        sanitize(taskTitle),
-        sanitize(fileName),
-      ]
-    : [
-        sharePointRoot,
-        String(year),
-        sanitize(clientName),
-        sanitize(taskTitle),
-        sanitize(fileName),
-      ]
+  const taskFolder = resolvedFolderName ?? sanitize(taskTitle)
 
-  // Use path segments — Electron main process will join with correct separator
-  return segments.join('|||')  // delimiter that main process splits on to use path.join()
+  const segments = divisionName
+    ? [sharePointRoot, String(year), sanitize(clientName), sanitize(divisionName), taskFolder, sanitize(fileName)]
+    : [sharePointRoot, String(year), sanitize(clientName), taskFolder, sanitize(fileName)]
+
+  return segments.join('|||')
 }
 
 /**
@@ -94,15 +83,16 @@ export function buildRelativePath(
  */
 export async function copyFileToSharePoint(
   sourcePath: string,
-  destPathSegments: string  // the ||| delimited string from buildDestinationPath
-): Promise<{ success: boolean; error?: string }> {
+  destPathSegments: string,
+  resolvedFolder?: string  // pass the pre-resolved folder name to skip dedup
+): Promise<{ success: boolean; error?: string; resolvedFolderName?: string }> {
   try {
     const result: IpcFileResponse = await window.electronAPI.copyFile(
       sourcePath,
       destPathSegments,
-      true
+      true,
+      resolvedFolder
     )
-
     return result
   } catch (err) {
     return { success: false, error: String(err) }

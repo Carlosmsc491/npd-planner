@@ -12,14 +12,18 @@ interface Props {
   onRemove: (id: string) => void
 }
 
-// ── File icon by extension ────────────────────────────────────────────────────
+const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp']
+
 function innerFileIcon(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() ?? ''
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return '🖼'
   if (ext === 'pdf') return '📄'
   if (['xlsx', 'xls', 'csv'].includes(ext)) return '📊'
   if (['doc', 'docx'].includes(ext)) return '📝'
   return '📎'
+}
+
+function isImage(name: string): boolean {
+  return IMAGE_EXTS.includes(name.split('.').pop()?.toLowerCase() ?? '')
 }
 
 // ── Format date ───────────────────────────────────────────────────────────────
@@ -41,10 +45,73 @@ function InnerAttRow({
   att: EmailInnerAttachment
   sharePointRoot: string | null
 }) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState(false)
+  const img = isImage(att.name)
+
+  useEffect(() => {
+    if (!img || !sharePointRoot) return
+    const absPath = `${sharePointRoot}/${att.sharePointRelativePath}`
+    window.electronAPI.readFileAsDataUrl(absPath)
+      .then(url => setDataUrl(url))
+      .catch(() => setDataUrl(null))
+  }, [img, sharePointRoot, att.sharePointRelativePath])
+
   function handleOpen() {
     if (!sharePointRoot) return
     const absPath = `${sharePointRoot}/${att.sharePointRelativePath}`
     window.electronAPI.openFile(absPath)
+  }
+
+  if (img) {
+    return (
+      <>
+        <div className="group px-4 py-2">
+          {dataUrl ? (
+            <button
+              onClick={() => setLightbox(true)}
+              className="block w-full rounded-lg overflow-hidden border border-blue-100 dark:border-blue-800/40 hover:border-blue-400 transition-colors"
+              title="Click to enlarge"
+            >
+              <img
+                src={dataUrl}
+                alt={att.name}
+                className="w-full max-h-48 object-contain bg-gray-50 dark:bg-gray-800"
+              />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 py-1">
+              <Loader2 size={12} className="animate-spin text-gray-400" />
+              <span className="text-xs text-gray-400">{att.name}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-[10px] text-gray-400 truncate">{att.name}</span>
+            <button
+              onClick={handleOpen}
+              title="Open in app"
+              className="shrink-0 flex items-center gap-1 text-[10px] text-blue-500 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <ExternalLink size={9} /> Open
+            </button>
+          </div>
+        </div>
+
+        {lightbox && dataUrl && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+            onClick={() => setLightbox(false)}
+          >
+            <img
+              src={dataUrl}
+              alt={att.name}
+              className="max-w-[90vw] max-h-[90vh] rounded-lg shadow-2xl object-contain"
+              onClick={e => e.stopPropagation()}
+            />
+          </div>
+        )}
+      </>
+    )
   }
 
   return (

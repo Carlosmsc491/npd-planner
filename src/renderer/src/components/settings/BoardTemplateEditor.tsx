@@ -569,7 +569,7 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                 ) : prop.id === 'builtin-awb' ? (
                   /* Order Status: block label */
                   <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2.5 pointer-events-none">
-                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">P.O. / ORDER # · Air Waybills</p>
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">P.O. / ORDER # · AWB</p>
                   </div>
                 ) : prop.id === 'builtin-po' ? null /* rendered inside Order Status */ : (
                   /* All others: generic input or select preview */

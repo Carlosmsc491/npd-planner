@@ -29,7 +29,7 @@ import { CustomFieldInput } from '../settings/BoardTemplateEditor'
 import { OrderStatusSection } from './OrderStatusSection'
 import { useAwbLookup } from '../../hooks/useAwbLookup'
 import { useDivisions } from '../../hooks/useDivisions'
-import type { Task, AppUser, Board, TaskStatus, AwbEntry } from '../../types'
+import type { Task, AppUser, Board, TaskStatus, AwbEntry, PoEntry } from '../../types'
 
 interface Props {
   task: Task
@@ -91,12 +91,14 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   const [localAwbs, setLocalAwbs] = useState<AwbEntry[]>(task.awbs ?? [])
   const [localPoNumber, setLocalPoNumber] = useState(task.poNumber ?? '')
   const [localPoNumbers, setLocalPoNumbers] = useState<string[]>(task.poNumbers ?? [])
+  const [localPoEntries, setLocalPoEntries] = useState<PoEntry[]>(task.poEntries ?? [])
   const { csvStatus, lookupAwbsInTask } = useAwbLookup()
 
   // Sync local state when task changes (e.g., Firestore real-time update)
   useEffect(() => { setLocalAwbs(task.awbs ?? []) }, [task.awbs])
   useEffect(() => { setLocalPoNumber(task.poNumber ?? '') }, [task.poNumber])
   useEffect(() => { setLocalPoNumbers(task.poNumbers ?? []) }, [task.poNumbers])
+  useEffect(() => { setLocalPoEntries(task.poEntries ?? []) }, [task.poEntries])
 
   // Cleanup debounce timeout on unmount
   useEffect(() => {
@@ -269,6 +271,11 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
       }
       poSaveTimeoutRef.current = null
     }, 1000)
+  }
+
+  async function handlePoEntriesChange(entries: PoEntry[]) {
+    setLocalPoEntries(entries)
+    await save('poEntries', entries, task.poEntries ?? [])
   }
 
   // ── Event Dates handlers ─────────────────────────────────────────
@@ -1142,7 +1149,9 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                             taskId={task.id}
                             poNumber={localPoNumber}
                             poNumbers={localPoNumbers}
+                            poEntries={localPoEntries}
                             awbs={localAwbs}
+                            onPoEntriesChange={handlePoEntriesChange}
                             onPoNumbersChange={handlePoNumbersChange}
                             onAwbsChange={handleAwbsChange}
                             readonly={false}

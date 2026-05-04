@@ -359,6 +359,8 @@ export function subscribeToTasks(
             id: d.id,
             ...data,
             emailAttachments: (data['emailAttachments'] ?? []) as import('../types').EmailAttachment[],
+            poEntries: (data['poEntries'] ?? []) as import('../types').PoEntry[],
+            sharePointFolderName: (data['sharePointFolderName'] as string) ?? null,
           } as Task
         })
         .sort((a, b) => {
@@ -1659,6 +1661,8 @@ export async function moveTaskToTrash(
         dateEnd: task.dateEnd ?? null,
         poNumber: task.poNumber ?? null,
         poNumbers: task.poNumbers ?? null,
+        poEntries: task.poEntries ?? [],
+        sharePointFolderName: task.sharePointFolderName ?? null,
         awbs: task.awbs ?? null,
         subtasks: task.subtasks ?? [],
         recurring: task.recurring ?? null,
@@ -1718,6 +1722,8 @@ export async function restoreTaskFromTrash(trashId: string): Promise<void> {
     const restoredTask: Task = {
       id: trashItem.taskId,
       ...trashItem.taskData,
+      poEntries: trashItem.taskData.poEntries ?? [],
+      sharePointFolderName: null,
       emailAttachments: [],
       attachments: trashItem.attachments.map(a => ({
         id: a.id,

@@ -23,6 +23,7 @@ const INVOKE_CHANNELS = [
   'traze:chromium-available',
   // SharePoint template files
   'file:save-text',
+  'file:html-to-pdf',
   // Folder picker dialog
   'dialog:open-folder',
 ] as const
@@ -41,8 +42,8 @@ const SEND_CHANNELS = [
 
 // Custom APIs for renderer
 const electronAPI = {
-  copyFile: (sourcePath: string, destPath: string, createDirs: boolean) =>
-    ipcRenderer.invoke(IPC.FILE_COPY, { sourcePath, destPath, createDirs }),
+  copyFile: (sourcePath: string, destPath: string, createDirs: boolean, resolvedFolder?: string) =>
+    ipcRenderer.invoke(IPC.FILE_COPY, { sourcePath, destPath, createDirs, resolvedFolder }),
 
   verifySharePointFolder: (folderPath: string, verificationSubfolder: string) =>
     ipcRenderer.invoke(IPC.SHAREPOINT_VERIFY, { folderPath, verificationSubfolder }),

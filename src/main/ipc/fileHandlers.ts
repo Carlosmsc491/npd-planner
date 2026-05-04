@@ -4,6 +4,7 @@
 
 import { IpcMain, dialog, app, shell, BrowserWindow } from 'electron'
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import { IPC } from '../../shared/constants'
 import type {
@@ -27,6 +28,24 @@ function safeJoin(root: string, segments: string[]): string {
   return resolved
 }
 
+/**
+ * Finds a unique folder name inside parentDir.
+ * Returns `name` if the folder doesn't exist, else `name (1)`, `name (2)`, etc.
+ * If the folder exists but is empty, it's considered available (reuse it).
+ */
+function resolveUniqueDir(parentDir: string, name: string): string {
+  const base = path.join(parentDir, name)
+  if (!fs.existsSync(base)) return name
+  // Folder exists — if it's empty, reuse it
+  try {
+    if (fs.readdirSync(base).length === 0) return name
+  } catch { /* ignore — treat as non-empty */ }
+  // Find next available (n) suffix
+  let n = 1
+  while (fs.existsSync(path.join(parentDir, `${name} (${n})`))) n++
+  return `${name} (${n})`
+}
+
 export function registerFileHandlers(ipcMain: IpcMain): void {
 
   // Copy file to SharePoint local folder.
@@ -38,16 +57,32 @@ export function registerFileHandlers(ipcMain: IpcMain): void {
       if (segments.length < 2) {
         return { success: false, error: 'Invalid destination path format.' }
       }
-      // segments[0] is the SharePoint root; the rest are relative sub-paths
       const root = segments[0]
-      const destPath = safeJoin(root, segments.slice(1))
+      const relParts = segments.slice(1)  // e.g. ['2026', 'Client', 'Task A', 'file.pdf']
+
+      // Resolve unique folder name for the task-level segment (second-to-last).
+      // Skip dedup when the caller already has a pre-resolved folder name.
+      let resolvedFolderName: string | undefined
+      if (relParts.length >= 2) {
+        const taskSegIdx = relParts.length - 2
+        if (req.resolvedFolder) {
+          relParts[taskSegIdx] = req.resolvedFolder
+          resolvedFolderName = req.resolvedFolder
+        } else {
+          const parentDir = safeJoin(root, relParts.slice(0, taskSegIdx))
+          resolvedFolderName = resolveUniqueDir(parentDir, relParts[taskSegIdx])
+          relParts[taskSegIdx] = resolvedFolderName
+        }
+      }
+
+      const destPath = safeJoin(root, relParts)
 
       if (req.createDirs) {
         fs.mkdirSync(path.dirname(destPath), { recursive: true })
       }
 
       fs.copyFileSync(req.sourcePath, destPath)
-      return { success: true }
+      return { success: true, resolvedFolderName }
     } catch (err) {
       console.error('file:copy failed:', err)
       return { success: false, error: String(err) }
@@ -218,14 +253,65 @@ export function registerFileHandlers(ipcMain: IpcMain): void {
         return { success: false, error: 'Invalid destination path format.' }
       }
       const root = segments[0]
-      const fullPath = safeJoin(root, segments.slice(1))
-
+      const relParts = segments.slice(1)
+      if (relParts.length >= 2) {
+        const taskSegIdx = relParts.length - 2
+        const parentDir = safeJoin(root, relParts.slice(0, taskSegIdx))
+        relParts[taskSegIdx] = resolveUniqueDir(parentDir, relParts[taskSegIdx])
+      }
+      const fullPath = safeJoin(root, relParts)
       fs.mkdirSync(path.dirname(fullPath), { recursive: true })
       fs.writeFileSync(fullPath, content, 'utf-8')
       return { success: true }
     } catch (err) {
       console.error('file:save-text failed:', err)
       return { success: false, error: String(err) }
+    }
+  })
+
+  // Render an HTML string to a PDF file using a hidden BrowserWindow.
+  // destPath uses ||| delimiter — same convention as file:save-text.
+  ipcMain.handle('file:html-to-pdf', async (_event, destPath: string, htmlContent: string): Promise<{ success: boolean; error?: string }> => {
+    let tmpHtmlPath: string | null = null
+    let win: BrowserWindow | null = null
+    try {
+      const segments = destPath.split('|||')
+      if (segments.length < 2) {
+        return { success: false, error: 'Invalid destination path format.' }
+      }
+      const root = segments[0]
+      const relParts = segments.slice(1)
+
+      // Write HTML to a temp file (avoids data-URL length limits for large reports)
+      tmpHtmlPath = path.join(os.tmpdir(), `npd-report-${Date.now()}.html`)
+      fs.writeFileSync(tmpHtmlPath, htmlContent, 'utf-8')
+
+      // Resolve unique task folder (second-to-last segment)
+      if (relParts.length >= 2) {
+        const taskSegIdx = relParts.length - 2
+        const parentDir = safeJoin(root, relParts.slice(0, taskSegIdx))
+        relParts[taskSegIdx] = resolveUniqueDir(parentDir, relParts[taskSegIdx])
+      }
+      const fullPath = safeJoin(root, relParts)
+
+      win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } })
+      await win.loadFile(tmpHtmlPath)
+
+      const pdfBuffer = await win.webContents.printToPDF({
+        pageSize: 'Letter',
+        printBackground: true,
+        margins: { top: 0.4, bottom: 0.4, left: 0.5, right: 0.5 },
+      })
+
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true })
+      fs.writeFileSync(fullPath, pdfBuffer)
+      return { success: true }
+    } catch (err) {
+      console.error('file:html-to-pdf failed:', err)
+      return { success: false, error: String(err) }
+    } finally {
+      if (win && !win.isDestroyed()) win.destroy()
+      if (tmpHtmlPath) try { fs.unlinkSync(tmpHtmlPath) } catch { /* best-effort */ }
     }
   })
 }

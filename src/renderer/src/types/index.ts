@@ -117,6 +117,12 @@ export interface EtaHistoryEntry {
   previousEta: string | null
 }
 
+export interface PoEntry {
+  id: string    // nanoid() — unique per entry
+  number: string
+  boxes: number
+}
+
 export interface AwbEntry {
   id: string             // nanoid() — unique per entry
   number: string         // AWB as entered by user, e.g. "369-9824-2535"
@@ -225,8 +231,10 @@ export interface Task {
   notes: string
   poNumber: string
   poNumbers: string[]   // additional PO/Order numbers beyond the first
+  poEntries: PoEntry[]  // structured PO entries with boxes count (supersedes poNumbers when present)
   awbs: AwbEntry[]
   subtasks: Subtask[]
+  sharePointFolderName: string | null  // resolved unique folder name (e.g. "Task A (1)") — stored after first upload
   attachments: TaskAttachment[]
   emailAttachments: EmailAttachment[]
   recurring: RecurringConfig | null
@@ -460,11 +468,13 @@ export interface IpcFileRequest {
   sourcePath: string
   destPath: string
   createDirs: boolean
+  resolvedFolder?: string  // pre-resolved folder name — skips dedup in main process
 }
 
 export interface IpcFileResponse {
   success: boolean
   error?: string
+  resolvedFolderName?: string  // the actual folder name used (may differ if dedup applied)
 }
 
 export interface IpcSharePointVerifyRequest {
@@ -576,6 +586,8 @@ export interface TrashQueueItem {
     dateEnd: Timestamp | null
     poNumber: string
     poNumbers: string[]
+    poEntries: PoEntry[]
+    sharePointFolderName: string | null
     awbs: AwbEntry[]
     subtasks: Subtask[]
     recurring: RecurringConfig | null

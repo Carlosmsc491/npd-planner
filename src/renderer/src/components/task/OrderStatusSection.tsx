@@ -47,7 +47,7 @@ function formatFlightDate(val: string | null): string {
   }
   return result
 }
-import type { AwbEntry } from '../../types';
+import type { AwbEntry, PoEntry } from '../../types';
 import { nanoid }        from 'nanoid';
 import { RefreshCw }     from 'lucide-react';
 import { useTrazeRefresh } from '../../hooks/useTrazeRefresh';
@@ -166,7 +166,9 @@ interface OrderStatusSectionProps {
   taskId:            string
   poNumber:          string
   poNumbers:         string[]
+  poEntries:         PoEntry[]
   awbs:              AwbEntry[]
+  onPoEntriesChange: (entries: PoEntry[]) => void
   onPoNumbersChange: (numbers: string[]) => void
   onAwbsChange:      (awbs: AwbEntry[]) => void
   readonly?:         boolean
@@ -180,24 +182,35 @@ export function OrderStatusSection({
   taskId,
   poNumber,
   poNumbers,
+  poEntries,
   awbs,
+  onPoEntriesChange,
   onPoNumbersChange,
   onAwbsChange,
   readonly = false,
   csvStatus,
 }: OrderStatusSectionProps) {
-  
+
   // Ensure awbs is always an array
   const safeAwbs = awbs || [];
 
-  // Local state for PO numbers to avoid duplications from prop merging
-  const [localPos, setLocalPos] = useState<string[]>(() =>
-    poNumbers.length > 0 ? poNumbers : (poNumber ? [poNumber] : [''])
-  )
+  // Derive local PO entries — migrate from legacy poNumbers on first load
+  const [localPoEntries, setLocalPoEntries] = useState<PoEntry[]>(() => {
+    if (poEntries && poEntries.length > 0) return poEntries
+    // Migrate from legacy string array
+    const legacyNums = poNumbers.length > 0 ? poNumbers : (poNumber ? [poNumber] : [])
+    return legacyNums.map(n => ({ id: nanoid(), number: n, boxes: 0 }))
+  })
 
   useEffect(() => {
-    setLocalPos(poNumbers.length > 0 ? poNumbers : (poNumber ? [poNumber] : ['']))
-  }, [poNumbers, poNumber])
+    if (poEntries && poEntries.length > 0) {
+      setLocalPoEntries(poEntries)
+    } else {
+      const legacyNums = poNumbers.length > 0 ? poNumbers : (poNumber ? [poNumber] : [])
+      setLocalPoEntries(legacyNums.map(n => ({ id: nanoid(), number: n, boxes: 0 })))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poEntries])
 
   // Smart refresh hook with 30-min cache logic
   const { isRefreshing, lastRefreshMessage, lastRefreshError, refreshAwbs, clearError } = useTrazeRefresh();
@@ -224,6 +237,28 @@ export function OrderStatusSection({
       onAwbsChange(updatedAwbs);
     }
   };
+
+  const syncPoEntries = (entries: PoEntry[]) => {
+    setLocalPoEntries(entries)
+    onPoEntriesChange(entries)
+    // Keep legacy poNumbers in sync for backward compat
+    onPoNumbersChange(entries.map(e => e.number).filter(Boolean))
+  }
+
+  const addPoEntry = () => {
+    syncPoEntries([...localPoEntries, { id: nanoid(), number: '', boxes: 0 }])
+  }
+
+  const updatePoEntry = (id: string, field: 'number' | 'boxes', value: string | number) => {
+    const updated = localPoEntries.map(e => e.id === id ? { ...e, [field]: value } : e)
+    syncPoEntries(updated)
+  }
+
+  const deletePoEntry = (id: string) => {
+    syncPoEntries(localPoEntries.filter(e => e.id !== id))
+  }
+
+  const totalPoBoxes = localPoEntries.reduce((sum, e) => sum + (e.boxes || 0), 0)
 
   const addAwb = () => {
     const newEntry: AwbEntry = {
@@ -313,69 +348,100 @@ export function OrderStatusSection({
       </div>
 
       <div className="p-4 space-y-4">
-        {/* PO / Order # — multiple entries */}
+        {/* PO / Order # — table style matching AWB */}
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-              P.O. / Order #
-            </span>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                P.O. / Order #
+              </span>
+              {localPoEntries.length > 0 && (
+                <span className="text-xs text-gray-400 dark:text-gray-500">
+                  {localPoEntries.length} PO{localPoEntries.length !== 1 ? 's' : ''} · {totalPoBoxes} boxes
+                </span>
+              )}
+            </div>
             {!readonly && (
               <button
-                onClick={() => setLocalPos([...localPos, ''])}
-                className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:text-green-700"
-                title="Add PO Number"
+                onClick={addPoEntry}
+                className="text-xs text-[#1D9E75] hover:text-[#178860] font-medium transition-colors flex items-center gap-1"
+                title="Add PO"
               >
-                <span className="text-base leading-none">+</span>
+                <span>+</span>
+                <span>Add PO</span>
               </button>
             )}
           </div>
-          <div className="space-y-1">
-            {localPos.map((po, idx) => (
-              <div key={idx} className="flex items-center gap-1">
-                <input
-                  type="text"
-                  value={po}
-                  onChange={(e) => {
-                    const updated = [...localPos]
-                    updated[idx] = e.target.value
-                    setLocalPos(updated)
-                  }}
-                  onBlur={() => {
-                    const cleaned = localPos.filter(p => p.trim() !== '')
-                    const next = cleaned.length > 0 ? cleaned : []
-                    setLocalPos(next.length > 0 ? next : [''])
-                    onPoNumbersChange(cleaned)
-                  }}
-                  placeholder="e.g. PO-12345"
-                  readOnly={readonly}
-                  className="flex-1 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-gray-900 dark:text-white focus:outline-none focus:border-green-500"
-                />
-                {!readonly && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = localPos.filter((_, i) => i !== idx)
-                      const final = next.length > 0 ? next : ['']
-                      setLocalPos(final)
-                      onPoNumbersChange(next.filter(p => p.trim() !== ''))
-                    }}
-                    className="text-gray-400 hover:text-red-500 text-xs p-1"
-                    title="Remove"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
+
+          {localPoEntries.length === 0 ? (
+            <div className="text-xs text-gray-400 dark:text-gray-500 py-3 text-center border border-dashed border-gray-200 dark:border-gray-700 rounded">
+              {readonly ? 'No POs assigned' : 'No POs yet — click + Add PO'}
+            </div>
+          ) : (
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-gray-100 dark:border-gray-700">
+                  {['PO #', 'Boxes', ''].map(h => (
+                    <th key={h} className="text-xs text-gray-400 dark:text-gray-500 font-medium pb-1.5 pr-2 whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {localPoEntries.map(entry => (
+                  <tr key={entry.id} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
+                    <td className="py-2 pr-2">
+                      {readonly ? (
+                        <span className="text-sm font-mono text-gray-800 dark:text-gray-100">{entry.number || '—'}</span>
+                      ) : (
+                        <input
+                          type="text"
+                          value={entry.number}
+                          onChange={e => updatePoEntry(entry.id, 'number', e.target.value)}
+                          placeholder="e.g. PO-12345"
+                          className="w-36 text-sm font-mono bg-transparent border-b border-gray-200 dark:border-gray-600 focus:border-[#1D9E75] outline-none text-gray-800 dark:text-gray-100 placeholder-gray-300"
+                        />
+                      )}
+                    </td>
+                    <td className="py-2 pr-2">
+                      {readonly ? (
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{entry.boxes || 0}</span>
+                      ) : (
+                        <input
+                          type="number"
+                          min={0}
+                          value={entry.boxes || ''}
+                          onChange={e => updatePoEntry(entry.id, 'boxes', parseInt(e.target.value) || 0)}
+                          placeholder="0"
+                          className="w-14 text-sm bg-transparent border-b border-gray-200 dark:border-gray-600 focus:border-[#1D9E75] outline-none text-gray-800 dark:text-gray-100 placeholder-gray-300"
+                        />
+                      )}
+                    </td>
+                    {!readonly && (
+                      <td className="py-2 text-right">
+                        <button
+                          onClick={() => deletePoEntry(entry.id)}
+                          className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors text-sm p-1"
+                          title="Remove PO"
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
 
         {/* AWB Table - Sin scroll, todo visible */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                Air Waybills
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                AWB
               </span>
               {safeAwbs.length > 0 && (
                 <span className="text-xs text-gray-400 dark:text-gray-500">

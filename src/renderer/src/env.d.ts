@@ -19,6 +19,7 @@ interface ImportMeta {
 interface IpcFileResponse {
   success: boolean
   error?: string
+  resolvedFolderName?: string
 }
 
 interface IpcSharePointVerifyResponse {
@@ -27,7 +28,7 @@ interface IpcSharePointVerifyResponse {
 }
 
 interface IElectronAPI {
-  copyFile: (sourcePath: string, destPath: string, createDirs: boolean) => Promise<IpcFileResponse>
+  copyFile: (sourcePath: string, destPath: string, createDirs: boolean, resolvedFolder?: string) => Promise<IpcFileResponse>
   verifySharePointFolder: (folderPath: string, verificationSubfolder: string) => Promise<IpcSharePointVerifyResponse>
   selectFolder: () => Promise<string | null>
   selectFile: () => Promise<string | null>

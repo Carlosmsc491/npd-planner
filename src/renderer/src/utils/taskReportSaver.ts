@@ -20,10 +20,10 @@ export async function saveTaskReport(
     const year = (task.createdAt?.toDate?.()?.getFullYear?.() ?? new Date().getFullYear()).toString()
     const safeClient = sanitize(clientName || 'Unknown')
     const safeTitle  = sanitize(task.title)
-    const fileName   = `REPORT_${safeTitle}.html`
-    const destPath   = `${sharePointPath}/REPORTS (NPD-SECURE)/${year}/${safeClient}/${safeTitle}/${fileName}`
+    const fileName   = `REPORT_${safeTitle}.pdf`
+    const destPath   = `${sharePointPath}|||REPORTS (NPD-SECURE)|||${year}|||${safeClient}|||${safeTitle}|||${fileName}`
 
-    const result = await window.electronAPI.invoke('file:save-text', destPath, reportHTML) as { success: boolean; error?: string }
+    const result = await window.electronAPI.invoke('file:html-to-pdf', destPath, reportHTML) as { success: boolean; error?: string }
     return result
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }

@@ -150,6 +150,8 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
         notes:      '',
         poNumber:   '',
         poNumbers:  [],
+        poEntries:  [],
+        sharePointFolderName: null,
         awbs:       [],
         subtasks:   [],
         attachments: [],

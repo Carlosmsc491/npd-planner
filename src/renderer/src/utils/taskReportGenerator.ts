@@ -1,7 +1,7 @@
 // src/renderer/src/utils/taskReportGenerator.ts
 // Generates a self-contained HTML report for a task (inline CSS, no external deps)
 
-import type { Task, Client, Label, AppUser, Board, Comment, TaskHistoryEntry } from '../types'
+import type { Task, Client, Label, AppUser, Board, Comment, TaskHistoryEntry, EmailAttachment } from '../types'
 
 export interface ReportData {
   task: Task
@@ -69,9 +69,28 @@ export function generateTaskReportHTML(data: ReportData): string {
       <td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:12px;">${esc(awb.ata)}</td>
     </tr>`).join('')
 
-  const attachmentList = (task.attachments ?? []).map(a =>
-    `<li style="font-size:13px;padding:3px 0;color:#1D9E75;">${esc(a.name)}</li>`
+  const attachmentList = (task.attachments ?? []).map(a => `
+    <li style="font-size:13px;padding:4px 0;border-bottom:1px solid #f5f5f5;">
+      <span style="color:#1D9E75;font-weight:500;">${esc(a.name)}</span>
+      ${a.sharePointRelativePath ? `<span style="font-size:11px;color:#bbb;margin-left:8px;">${esc(a.sharePointRelativePath)}</span>` : ''}
+      <span style="font-size:11px;color:#bbb;margin-left:8px;">${esc(a.status ?? '')}</span>
+    </li>`
   ).join('')
+
+  const emailAttachments: EmailAttachment[] = task.emailAttachments ?? []
+  const emailCards = emailAttachments.map(ea => {
+    const innerList = (ea.innerAttachments ?? []).map(ia =>
+      `<span style="display:inline-block;background:#f0f0ee;border-radius:4px;padding:2px 8px;font-size:11px;margin:2px 4px 2px 0;color:#555;">${esc(ia.name)}</span>`
+    ).join('')
+    return `
+    <div style="border:1px solid #e8e8e5;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${esc(ea.subject) || '(no subject)'}</div>
+      <div style="font-size:12px;color:#666;margin-bottom:2px;"><strong>From:</strong> ${esc(ea.from)}</div>
+      <div style="font-size:12px;color:#666;margin-bottom:8px;"><strong>Date:</strong> ${fmtDateTime(ea.date)}</div>
+      ${ea.bodySnippet ? `<p style="font-size:12px;color:#555;line-height:1.5;margin:0 0 8px;padding:8px;background:#fafaf8;border-radius:4px;white-space:pre-wrap;">${esc(ea.bodySnippet)}</p>` : ''}
+      ${(ea.innerAttachments ?? []).length > 0 ? `<div style="margin-top:4px;">${innerList}</div>` : ''}
+    </div>`
+  }).join('')
 
   const commentList = comments.slice(0, 50).map(c => `
     <div style="padding:10px 0;border-bottom:1px solid #f0f0f0;">
@@ -95,7 +114,10 @@ export function generateTaskReportHTML(data: ReportData): string {
     `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:${esc(l.color)};color:${esc(l.textColor)};font-size:11px;font-weight:600;margin-right:4px;">${esc(l.name)}</span>`
   ).join('')
 
-  const poList = (task.poNumbers ?? []).filter(Boolean).join(', ') || (task.poNumber ?? '—')
+  const poEntries = task.poEntries ?? []
+  const poList = poEntries.length > 0
+    ? poEntries.map(e => e.boxes ? `${e.number} (${e.boxes} boxes)` : e.number).filter(Boolean).join(', ')
+    : (task.poNumbers ?? []).filter(Boolean).join(', ') || (task.poNumber ?? '—')
 
   const completedBlock = task.completed ? `
     <div style="background:#E1F5EE;border-radius:8px;padding:10px 14px;margin-top:12px;font-size:13px;color:#085041;">
@@ -126,6 +148,9 @@ export function generateTaskReportHTML(data: ReportData): string {
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th { text-align: left; padding: 6px 8px; background: #f7f7f5; font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: .04em; }
   .footer { padding: 14px 28px; background: #f7f7f5; text-align: center; font-size: 11px; color: #bbb; border-top: 1px solid #eee; }
+  .rich-content p { margin: 0 0 8px; }
+  .rich-content ul, .rich-content ol { padding-left: 20px; margin: 0 0 8px; }
+  .rich-content h1,.rich-content h2,.rich-content h3 { font-size:14px;font-weight:700;margin:8px 0 4px; }
   @media print { body { background: white; padding: 0; } .container { box-shadow: none; } }
 </style>
 </head>
@@ -159,6 +184,12 @@ export function generateTaskReportHTML(data: ReportData): string {
       ${labelPills ? `<div style="margin-top:10px;">${labelPills}</div>` : ''}
     </div>
 
+    ${task.description ? `
+    <div class="section">
+      <div class="section-title">Description</div>
+      <div style="font-size:13px;color:#444;line-height:1.6;" class="rich-content">${task.description}</div>
+    </div>` : ''}
+
     ${task.notes ? `
     <div class="section">
       <div class="section-title">Notes</div>
@@ -182,8 +213,14 @@ export function generateTaskReportHTML(data: ReportData): string {
 
     ${(task.attachments ?? []).length > 0 ? `
     <div class="section">
-      <div class="section-title">Attachments</div>
-      <ul style="margin:0;padding-left:18px;">${attachmentList}</ul>
+      <div class="section-title">Attachments (${(task.attachments ?? []).length})</div>
+      <ul style="margin:0;padding-left:18px;list-style:disc;">${attachmentList}</ul>
+    </div>` : ''}
+
+    ${emailAttachments.length > 0 ? `
+    <div class="section">
+      <div class="section-title">Emails (${emailAttachments.length})</div>
+      ${emailCards}
     </div>` : ''}
 
     ${comments.length > 0 ? `
