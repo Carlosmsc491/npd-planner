@@ -1,14 +1,15 @@
 // src/renderer/src/hooks/useRecipeNotes.ts
 // Real-time subscription to a recipe file's notes subcollection
 
-import { useState, useEffect } from 'react'
-import { subscribeToRecipeNotes } from '../lib/recipeFirestore'
+import { useState, useEffect, useRef } from 'react'
+import { subscribeToRecipeNotes, repairActiveNotesCount } from '../lib/recipeFirestore'
 import type { RecipeNote } from '../types'
 
-export function useRecipeNotes(projectId: string, fileId: string) {
+export function useRecipeNotes(projectId: string, fileId: string, storedCount?: number) {
   const [notes, setNotes]     = useState<RecipeNote[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
+  const repairedRef = useRef(false)
 
   useEffect(() => {
     if (!projectId || !fileId) {
@@ -17,6 +18,7 @@ export function useRecipeNotes(projectId: string, fileId: string) {
       return
     }
 
+    repairedRef.current = false
     setIsLoading(true)
     setError(null)
     const unsub = subscribeToRecipeNotes(
@@ -37,6 +39,16 @@ export function useRecipeNotes(projectId: string, fileId: string) {
 
   const activeNotes   = notes.filter((n) => n.resolvedAt === null)
   const resolvedNotes = notes.filter((n) => n.resolvedAt !== null)
+
+  // Self-heal: if storedCount differs from the live count, repair once per mount
+  useEffect(() => {
+    if (isLoading) return
+    if (storedCount === undefined) return
+    if (repairedRef.current) return
+    if (activeNotes.length === storedCount) return
+    repairedRef.current = true
+    repairActiveNotesCount(projectId, fileId, activeNotes.length).catch(() => {/* silent */})
+  }, [isLoading, activeNotes.length, storedCount, projectId, fileId])
 
   return { notes, activeNotes, resolvedNotes, isLoading, error }
 }

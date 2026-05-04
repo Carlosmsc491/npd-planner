@@ -256,6 +256,7 @@ app.whenReady().then(() => {
   registerExcelHandlers()
   registerCrashReportHandlers()
   registerEmailHandlers()
+  registerCameraHandlers()
   startTrashCleanupService()
   errorReporter.log('App started')
 
@@ -277,9 +278,6 @@ app.whenReady().then(() => {
       return { success: false, error: String(err) }
     }
   })
-
-  // Camera / photo capture handlers (Mac only, gphoto2 tethering)
-  registerCameraHandlers(mainWindow)
 
   // Iniciar integración Traze después de que carga el app (5s para Firebase auth)
   mainWindow.webContents.on('did-finish-load', () => {

@@ -17,9 +17,7 @@ function getWindow(): BrowserWindow | null {
   return wins.find(w => !w.isDestroyed()) ?? null
 }
 
-export function registerCameraHandlers(mainWindow: BrowserWindow): void {
-  // Keep the initial reference but prefer dynamic lookup for push events
-  void mainWindow
+export function registerCameraHandlers(): void {
 
   // Renderer asks: is there a camera connected?
   ipcMain.handle('camera:check-connection', async () => {

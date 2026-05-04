@@ -20,6 +20,7 @@ import {
   Unsubscribe,
   orderBy,
   limit,
+  increment,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type {
@@ -779,13 +780,8 @@ export async function addRecipeNote(
       resolvedBy: null,
       resolvedByName: null,
     })
-    // Increment denormalized count
     const fileRef = doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, fileId)
-    const snap = await getDoc(fileRef)
-    if (snap.exists()) {
-      const current = (snap.data().activeNotesCount as number) ?? 0
-      await updateDoc(fileRef, { activeNotesCount: current + 1 })
-    }
+    await updateDoc(fileRef, { activeNotesCount: increment(1) })
   } catch (err) {
     throw new Error(`addRecipeNote failed: ${err}`)
   }
@@ -802,11 +798,7 @@ export async function deleteRecipeNote(
     await deleteDoc(noteDoc(projectId, fileId, noteId))
     if (wasActive) {
       const fileRef = doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, fileId)
-      const snap = await getDoc(fileRef)
-      if (snap.exists()) {
-        const current = (snap.data().activeNotesCount as number) ?? 1
-        await updateDoc(fileRef, { activeNotesCount: Math.max(0, current - 1) })
-      }
+      await updateDoc(fileRef, { activeNotesCount: increment(-1) })
     }
   } catch (err) {
     throw new Error(`deleteRecipeNote failed: ${err}`)
@@ -838,6 +830,20 @@ export async function resolveAllRecipeNotes(
     )
   } catch (err) {
     throw new Error(`resolveAllRecipeNotes failed: ${err}`)
+  }
+}
+
+/** Repair the denormalized activeNotesCount if it doesn't match the live subcollection count. */
+export async function repairActiveNotesCount(
+  projectId: string,
+  fileId: string,
+  trueCount: number
+): Promise<void> {
+  try {
+    const fileRef = doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, fileId)
+    await updateDoc(fileRef, { activeNotesCount: trueCount })
+  } catch {
+    // Silently ignore — this is a best-effort background repair
   }
 }
 

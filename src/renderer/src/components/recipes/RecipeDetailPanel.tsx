@@ -531,6 +531,7 @@ export default function RecipeDetailPanel({
                 projectId={file.projectId}
                 fileId={file.fileId}
                 currentUser={currentUser}
+                storedCount={file.activeNotesCount ?? 0}
               />
             </div>
           )}

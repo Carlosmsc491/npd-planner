@@ -31,18 +31,39 @@ export class CameraManager extends EventEmitter {
   private gphotoProcess: ChildProcess | null = null
   private watcher: FSWatcher | null = null
   private folderWatcher: FSWatcher | null = null
+
+  /** PATH augmented with Homebrew dirs so Electron finds gphoto2 regardless of launch context. */
+  private get spawnEnv(): NodeJS.ProcessEnv {
+    const brewPaths = '/opt/homebrew/bin:/usr/local/bin'
+    const current = process.env.PATH ?? ''
+    return {
+      ...process.env,
+      PATH: current.includes('/opt/homebrew/bin') ? current : `${brewPaths}:${current}`,
+    }
+  }
+
   /**
    * Detects whether gphoto2 is installed.
    * gPhoto2 tethering is Mac-only — returns false immediately on Windows.
-   * On Mac/Linux, checks via `which gphoto2`.
+   * On Mac/Linux, checks known Homebrew paths directly before falling back to `which`.
    */
   async isGphoto2Available(): Promise<boolean> {
     if (process.platform === 'win32') return false
+    // Check the two common Homebrew install locations first (avoids PATH issues in Electron)
+    if (fs.existsSync('/opt/homebrew/bin/gphoto2')) return true
+    if (fs.existsSync('/usr/local/bin/gphoto2')) return true
     return new Promise((resolve) => {
-      const proc = spawn('which', ['gphoto2'])
+      const proc = spawn('which', ['gphoto2'], { env: this.spawnEnv })
       proc.on('close', (code) => resolve(code === 0))
       proc.on('error', () => resolve(false))
     })
+  }
+
+  /** Returns the absolute path to gphoto2, or 'gphoto2' as fallback. */
+  private get gphoto2Bin(): string {
+    if (fs.existsSync('/opt/homebrew/bin/gphoto2')) return '/opt/homebrew/bin/gphoto2'
+    if (fs.existsSync('/usr/local/bin/gphoto2')) return '/usr/local/bin/gphoto2'
+    return 'gphoto2'
   }
 
   /**
@@ -55,7 +76,7 @@ export class CameraManager extends EventEmitter {
 
     return new Promise((resolve) => {
       let output = ''
-      const proc = spawn('gphoto2', ['--auto-detect'])
+      const proc = spawn(this.gphoto2Bin, ['--auto-detect'], { env: this.spawnEnv })
       proc.stdout?.on('data', (data: Buffer) => { output += data.toString() })
       proc.on('close', () => {
         // Output example:
@@ -97,7 +118,7 @@ export class CameraManager extends EventEmitter {
         chain.then(
           () =>
             new Promise<void>((resolve) => {
-              const proc = spawn(cmd, args)
+              const proc = spawn(cmd, args, { env: this.spawnEnv })
               proc.on('close', () => resolve())
               proc.on('error', () => resolve())
             })
@@ -109,11 +130,11 @@ export class CameraManager extends EventEmitter {
   /** Try to start gphoto2 tethering, retrying once if the USB device is busy. */
   private spawnGphoto2(outputDir: string): Promise<{ success: boolean; error?: string }> {
     return new Promise((resolve) => {
-      const proc = spawn('gphoto2', [
+      const proc = spawn(this.gphoto2Bin, [
         '--capture-tethered',
         '--filename', nodePath.join(outputDir, '%Y%m%d-%H%M%S-%04n.%C'),
         '--force-overwrite',
-      ], { cwd: outputDir })
+      ], { cwd: outputDir, env: this.spawnEnv })
 
       this.gphotoProcess = proc
       let startupError = ''

@@ -13,10 +13,11 @@ interface Props {
   projectId: string
   fileId: string
   currentUser: AppUser
+  storedCount?: number
 }
 
-export default function NotesSection({ projectId, fileId, currentUser }: Props) {
-  const { notes, activeNotes, isLoading, error } = useRecipeNotes(projectId, fileId)
+export default function NotesSection({ projectId, fileId, currentUser, storedCount }: Props) {
+  const { notes, activeNotes, isLoading, error } = useRecipeNotes(projectId, fileId, storedCount)
   const [text, setText] = useState('')
   const [posting, setPosting] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
