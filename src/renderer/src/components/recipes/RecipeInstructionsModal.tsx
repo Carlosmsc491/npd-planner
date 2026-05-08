@@ -72,10 +72,10 @@ const STEPS: Step[] = [
     color: '#F59E0B',
     title: 'Photography',
     detail:
-      'If the recipe needs product photos, click "Take Photos" to start a camera session. ' +
+      'Users with the Photographer role will see the "Take Photos" option on their assigned recipes. ' +
+      'Click "Take Photos" to start a camera session. ' +
       'Captured photos are automatically organized by project and recipe name. ' +
-      'Photo status is shown on each card. ' +
-      'Users with the Photographer role will see the "Take Photos" option on their assigned recipes.',
+      'Photo status is shown on each card.',
   },
   {
     icon: MessageSquare,
