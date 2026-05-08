@@ -39,7 +39,7 @@ import { PhotoManagerView } from './PhotoManagerView'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification, RenameWithPhotosResult } from '../../types'
 import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Download, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
-import { resolveProjectRootPath } from '../../utils/photoUtils'
+import { resolveProjectRootPath, toLibraryRelativePath } from '../../utils/photoUtils'
 
 export default function RecipeProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -411,16 +411,12 @@ export default function RecipeProjectPage() {
       return
     }
 
-    // Only relativeRootPath is stored in Firestore — never the absolute path —
-    // so each machine resolves it against their own SharePoint folder.
-    const normalSP   = sharePointPath.replace(/\\/g, '/').replace(/\/$/, '')
-    const normalNew  = newPath.replace(/\\/g, '/')
-    const relPath    = normalNew.startsWith(normalSP + '/')
-      ? normalNew.slice(normalSP.length + 1)
-      : undefined
+    // Only relativeRootPath is stored — relative to the OneDrive library root —
+    // so each machine resolves it against their own local library path.
+    const relPath = sharePointPath ? toLibraryRelativePath(newPath, sharePointPath) : undefined
 
     if (!relPath) {
-      alert('The project folder must be inside your SharePoint folder. Other users will not be able to see it otherwise.')
+      alert('The project folder must be inside your OneDrive library. Other users will not be able to see it otherwise.')
       return
     }
 

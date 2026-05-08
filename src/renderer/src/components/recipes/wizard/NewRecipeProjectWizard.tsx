@@ -8,6 +8,7 @@ import { ArrowLeft, Loader2, Check, FolderPlus, Copy, FileSpreadsheet, Database,
 import { useAuthStore } from '../../../store/authStore'
 import { createRecipeProject, upsertRecipeFile } from '../../../lib/recipeFirestore'
 import { normalizeRecipeName, sanitizeWindowsName } from '../../../utils/recipeNaming'
+import { toLibraryRelativePath } from '../../../utils/photoUtils'
 import {
   RECIPE_CUSTOMER_OPTIONS,
   RECIPE_HOLIDAY_OPTIONS,
@@ -258,18 +259,14 @@ export default function NewRecipeProjectWizard() {
       steps = markStep(steps, 'database', 'running', 'Creating project record…')
       setProgress([...steps])
 
-      // Compute portable relative path from the creator's SharePoint root.
-      // Only relativeRootPath is stored in Firestore — never the absolute rootPath —
-      // so every machine resolves it against their own local SharePoint folder.
-      const spPath    = user.preferences?.sharePointPath ?? ''
-      const normalSP  = spPath.replace(/\\/g, '/').replace(/\/$/, '')
-      const normalRoot = projectRoot.replace(/\\/g, '/')
-      const relativeRootPath = normalSP && normalRoot.startsWith(normalSP + '/')
-        ? normalRoot.slice(normalSP.length + 1)
-        : undefined
+      // Compute portable relative path from the OneDrive library root.
+      // Stored relative to the library root (not the SP subfolder) so projects
+      // anywhere in the shared library are portable across users and OS.
+      const spPath = user.preferences?.sharePointPath ?? ''
+      const relativeRootPath = spPath ? toLibraryRelativePath(projectRoot, spPath) : undefined
 
       if (!relativeRootPath) {
-        alert('The project folder must be inside your SharePoint folder. Please select a folder within your configured SharePoint path.')
+        alert('The project folder must be inside your OneDrive library. Please select a folder within your shared OneDrive drive.')
         setCreating(false)
         return
       }

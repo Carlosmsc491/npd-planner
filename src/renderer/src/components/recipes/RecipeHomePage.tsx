@@ -12,6 +12,7 @@ import type { RecipeProject } from '../../types'
 import { Timestamp } from 'firebase/firestore'
 import { nanoid } from 'nanoid'
 import AppLayout from '../ui/AppLayout'
+import { toLibraryRelativePath } from '../../utils/photoUtils'
 
 type FilterStatus = 'all' | 'active' | 'completed' | 'archived'
 
@@ -63,15 +64,11 @@ export default function RecipeHomePage() {
       }
 
       const cfg = result.config
-      const spPath   = user?.preferences?.sharePointPath ?? ''
-      const normalSP = spPath.replace(/\\/g, '/').replace(/\/$/, '')
-      const normalFP = folderPath.replace(/\\/g, '/')
-      const relativeRootPath = normalSP && normalFP.startsWith(normalSP + '/')
-        ? normalFP.slice(normalSP.length + 1)
-        : undefined
+      const spPath = user?.preferences?.sharePointPath ?? ''
+      const relativeRootPath = spPath ? toLibraryRelativePath(folderPath, spPath) : undefined
 
       if (!relativeRootPath) {
-        setImportError('The project folder must be inside your SharePoint folder.')
+        setImportError('The project folder must be inside your OneDrive library.')
         return
       }
 

@@ -7,6 +7,63 @@
 // Relative paths are portable — any user resolves them against their local project.rootPath.
 // Absolute paths (legacy data) are used as-is for backward compatibility.
 
+/**
+ * Derive the OneDrive library root from the configured SharePoint path.
+ *
+ * The configured SP path points somewhere INSIDE the library, e.g.:
+ *   Windows: C:\Users\carlos\OneDrive - Elite Flower\Documents - NPD-SECURE\REPORTS\NPD-PLANNER
+ *   Mac:     /Users/carlos/Library/CloudStorage/OneDrive-SharedLibraries-EliteFlower/NPD-SECURE - Documents/REPORTS/NPD-PLANNER
+ *
+ * The library root is the folder right after the OneDrive mount segment, e.g.:
+ *   Windows: C:\Users\carlos\OneDrive - Elite Flower\Documents - NPD-SECURE
+ *   Mac:     /Users/carlos/Library/CloudStorage/OneDrive-SharedLibraries-EliteFlower/NPD-SECURE - Documents
+ *
+ * This is the base against which relativeRootPath is stored, so projects anywhere
+ * in the library are portable across users and OS.
+ */
+export function getLibraryRoot(spPath: string): string {
+  if (!spPath) return spPath
+  const normalized = spPath.replace(/\\/g, '/')
+  const parts = normalized.split('/')
+
+  // Find the segment that contains "OneDrive" (matches both Windows and Mac variants)
+  const oneDriveIdx = parts.findIndex(p => /onedrive/i.test(p))
+  if (oneDriveIdx === -1) {
+    // No OneDrive segment found — fall back to parent of SP path
+    return parts.slice(0, -1).join('/') || normalized
+  }
+
+  // Library root = OneDrive segment + 1 more (the library folder name)
+  const libraryRootParts = parts.slice(0, oneDriveIdx + 2)
+  return libraryRootParts.join('/')
+}
+
+/**
+ * Compute relativeRootPath relative to the library root (not the SP subfolder).
+ * Returns undefined if the path is not inside the library root.
+ */
+export function toLibraryRelativePath(absPath: string, spPath: string): string | undefined {
+  const libraryRoot = getLibraryRoot(spPath)
+  if (!libraryRoot) return undefined
+  const normalLib = libraryRoot.replace(/\\/g, '/').replace(/\/$/, '')
+  const normalAbs = absPath.replace(/\\/g, '/')
+  if (normalAbs.startsWith(normalLib + '/')) {
+    return normalAbs.slice(normalLib.length + 1)
+  }
+  return undefined
+}
+
+/**
+ * Resolve a relativeRootPath (relative to library root) back to an absolute path
+ * using the current machine's configured SP path.
+ */
+export function fromLibraryRelativePath(relPath: string, spPath: string): string {
+  const libraryRoot = getLibraryRoot(spPath)
+  if (!libraryRoot) return relPath
+  const normalLib = libraryRoot.replace(/\\/g, '/').replace(/\/$/, '')
+  return `${normalLib}/${relPath}`
+}
+
 /** Resolve a stored photo path to a local absolute path.
  *  - If already absolute (legacy data): returned unchanged.
  *  - If relative (new format): joined with project.rootPath.
@@ -41,9 +98,9 @@ export function resolveProjectRootPath(storedPath: string, sharePointPath: strin
   const normalStored = storedPath.replace(/\\/g, '/')
   const normalSP     = sharePointPath.replace(/\\/g, '/').replace(/\/$/, '')
 
-  // 1. Relative path (new format)
+  // 1. Relative path (new format) — resolve against library root, not SP subfolder
   if (!normalStored.startsWith('/') && !/^[A-Za-z]:/.test(normalStored)) {
-    return `${normalSP}/${normalStored}`
+    return fromLibraryRelativePath(storedPath, sharePointPath)
   }
 
   // 2. Already under this machine's SharePoint root
