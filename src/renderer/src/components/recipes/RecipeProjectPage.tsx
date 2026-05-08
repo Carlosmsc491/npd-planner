@@ -90,7 +90,7 @@ export default function RecipeProjectPage() {
   // Stored paths may be absolute from another OS (e.g. Windows path on Mac).
   // resolveProjectRootPath reconstructs the correct local path using the
   // SharePoint folder name as a landmark — portable across users and OS.
-  const sharePointPath = user?.preferences?.sharePointPath ?? ''
+  const sharePointPath = localStorage.getItem('npd_sharepoint_path') || user?.preferences?.sharePointPath || ''
   const effectiveRootPath = project
     ? resolveProjectRootPath(project.relativeRootPath ?? project.rootPath ?? '', sharePointPath)
     : ''

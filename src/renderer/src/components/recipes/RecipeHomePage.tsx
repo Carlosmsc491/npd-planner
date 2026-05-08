@@ -64,7 +64,7 @@ export default function RecipeHomePage() {
       }
 
       const cfg = result.config
-      const spPath = user?.preferences?.sharePointPath ?? ''
+      const spPath = localStorage.getItem('npd_sharepoint_path') || user?.preferences?.sharePointPath || ''
       const relativeRootPath = spPath ? toLibraryRelativePath(folderPath, spPath) : undefined
 
       if (!relativeRootPath) {
@@ -259,7 +259,7 @@ export default function RecipeHomePage() {
                 <ProjectRow
                   key={project.id}
                   project={project}
-                  spPath={user?.preferences?.sharePointPath ?? ''}
+                  spPath={localStorage.getItem('npd_sharepoint_path') || user?.preferences?.sharePointPath || ''}
                   onClick={() => navigate(`/recipes/${project.id}`)}
                   onDelete={(e) => handleDelete(project.id, e)}
                   isDeleting={deletingId === project.id}
