@@ -141,7 +141,7 @@ export default function RecipeDetailPanel({
       return
     }
     if (fileOpen) {
-      setError('Close Excel before finishing this recipe.')
+      setError('Excel is still open. Save your changes, close the file, then try again.')
       setActionState('idle')
       return
     }

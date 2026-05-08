@@ -8,7 +8,7 @@
 import { useState } from 'react'
 import {
   X, MousePointerClick, FileSpreadsheet, CheckSquare, Camera,
-  MessageSquare, Lock, BookOpen, ChevronRight,
+  MessageSquare, Lock, BookOpen, ChevronRight, Save,
 } from 'lucide-react'
 
 const LS_FOREVER = 'npd:recipe_instr_forever'
@@ -59,13 +59,23 @@ const STEPS: Step[] = [
       'wet pack, and any other required data for the recipe.',
   },
   {
+    icon: Save,
+    color: '#DC2626',
+    title: 'Save & Close Excel Before Finishing',
+    detail:
+      'This is critical: always save your work in Excel (Ctrl+S / Cmd+S) and then ' +
+      'fully close the file before clicking "Mark as Done" in NPD Planner. ' +
+      'If Excel is still open, the app will block the action and remind you to close it first.',
+  },
+  {
     icon: Camera,
     color: '#F59E0B',
-    title: 'Photography (if required)',
+    title: 'Photography',
     detail:
       'If the recipe needs product photos, click "Take Photos" to start a camera session. ' +
       'Captured photos are automatically organized by project and recipe name. ' +
-      'Photo status is shown on each card (green = pending, amber = in progress).',
+      'Photo status is shown on each card. ' +
+      'Users with the Photographer role will see the "Take Photos" option on their assigned recipes.',
   },
   {
     icon: MessageSquare,
