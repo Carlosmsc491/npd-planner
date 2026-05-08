@@ -119,16 +119,16 @@ export default function RecipeInstructionsModal({ projectId, projectName, onClos
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-lg max-h-[90vh] overflow-hidden rounded-2xl bg-white dark:bg-gray-900 shadow-2xl flex flex-col">
+      <div className="relative w-full max-w-xl max-h-[90vh] overflow-hidden rounded-2xl bg-white dark:bg-gray-900 shadow-2xl flex flex-col">
 
         {/* Header */}
-        <div className="flex items-center gap-3 px-6 pt-6 pb-4 shrink-0 border-b border-gray-100 dark:border-gray-800">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 shrink-0">
-            <BookOpen size={20} className="text-white" />
+        <div className="flex items-center gap-4 px-8 pt-7 pb-5 shrink-0 border-b border-gray-100 dark:border-gray-800">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 shrink-0">
+            <BookOpen size={22} className="text-white" />
           </div>
           <div className="min-w-0">
             <h2 className="text-base font-bold text-gray-900 dark:text-white leading-tight">
-              How to Work in a Recipe Project
+              How to Work in an NPD Project
             </h2>
             <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">
               {projectName}
@@ -143,29 +143,29 @@ export default function RecipeInstructionsModal({ projectId, projectName, onClos
         </div>
 
         {/* Steps */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+        <div className="flex-1 overflow-y-auto px-8 py-5 space-y-4">
           {STEPS.map((step, i) => {
             const Icon = step.icon
             return (
-              <div key={i} className="flex gap-3 items-start">
+              <div key={i} className="flex gap-4 items-start">
                 {/* Step number + icon */}
-                <div className="shrink-0 flex flex-col items-center gap-1">
+                <div className="shrink-0 flex flex-col items-center gap-1.5">
                   <div
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-white text-[10px] font-bold"
+                    className="flex h-9 w-9 items-center justify-center rounded-xl text-white"
                     style={{ backgroundColor: step.color }}
                   >
-                    <Icon size={15} />
+                    <Icon size={17} />
                   </div>
                   {i < STEPS.length - 1 && (
                     <ChevronRight size={12} className="text-gray-300 dark:text-gray-700 rotate-90" />
                   )}
                 </div>
                 {/* Text */}
-                <div className="pb-1">
+                <div className="pb-1 pt-0.5">
                   <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-tight">
                     {i + 1}. {step.title}
                   </p>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                     {step.detail}
                   </p>
                 </div>
@@ -175,7 +175,7 @@ export default function RecipeInstructionsModal({ projectId, projectName, onClos
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 px-6 py-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between gap-4">
+        <div className="shrink-0 px-8 py-5 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between gap-4">
           {/* Don't show again */}
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <div
