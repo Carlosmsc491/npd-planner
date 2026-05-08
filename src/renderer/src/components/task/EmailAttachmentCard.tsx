@@ -2,9 +2,10 @@
 // Collapsible card showing an Outlook .msg attachment and its inner files
 
 import { useState, useEffect, useRef } from 'react'
-import { Mail, ChevronDown, Trash2, ExternalLink, Paperclip, Loader2, X } from 'lucide-react'
+import { Mail, ChevronDown, Trash2, ExternalLink, Paperclip, Loader2, X, Eye } from 'lucide-react'
 import type { EmailAttachment, EmailInnerAttachment } from '../../types'
 import EmailViewerModal from './EmailViewerModal'
+import FilePreviewModal from './FilePreviewModal'
 
 interface Props {
   attachment: EmailAttachment
@@ -50,7 +51,11 @@ function InnerAttRow({
 }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const img = isImage(att.name)
+  const canPreview = !img && ['pdf', 'xlsx', 'xls', 'csv', 'doc', 'docx'].includes(
+    att.name.split('.').pop()?.toLowerCase() ?? ''
+  )
 
   useEffect(() => {
     if (!img || !sharePointRoot) return
@@ -127,30 +132,48 @@ function InnerAttRow({
     )
   }
 
+  const absPath = sharePointRoot ? `${sharePointRoot}/${att.sharePointRelativePath}` : ''
+
   return (
-    <div className="group flex items-center gap-2 pl-4 pr-2 py-1.5 hover:bg-blue-50/60 dark:hover:bg-blue-900/10 rounded">
-      <span className="text-sm shrink-0">{innerFileIcon(att.name)}</span>
-      <span className="flex-1 min-w-0 truncate text-xs text-gray-700 dark:text-gray-300">
-        {att.name}
-      </span>
-      <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={handleOpen}
-          title="Open file"
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900/30"
-        >
-          <ExternalLink size={10} />
-          Open
-        </button>
-        <button
-          onClick={() => onRemove(att.id)}
-          title="Remove"
-          className="rounded p-0.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-        >
-          <X size={12} />
-        </button>
+    <>
+      <div className="group flex items-center gap-2 pl-4 pr-2 py-1.5 hover:bg-blue-50/60 dark:hover:bg-blue-900/10 rounded">
+        <span className="text-sm shrink-0">{innerFileIcon(att.name)}</span>
+        <span className="flex-1 min-w-0 truncate text-xs text-gray-700 dark:text-gray-300">
+          {att.name}
+        </span>
+        <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {canPreview && sharePointRoot && (
+            <button
+              onClick={() => setPreviewOpen(true)}
+              title="Preview"
+              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30"
+            >
+              <Eye size={10} />
+              Preview
+            </button>
+          )}
+          <button
+            onClick={handleOpen}
+            title="Open in app"
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+          >
+            <ExternalLink size={10} />
+            Open
+          </button>
+          <button
+            onClick={() => onRemove(att.id)}
+            title="Remove"
+            className="rounded p-0.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+          >
+            <X size={12} />
+          </button>
+        </div>
       </div>
-    </div>
+
+      {previewOpen && absPath && (
+        <FilePreviewModal name={att.name} absPath={absPath} onClose={() => setPreviewOpen(false)} />
+      )}
+    </>
   )
 }
 

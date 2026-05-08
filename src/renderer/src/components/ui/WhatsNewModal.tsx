@@ -1,64 +1,55 @@
 import { useState, useEffect } from 'react'
 import {
-  X, Sparkles, CalendarDays, Filter, EyeOff, Flag, Sun,
+  X, Wrench, FolderSymlink, MapPin, ShieldCheck, MonitorCheck,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.5.0'
+const CURRENT_VERSION = '1.6.1'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
-interface Feature {
+interface Fix {
   icon: LucideIcon
   color: string
   title: string
   description: string
 }
 
-const FEATURES: Feature[] = [
+const FIXES: Fix[] = [
   {
-    icon: CalendarDays,
+    icon: FolderSymlink,
     color: '#1D9E75',
-    title: 'Event Dates as Calendar Bars',
+    title: 'Portable Project Folders',
     description:
-      'Task dates (Preparation, Ship, Set Up, Show Day) now appear as independent colored bars ' +
-      'in the calendar — grouped directly below their parent task bar. Each bar shows the date type ' +
-      'icon, label, and parent task name. Drag the parent task to reschedule; event date bars follow automatically.',
+      'Project folders are now stored as library-relative paths instead of absolute machine paths. ' +
+      'Opening a project created on another computer — or on a different OS — resolves correctly ' +
+      'to each user\'s local OneDrive folder without any manual adjustments.',
   },
   {
-    icon: Filter,
+    icon: MapPin,
     color: '#378ADD',
-    title: 'Bucket & Task Filters on Calendars',
+    title: 'Friendly Location Display',
     description:
-      'Both the Master Calendar and each board calendar now have filter dropdowns. ' +
-      'Filter by Bucket to focus on a specific group, or search and select individual tasks. ' +
-      'Active filters show a count badge and a Clear button. Filters are independent per calendar.',
+      'The Location column in the project list now shows a readable breadcrumb ' +
+      '(e.g. "NPD-SECURE / IFPA 2026") instead of a raw file-system path. ' +
+      'Works for both new and legacy projects created on any machine.',
   },
   {
-    icon: EyeOff,
-    color: '#F59E0B',
-    title: 'Hide Event Dates Toggle',
-    description:
-      'Use the "Hide Event Dates" button on any calendar to collapse all date-type sub-bars ' +
-      'and show only the main task bars. Toggle back on with "Show Event Dates". ' +
-      'Useful when you want a cleaner view without the detailed breakdown.',
-  },
-  {
-    icon: Flag,
-    color: '#EF4444',
-    title: 'US Holidays on Calendars',
-    description:
-      'Enable the "US Holidays" button to display all US federal and cultural holidays ' +
-      'as red-bordered bars on every calendar view. Includes New Year\'s, MLK Day, Memorial Day, ' +
-      'Independence Day, Thanksgiving, Christmas, Valentine\'s Day, Mother\'s Day, and more.',
-  },
-  {
-    icon: Sun,
+    icon: ShieldCheck,
     color: '#8B5CF6',
-    title: 'Weekend & Holiday Cell Highlighting',
+    title: 'Cross-Platform Path Resolution',
     description:
-      'Saturday and Sunday cells are now slightly darker than weekdays, making the work week ' +
-      'easier to scan at a glance. Holiday dates also get a subtle red tint when holidays are enabled. ' +
-      'Both styles work in light and dark mode.',
+      'Fixed a bug where the SharePoint path saved on one operating system ' +
+      '(Mac or Windows) was being applied on the other, causing projects to appear ' +
+      'missing. Each machine now uses its own locally-stored path.',
+  },
+  {
+    icon: MonitorCheck,
+    color: '#F59E0B',
+    title: 'Smarter Folder Not Found Message',
+    description:
+      'When a project folder cannot be located on the current machine, the app now ' +
+      'shows a clear, non-alarming message with the expected location path and a quick ' +
+      'link to update the folder — instead of an abrupt error.',
   },
 ]
 
@@ -93,21 +84,21 @@ export default function WhatsNewModal() {
 
         {/* Header */}
         <div className="px-8 pt-8 pb-4 text-center shrink-0">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg">
-            <Sparkles size={28} className="text-white" />
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg">
+            <Wrench size={26} className="text-white" />
           </div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-            What's New in {CURRENT_VERSION}
+            Improvements in {CURRENT_VERSION}
           </h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            NPD Planner just got a major update
+            Bug fixes and reliability improvements
           </p>
         </div>
 
-        {/* Feature list */}
+        {/* Fix list */}
         <div className="flex-1 overflow-y-auto px-8 pb-2">
           <div className="space-y-4">
-            {FEATURES.map((f, i) => {
+            {FIXES.map((f, i) => {
               const Icon = f.icon
               return (
                 <div
@@ -138,7 +129,7 @@ export default function WhatsNewModal() {
         <div className="shrink-0 px-8 py-5">
           <button
             onClick={dismiss}
-            className="w-full rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:from-green-700 hover:to-emerald-700 transition-all"
+            className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:from-blue-700 hover:to-indigo-700 transition-all"
           >
             Got it, let's go!
           </button>

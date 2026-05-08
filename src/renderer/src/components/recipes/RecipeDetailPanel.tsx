@@ -1,9 +1,9 @@
 // src/renderer/src/components/recipes/RecipeDetailPanel.tsx
 // Right-side panel showing file details and action buttons with full Mark Done flow
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, Lock, Check, RotateCcw, ExternalLink, MousePointerClick, UserPlus, ChevronDown, Camera, Star, ImageOff, Pencil } from 'lucide-react'
+import { Loader2, Lock, Check, RotateCcw, ExternalLink, MousePointerClick, UserPlus, ChevronDown, Camera, Star, ImageOff, Pencil, ChevronRight } from 'lucide-react'
 import { Timestamp } from 'firebase/firestore'
 import { useTaskStore } from '../../store/taskStore'
 import { useAuthStore } from '../../store/authStore'
@@ -35,6 +35,7 @@ interface Props {
   onForceUnlock?: () => Promise<void>
   onRename?: (result: RenameWithPhotosResult, newDisplayName: string) => Promise<void>
   ssdBase?: string | null
+  nudgeClaimAt?: number
 }
 
 type ActionState =
@@ -73,12 +74,22 @@ export default function RecipeDetailPanel({
   onForceUnlock,
   onRename,
   ssdBase,
+  nudgeClaimAt,
 }: Props) {
   const navigate = useNavigate()
   const setToast = useTaskStore((s) => s.setToast)
   const currentUser = useAuthStore((s) => s.user)
 
   const [actionState, setActionState] = useState<ActionState>('idle')
+  const [nudging, setNudging] = useState(false)
+  const nudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (!nudgeClaimAt) return
+    setNudging(true)
+    if (nudgeTimer.current) clearTimeout(nudgeTimer.current)
+    nudgeTimer.current = setTimeout(() => setNudging(false), 2000)
+  }, [nudgeClaimAt])
   const [error, setError] = useState<string | null>(null)
   const [confirmReopen, setConfirmReopen] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
@@ -376,14 +387,29 @@ export default function RecipeDetailPanel({
 
           {/* PENDING → Claim */}
           {file.status === 'pending' && canEdit && (
-            <button
-              disabled={busy}
-              onClick={() => runAction('claiming', onClaim)}
-              className="w-full flex items-center justify-center gap-2 rounded-lg bg-green-500 px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
-            >
-              {actionState === 'claiming' && <Loader2 size={14} className="animate-spin" />}
-              Claim Recipe
-            </button>
+            <div className="relative">
+              {/* Nudge hint — arrows + message above button */}
+              {nudging && (
+                <div className="absolute -top-8 left-0 right-0 flex items-center justify-center gap-1 text-green-600 dark:text-green-400 text-xs font-semibold animate-bounce pointer-events-none">
+                  <ChevronRight size={13} className="rotate-90" />
+                  <span>Click here to open this recipe</span>
+                  <ChevronRight size={13} className="rotate-90" />
+                </div>
+              )}
+              <button
+                disabled={busy}
+                onClick={() => runAction('claiming', onClaim)}
+                className={`w-full flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all
+                  ${nudging
+                    ? 'bg-green-500 ring-4 ring-green-300 dark:ring-green-700 scale-[1.03] animate-pulse'
+                    : 'bg-green-500 hover:bg-green-600'
+                  }
+                  disabled:opacity-50`}
+              >
+                {actionState === 'claiming' && <Loader2 size={14} className="animate-spin" />}
+                Claim Recipe
+              </button>
+            </div>
           )}
 
           {/* IN PROGRESS — own lock */}

@@ -17,6 +17,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 import type { Task, TaskAttachment, EmailAttachment } from '../../types'
 import { addEmailAttachment, removeEmailAttachment, removeInnerAttachment } from '../../lib/emailAttachments'
 import EmailAttachmentCard from './EmailAttachmentCard'
+import FilePreviewModal from './FilePreviewModal'
 
 // Initialize PDF.js worker — different paths for dev vs production
 if (import.meta.env.DEV) {
@@ -268,7 +269,10 @@ interface RowProps {
 }
 
 function AttachmentRow({ attachment, sharePointPath, onRemove, onOpen, onPreview }: RowProps) {
-  const canPreview = isImage(attachment.mimeType, attachment.name) || isPDF(attachment.mimeType, attachment.name)
+  const previewExt = attachment.name.split('.').pop()?.toLowerCase() ?? ''
+  const canPreview = isImage(attachment.mimeType, attachment.name)
+    || isPDF(attachment.mimeType, attachment.name)
+    || ['xlsx', 'xls', 'csv', 'doc', 'docx', 'ods'].includes(previewExt)
   const [available, setAvailable] = useState<boolean | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -386,6 +390,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
   const [attaching, setAttaching] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'error' | 'info'; message: string } | null>(null)
   const [preview, setPreview] = useState<{ name: string; base64: string; mimeType: string; type: 'image' | 'pdf' } | null>(null)
+  const [filePreview, setFilePreview] = useState<{ name: string; absPath: string } | null>(null)
   const [settingUp, setSettingUp] = useState(false)
   const [dragOver, setDragOver] = useState(false)
 
@@ -420,6 +425,14 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
   const handlePreview = useCallback(
     async (att: TaskAttachment) => {
       if (!isElectron) return
+      const ext = att.name.split('.').pop()?.toLowerCase() ?? ''
+      // Excel and Word: use FilePreviewModal with absPath (reads file itself)
+      if (['xlsx', 'xls', 'csv', 'doc', 'docx', 'ods'].includes(ext)) {
+        if (!sharePointPath) return
+        const absPath = `${sharePointPath}/${att.sharePointRelativePath}`
+        setFilePreview({ name: att.name, absPath })
+        return
+      }
       const base64 = await readAttachmentBase64(att)
       if (!base64) {
         setFeedback({ type: 'error', message: 'Could not read file for preview.' })
@@ -428,7 +441,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
       const type = isPDF(att.mimeType, att.name) ? 'pdf' : 'image'
       setPreview({ name: att.name, base64, mimeType: att.mimeType ?? 'image/png', type })
     },
-    [isElectron, readAttachmentBase64]
+    [isElectron, readAttachmentBase64, sharePointPath]
   )
 
   async function handleQuickSetup() {
@@ -636,6 +649,13 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
           base64={preview.base64}
           mimeType={preview.mimeType}
           onClose={() => setPreview(null)}
+        />
+      )}
+      {filePreview && (
+        <FilePreviewModal
+          name={filePreview.name}
+          absPath={filePreview.absPath}
+          onClose={() => setFilePreview(null)}
         />
       )}
     </>

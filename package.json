@@ -1,6 +1,6 @@
 {
   "name": "npd-planner",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "NPD Planner — Elite Flower Operations Hub",
   "main": "./out/main/index.js",
   "author": "Elite Flower",
@@ -40,6 +40,7 @@
     "firebase": "^12.12.0",
     "lucide-react": "^0.577.0",
     "mailparser": "^3.9.8",
+    "mammoth": "^1.12.0",
     "nanoid": "^5.1.7",
     "pdfjs-dist": "^5.5.207",
     "playwright": "^1.58.2",
