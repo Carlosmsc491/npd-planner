@@ -568,8 +568,8 @@ export default function CapturePage() {
 
       const newStatus = updatedPhotos.some(p => p.isSelected) ? 'selected' : 'complete'
       await updateRecipePhotoSelections(recipeId, updatedPhotos, newStatus)
-      // Keep tethering alive — next recipe session will reuse it without re-init
-      navigate(-1)
+      // Navigate back to the project page (not browser history, which could go to /recipes list)
+      navigate(project?.id ? `/recipes/${project.id}` : '/recipes')
     } catch (err) {
       console.error('[Capture] Finish session error:', err)
       setFinishLoading(false)
@@ -592,7 +592,7 @@ export default function CapturePage() {
       <div className="flex flex-col items-center justify-center h-screen bg-gray-950 text-white gap-4">
         <p className="text-sm text-gray-400">Recipe not found.</p>
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate(project?.id ? `/recipes/${project.id}` : '/recipes')}
           className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-colors"
         >
           <ChevronLeft size={14} /> Go back
@@ -623,7 +623,7 @@ export default function CapturePage() {
           </button>
         ) : (
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate(project?.id ? `/recipes/${project.id}` : '/recipes')}
             className="flex items-center gap-1 text-sm text-gray-400 hover:text-white transition-colors"
           >
             <ChevronLeft size={16} /> Back

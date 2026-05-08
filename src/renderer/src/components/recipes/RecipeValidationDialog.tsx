@@ -73,7 +73,7 @@ export default function RecipeValidationDialog({
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
 
       {/* Panel */}
-      <div className="relative z-10 w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col max-h-[85vh]">
+      <div className="relative z-10 w-full max-w-3xl rounded-2xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
 
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-6 py-5 border-b border-gray-100 dark:border-gray-800 shrink-0">
@@ -84,7 +84,7 @@ export default function RecipeValidationDialog({
             <h2 className="text-base font-semibold text-gray-900 dark:text-white leading-tight">
               Review changes
             </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 truncate max-w-sm">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 break-all">
               {recipeName}
               {changes.length > 0 && (
                 <span className="text-gray-400 dark:text-gray-500">
@@ -247,14 +247,14 @@ function ChangeRow({
       <td className="py-2.5 pr-3">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span
-            className="text-gray-400 dark:text-gray-500 max-w-[120px] truncate line-through"
+            className="text-gray-400 dark:text-gray-500 line-through break-all"
             title={current}
           >
             {current || <em className="not-italic opacity-50">empty</em>}
           </span>
           <span className="text-gray-300 dark:text-gray-600">→</span>
           <span
-            className="font-medium text-green-600 dark:text-green-400 max-w-[140px] truncate"
+            className="font-medium break-all"
             style={{ color: '#1D9E75' }}
             title={suggested}
           >

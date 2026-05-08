@@ -291,29 +291,6 @@ export default function RecipeProjectPage() {
     })
   }
 
-  const handleBulkReopen = useCallback(async () => {
-    if (!projectId || selectedFileIds.size === 0) return
-    setBulkBusy(true)
-    try {
-      const ids = [...selectedFileIds]
-      await Promise.all(ids.map(id => reopenRecipeFile(projectId, id)))
-      setSelectedFileIds(new Set())
-    } finally {
-      setBulkBusy(false)
-    }
-  }, [projectId, selectedFileIds])
-
-  const handleBulkDone = useCallback(async () => {
-    if (!projectId || selectedFileIds.size === 0 || !user) return
-    setBulkBusy(true)
-    try {
-      const ids = [...selectedFileIds]
-      await Promise.all(ids.map(id => markRecipeDone(projectId, id, user.name, '')))
-      setSelectedFileIds(new Set())
-    } finally {
-      setBulkBusy(false)
-    }
-  }, [projectId, selectedFileIds, user])
 
   const handleBulkAssign = useCallback(async (uid: string | null, name: string | null) => {
     if (!projectId || selectedFileIds.size === 0) return
@@ -791,26 +768,6 @@ export default function RecipeProjectPage() {
                   {selectedFileIds.size} selected
                 </span>
                 <div className="flex items-center gap-1.5 ml-auto">
-                  {/* Bulk Reopen */}
-                  <button
-                    disabled={bulkBusy}
-                    onClick={handleBulkReopen}
-                    className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-amber-300 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-40 transition-colors"
-                  >
-                    {bulkBusy ? <Loader2 size={12} className="animate-spin" /> : null}
-                    Reopen
-                  </button>
-                  {/* Bulk Done */}
-                  {canEdit && (
-                    <button
-                      disabled={bulkBusy}
-                      onClick={handleBulkDone}
-                      className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-green-300 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-40 transition-colors"
-                    >
-                      {bulkBusy ? <Loader2 size={12} className="animate-spin" /> : null}
-                      Mark Done
-                    </button>
-                  )}
                   {/* Bulk Assign */}
                   {canEdit && (
                     <div className="relative">
@@ -1005,10 +962,13 @@ export default function RecipeProjectPage() {
                     currentUserUid={user?.uid}
                     userRole={user?.role}
                     onSelect={() => {
-                      if (selectedFile?.id === file.id && file.status === 'pending') {
-                        setNudgeClaimAt(Date.now())
+                      if (selectedFile?.id === file.id) {
+                        // Second click on the same card → deselect
+                        if (file.status === 'pending') setNudgeClaimAt(Date.now())
+                        setSelectedFile(null)
+                      } else {
+                        setSelectedFile(file)
                       }
-                      setSelectedFile(file)
                     }}
                     onCheckToggle={() => toggleCheck(file.id)}
                   />
@@ -1250,6 +1210,16 @@ function FileExplorerCard({
         ${file.status === 'done' ? 'opacity-60' : ''}
       `}
     >
+      {/* X to deselect — top-right, only when this card is selected */}
+      {selected && (
+        <div
+          className="absolute top-1 right-1 z-10 h-4 w-4 flex items-center justify-center rounded-full bg-green-400 text-white hover:bg-red-400 transition-colors"
+          title="Deselect"
+        >
+          <X size={9} />
+        </div>
+      )}
+
       {/* Checkbox top-left */}
       <div
         className={`absolute top-1.5 left-1.5 transition-opacity z-10 ${checked ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}

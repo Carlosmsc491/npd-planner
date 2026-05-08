@@ -218,9 +218,14 @@ export default function RecipeDetailPanel({
     try {
       const namingChange = acceptedChanges.find((c) => c.field === 'Final File Name')
       if (namingChange) {
-        const dir = fullPath.substring(0, fullPath.lastIndexOf('\\'))
-        const newPath = `${dir}\\${namingChange.suggestedValue}`
-        await window.electronAPI.recipeRenameFile(fullPath, newPath)
+        // Use the last separator (\ or /) to locate the directory — handles both Windows and Mac paths
+        const sepIdx = Math.max(fullPath.lastIndexOf('\\'), fullPath.lastIndexOf('/'))
+        const sep    = fullPath.includes('\\') ? '\\' : '/'
+        const dir    = sepIdx > 0 ? fullPath.substring(0, sepIdx) : ''
+        const newPath = dir ? `${dir}${sep}${namingChange.suggestedValue}` : namingChange.suggestedValue as string
+        if (newPath !== fullPath) {
+          await window.electronAPI.recipeRenameFile(fullPath, newPath)
+        }
       }
 
       await onMarkDone()
