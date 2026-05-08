@@ -1026,7 +1026,6 @@ export default function RecipeProjectPage() {
                     userRole={user?.role}
                     onSelect={() => setSelectedFile(file)}
                     onCheckToggle={() => toggleCheck(file.id)}
-                    onDoubleClick={() => handleOpenInExcelForFile(file)}
                   />
                 ))}
               </div>
@@ -1180,7 +1179,7 @@ function FolderExplorerCard({
 
 // ── FileExplorerCard ─────────────────────────────────────────────────────────
 function FileExplorerCard({
-  file, size, selected, checked, onSelect, onCheckToggle, onDoubleClick,
+  file, size, selected, checked, onSelect, onCheckToggle,
 }: {
   file: import('../../types').RecipeFile
   size: 'sm' | 'md' | 'lg'
@@ -1190,7 +1189,6 @@ function FileExplorerCard({
   userRole?: string
   onSelect: () => void
   onCheckToggle: () => void
-  onDoubleClick: () => void
 }) {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
@@ -1249,7 +1247,6 @@ function FileExplorerCard({
   return (
     <div
       onClick={onSelect}
-      onDoubleClick={onDoubleClick}
       className={`group relative flex flex-col items-center rounded-xl p-2 cursor-pointer select-none transition-all
         ${selected
           ? 'bg-green-50 dark:bg-green-900/20 ring-2 ring-green-400'

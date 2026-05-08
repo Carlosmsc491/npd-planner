@@ -70,25 +70,8 @@ function InnerAttRow({
     return (
       <>
         <div className="group px-4 py-2">
-          {dataUrl ? (
-            <button
-              onClick={() => setLightbox(true)}
-              className="block w-full rounded-lg overflow-hidden border border-blue-100 dark:border-blue-800/40 hover:border-blue-400 transition-colors"
-              title="Click to enlarge"
-            >
-              <img
-                src={dataUrl}
-                alt={att.name}
-                className="w-full max-h-48 object-contain bg-gray-50 dark:bg-gray-800"
-              />
-            </button>
-          ) : (
-            <div className="flex items-center gap-2 py-1">
-              <Loader2 size={12} className="animate-spin text-gray-400" />
-              <span className="text-xs text-gray-400">{att.name}</span>
-            </div>
-          )}
-          <div className="flex items-center justify-between mt-1">
+          {/* Name + actions row — above the image */}
+          <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] text-gray-400 truncate">{att.name}</span>
             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
               <button
@@ -107,6 +90,24 @@ function InnerAttRow({
               </button>
             </div>
           </div>
+          {dataUrl ? (
+            <button
+              onClick={() => setLightbox(true)}
+              className="block w-full rounded-lg overflow-hidden border border-blue-100 dark:border-blue-800/40 hover:border-blue-400 transition-colors"
+              title="Click to enlarge"
+            >
+              <img
+                src={dataUrl}
+                alt={att.name}
+                className="w-full max-h-48 object-contain bg-gray-50 dark:bg-gray-800"
+              />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 py-1">
+              <Loader2 size={12} className="animate-spin text-gray-400" />
+              <span className="text-xs text-gray-400">{att.name}</span>
+            </div>
+          )}
         </div>
 
         {lightbox && dataUrl && (
