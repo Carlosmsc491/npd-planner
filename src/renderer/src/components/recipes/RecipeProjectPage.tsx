@@ -37,9 +37,10 @@ import RecipeFileManagerDialog from './RecipeFileManagerDialog'
 import RecipeSettingsTab from './settings/RecipeSettingsTab'
 import { PhotoManagerView } from './PhotoManagerView'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification, RenameWithPhotosResult } from '../../types'
-import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Download, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera } from 'lucide-react'
+import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera, BookOpen } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
 import { useProjectRootPath } from '../../hooks/useProjectRootPath'
+import RecipeInstructionsModal, { shouldShowInstructions } from './RecipeInstructionsModal'
 
 export default function RecipeProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -50,6 +51,7 @@ export default function RecipeProjectPage() {
   const [projectLoading, setProjectLoading] = useState(true)
   const [selectedFile, setSelectedFile] = useState<RecipeFile | null>(null)
   const [nudgeClaimAt, setNudgeClaimAt] = useState(0)
+  const [instructionsOpen, setInstructionsOpen] = useState(false)
   const [presence, setPresence] = useState<RecipePresence[]>([])
   const [settings, setSettings] = useState<RecipeSettings | null>(null)
   const [scanKey, setScanKey] = useState(0)
@@ -110,7 +112,9 @@ export default function RecipeProjectPage() {
       doc(db, 'recipeProjects', projectId),
       (snap) => {
         if (snap.exists()) {
-          setProject({ id: snap.id, ...snap.data() } as RecipeProject)
+          const p = { id: snap.id, ...snap.data() } as RecipeProject
+          setProject(p)
+          if (shouldShowInstructions(p.id)) setInstructionsOpen(true)
         } else {
           setProject(null)
         }
@@ -466,31 +470,6 @@ export default function RecipeProjectPage() {
     }
   }, [filteredFilesByFolder, currentFolder])
 
-  // ── CSV export (after filteredFiles is declared) ────────────────────────
-  const handleExportCSV = useCallback(() => {
-    const rows = filteredFiles.map(f => [
-      f.displayName,
-      f.price,
-      f.option,
-      f.status,
-      f.lockedBy ?? '',
-      f.doneBy ?? '',
-      f.assignedToName ?? '',
-      f.holidayOverride,
-      f.customerOverride,
-    ])
-    const header = ['Name', 'Price', 'Option', 'Status', 'Locked By', 'Done By', 'Assigned To', 'Holiday', 'Customer']
-    const csv = [header, ...rows]
-      .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-      .join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${project?.name ?? 'recipes'}-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }, [filteredFiles, project?.name])
 
   // ── Progress stats ───────────────────────────────────────────────────────
   const total      = files.length
@@ -587,14 +566,14 @@ export default function RecipeProjectPage() {
           Files &amp; Folders
         </button>
 
-        {/* CSV export */}
+        {/* Instructions / Rules */}
         <button
-          onClick={handleExportCSV}
-          title="Export recipes as CSV"
+          onClick={() => setInstructionsOpen(true)}
+          title="How to work in this project"
           className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 transition-colors shrink-0"
         >
-          <Download size={13} />
-          CSV
+          <BookOpen size={13} />
+          Guide
         </button>
 
         {/* Photo Manager — visible to all users (actions gated by canTakePhotos inside) */}
@@ -1089,6 +1068,15 @@ export default function RecipeProjectPage() {
         onFileRenamed={handleFileRenamed}
         onRefresh={() => setScanKey((k) => k + 1)}
       />
+
+      {/* Instructions modal */}
+      {instructionsOpen && project && (
+        <RecipeInstructionsModal
+          projectId={project.id}
+          projectName={project.name}
+          onClose={() => setInstructionsOpen(false)}
+        />
+      )}
     </div>
     </AppLayout>
   )
