@@ -98,7 +98,8 @@ export default function RecipeRowItem({
   // Load active notes for warning interception (only when camera button exists)
   const { activeNotes } = useRecipeNotes(
     showCameraBtn ? file.projectId : '',
-    showCameraBtn ? file.fileId : ''
+    showCameraBtn ? file.fileId : '',
+    file.activeNotesCount ?? 0
   )
 
   function handleCameraClick(e: React.MouseEvent) {
@@ -194,13 +195,13 @@ export default function RecipeRowItem({
         <span className="text-sm font-medium text-gray-900 dark:text-white truncate" title={file.displayName}>
           {file.displayName}
         </span>
-        {(file.activeNotesCount ?? 0) > 0 && (
+        {activeNotes.length > 0 && (
           <span
-            title={`${file.activeNotesCount} active note${file.activeNotesCount !== 1 ? 's' : ''}`}
+            title={`${activeNotes.length} active note${activeNotes.length !== 1 ? 's' : ''}`}
             className="shrink-0 flex items-center gap-0.5 rounded-full bg-amber-100 px-1 py-0.5 text-[9px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
           >
             <AlertTriangle size={8} />
-            {file.activeNotesCount}
+            {activeNotes.length}
           </span>
         )}
       </span>
