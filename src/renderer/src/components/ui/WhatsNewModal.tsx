@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  X, Wrench, FolderSymlink, MapPin, ShieldCheck, MonitorCheck,
+  X, Wrench,
   MousePointerClick, EyeOff, FileText, List,
   type LucideIcon,
 } from 'lucide-react'
