@@ -43,13 +43,27 @@ export function getLibraryRoot(spPath: string): string {
  * Returns undefined if the path is not inside the library root.
  */
 export function toLibraryRelativePath(absPath: string, spPath: string): string | undefined {
-  const libraryRoot = getLibraryRoot(spPath)
-  if (!libraryRoot) return undefined
-  const normalLib = libraryRoot.replace(/\\/g, '/').replace(/\/$/, '')
   const normalAbs = absPath.replace(/\\/g, '/')
-  if (normalAbs.startsWith(normalLib + '/')) {
-    return normalAbs.slice(normalLib.length + 1)
+
+  // Primary: derive library root from configured spPath and match prefix
+  const libraryRoot = getLibraryRoot(spPath)
+  if (libraryRoot) {
+    const normalLib = libraryRoot.replace(/\\/g, '/').replace(/\/$/, '')
+    if (normalAbs.startsWith(normalLib + '/')) {
+      return normalAbs.slice(normalLib.length + 1)
+    }
   }
+
+  // Fallback: derive library root directly from absPath itself.
+  // Handles cross-platform case where spPath is a Mac path but absPath is Windows (or vice versa).
+  const libraryRootFromAbs = getLibraryRoot(normalAbs)
+  if (libraryRootFromAbs) {
+    const normalLib = libraryRootFromAbs.replace(/\\/g, '/').replace(/\/$/, '')
+    if (normalAbs.startsWith(normalLib + '/')) {
+      return normalAbs.slice(normalLib.length + 1)
+    }
+  }
+
   return undefined
 }
 
