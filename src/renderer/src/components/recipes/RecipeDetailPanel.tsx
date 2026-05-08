@@ -21,6 +21,7 @@ import { nanoid } from 'nanoid'
 interface Props {
   file: RecipeFile | null
   project: RecipeProject
+  effectiveRootPath: string
   settings: RecipeSettings | null
   currentUserName: string
   users: AppUser[]                                              // for assign dropdown
@@ -58,6 +59,7 @@ const MARK_DONE_LABEL: Record<string, string> = {
 export default function RecipeDetailPanel({
   file,
   project,
+  effectiveRootPath,
   settings,
   currentUserName,
   users,
@@ -115,7 +117,7 @@ export default function RecipeDetailPanel({
   const handleMarkDone = useCallback(async () => {
     if (!file || !settings) return
 
-    const fullPath = buildFullPath(project.rootPath, file.relativePath)
+    const fullPath = buildFullPath(effectiveRootPath, file.relativePath)
     setError(null)
 
     setActionState('checking')
@@ -175,7 +177,7 @@ export default function RecipeDetailPanel({
   const handleDialogApply = useCallback(async (acceptedChanges: ValidationChange[]) => {
     if (!file) return
     setDialogOpen(false)
-    const fullPath = buildFullPath(project.rootPath, file.relativePath)
+    const fullPath = buildFullPath(effectiveRootPath, file.relativePath)
     await applyAndFinalize(fullPath, acceptedChanges, file)
   }, [file, project]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -557,7 +559,7 @@ export default function RecipeDetailPanel({
                   <PhotoThumbnail
                     key={photo.filename}
                     photo={photo}
-                    projectRootPath={project.rootPath}
+                    projectRootPath={effectiveRootPath}
                     onDoubleClick={() => { setGalleryIndex(idx); setGalleryOpen(true) }}
                   />
                 ))}
@@ -573,7 +575,7 @@ export default function RecipeDetailPanel({
           photos={file.capturedPhotos}
           initialIndex={galleryIndex}
           recipeName={file.recipeName || file.displayName}
-          projectRootPath={project.rootPath}
+          projectRootPath={effectiveRootPath}
           onClose={() => setGalleryOpen(false)}
         />
       )}
@@ -591,6 +593,7 @@ export default function RecipeDetailPanel({
         <RenameRecipeModal
           file={file}
           project={project}
+          effectiveRootPath={effectiveRootPath}
           ssdBase={ssdBase ?? null}
           onClose={() => setRenameOpen(false)}
           onSuccess={async (result, newDisplayName) => {

@@ -670,8 +670,8 @@ export interface RecipeUserPreferences {
 export interface RecipeProject {
   id: string
   name: string
-  rootPath: string          // absolute path on the creator's machine (legacy)
-  relativeRootPath?: string // path relative to SharePoint root — portable across users/OS
+  rootPath?: string         // legacy: absolute path on creator's machine — do NOT write for new projects
+  relativeRootPath: string  // portable: path relative to SharePoint root — each machine resolves locally
   createdAt: Timestamp
   createdBy: string
   status: 'active' | 'completed' | 'archived'

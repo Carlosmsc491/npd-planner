@@ -14,7 +14,7 @@ import {
   deleteCapturedPhoto,
   getGlobalSettings,
 } from '../lib/firestore'
-import { resolvePhotoPath, toRelativePhotoPath } from '../utils/photoUtils'
+import { resolvePhotoPath, toRelativePhotoPath, resolveProjectRootPath } from '../utils/photoUtils'
 
 // ── Local state shape for photos in this session ─────────────────────────────
 interface LocalPhoto {
@@ -32,6 +32,7 @@ export default function CapturePage() {
   const { recipeId } = useParams<{ recipeId: string }>()
   const navigate = useNavigate()
   const { user } = useAuthStore()
+  const sharePointPath = user?.preferences?.sharePointPath ?? ''
 
   // ── Recipe / project state ─────────────────────────────────────────────────
   const [recipe, setRecipe]   = useState<RecipeFile | null>(null)
@@ -79,11 +80,12 @@ export default function CapturePage() {
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null)
 
   // ── Refs for stable callbacks (avoid stale closures) ──────────────────────
-  const photosRef        = useRef<LocalPhoto[]>([])
-  const processingRef    = useRef(false)
-  const tetheringRef     = useRef(false)
-  const recipeRef        = useRef<RecipeFile | null>(null)
-  const projectRef       = useRef<RecipeProject | null>(null)
+  const photosRef           = useRef<LocalPhoto[]>([])
+  const processingRef       = useRef(false)
+  const tetheringRef        = useRef(false)
+  const recipeRef           = useRef<RecipeFile | null>(null)
+  const projectRef          = useRef<RecipeProject | null>(null)
+  const effectiveRootRef    = useRef('')
   const settingsRef      = useRef<GlobalSettings | null>(null)
   const filmstripRef     = useRef<HTMLDivElement>(null)
   const modeRef          = useRef<PageMode>('capture')
@@ -91,7 +93,12 @@ export default function CapturePage() {
   // Keep refs in sync with state
   useEffect(() => { photosRef.current     = photos },          [photos])
   useEffect(() => { recipeRef.current     = recipe },          [recipe])
-  useEffect(() => { projectRef.current    = project },         [project])
+  useEffect(() => {
+    projectRef.current = project
+    effectiveRootRef.current = project
+      ? resolveProjectRootPath(project.relativeRootPath ?? project.rootPath ?? '', sharePointPath)
+      : ''
+  }, [project, sharePointPath])
   useEffect(() => { settingsRef.current   = globalSettings },  [globalSettings])
   useEffect(() => { tetheringRef.current  = tetheringActive }, [tetheringActive])
   useEffect(() => { modeRef.current       = mode },            [mode])
@@ -323,7 +330,7 @@ export default function CapturePage() {
         const nextSeq       = photosRef.current.length + 1
         const filename      = `${baseName} - ${nextSeq}.jpg`
 
-        const projectRoot = currentProject.rootPath.replace(/\\/g, '/')
+        const projectRoot = effectiveRootRef.current.replace(/\\/g, '/')
         // Absolute paths — for local file ops on THIS machine
         const cameraAbsPath = subfolderName
           ? `${projectRoot}/PICTURES/1. CAMERA/${subfolderName}/${filename}`
@@ -461,7 +468,7 @@ export default function CapturePage() {
         if (localSelection[filename] && project) {
           const relParts      = (recipeRef.current?.relativePath ?? '').replace(/\\/g, '/').split('/')
           const subfolderName = relParts.length > 1 ? relParts[0] : ''
-          const projectRoot   = project.rootPath.replace(/\\/g, '/')
+          const projectRoot   = effectiveRootRef.current.replace(/\\/g, '/')
           const selectedPath  = subfolderName
             ? `${projectRoot}/PICTURES/2. SELECTED/${subfolderName}/${filename}`
             : `${projectRoot}/PICTURES/2. SELECTED/${filename}`
@@ -471,7 +478,7 @@ export default function CapturePage() {
 
       // Re-build remaining array with re-sequenced numbers.
       // LocalPhoto uses absolute paths; Firestore needs relative paths.
-      const rootPath    = projectRef.current?.rootPath ?? ''
+      const rootPath    = effectiveRootRef.current
       const subfolderForRecipe = (recipeRef.current?.relativePath ?? '').replace(/\\/g, '/').split('/').slice(0, -1)[0] ?? ''
       const remaining: CapturedPhoto[] = photosRef.current
         .filter(p => p.filename !== filename)
@@ -517,7 +524,7 @@ export default function CapturePage() {
     setFinishLoading(true)
     try {
       const currentPhotos = photosRef.current
-      const projectRoot   = projectRef.current.rootPath.replace(/\\/g, '/')
+      const projectRoot   = effectiveRootRef.current.replace(/\\/g, '/')
 
       const relParts      = (recipeRef.current?.relativePath ?? '').replace(/\\/g, '/').split('/')
       const subfolderName = relParts.length > 1 ? relParts[0] : ''

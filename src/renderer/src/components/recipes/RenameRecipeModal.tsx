@@ -8,6 +8,7 @@ import type { RecipeFile, RecipeProject, RenameWithPhotosResult, CapturedPhoto }
 interface Props {
   file: RecipeFile
   project: RecipeProject
+  effectiveRootPath: string
   ssdBase: string | null
   onClose: () => void
   onSuccess: (result: RenameWithPhotosResult, newDisplayName: string) => void
@@ -21,7 +22,7 @@ type Step =
 
 type StepState = 'pending' | 'running' | 'done' | 'error'
 
-export default function RenameRecipeModal({ file, project, ssdBase, onClose, onSuccess }: Props) {
+export default function RenameRecipeModal({ file, project, effectiveRootPath, ssdBase, onClose, onSuccess }: Props) {
   const [inputValue, setInputValue] = useState(file.displayName)
   const [phase, setPhase]           = useState<'input' | 'working' | 'errors' | 'done'>('input')
   const [stepStates, setStepStates] = useState<Record<string, StepState>>({})
@@ -52,7 +53,7 @@ export default function RenameRecipeModal({ file, project, ssdBase, onClose, onS
     setStepStates({ 'rename-excel': 'running', 'update-cells': 'pending', 'rename-photos': 'pending', 'done': 'pending' })
 
     // Build full Excel path
-    const excelPath = `${project.rootPath.replace(/\\/g, '/')}/${file.relativePath.replace(/\\/g, '/')}`
+    const excelPath = `${effectiveRootPath.replace(/\\/g, '/')}/${file.relativePath.replace(/\\/g, '/')}`
 
     try {
       const result = await window.electronAPI.recipeRenameWithPhotos({
@@ -62,7 +63,7 @@ export default function RenameRecipeModal({ file, project, ssdBase, onClose, onS
         capturedPhotos: file.capturedPhotos as unknown as CapturedPhoto[],
         readyPngPath:   file.readyPngPath,
         readyJpgPath:   file.readyJpgPath,
-        projectRoot:    project.rootPath,
+        projectRoot:    effectiveRootPath,
         ssdBase,
         projectName:    project.name,
       })

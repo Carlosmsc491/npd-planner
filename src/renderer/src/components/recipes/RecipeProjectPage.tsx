@@ -92,7 +92,7 @@ export default function RecipeProjectPage() {
   // SharePoint folder name as a landmark — portable across users and OS.
   const sharePointPath = user?.preferences?.sharePointPath ?? ''
   const effectiveRootPath = project
-    ? resolveProjectRootPath(project.relativeRootPath ?? project.rootPath, sharePointPath)
+    ? resolveProjectRootPath(project.relativeRootPath ?? project.rootPath ?? '', sharePointPath)
     : ''
   // Last segment of the root path (e.g. "EASTER") used as label for files with no subfolder
   const rootFolderLabel = effectiveRootPath.split(/[/\\]/).filter(Boolean).pop() ?? project?.name ?? '(root)'
@@ -411,19 +411,22 @@ export default function RecipeProjectPage() {
       return
     }
 
-    // Compute portable relative path from this user's SharePoint root
+    // Only relativeRootPath is stored in Firestore — never the absolute path —
+    // so each machine resolves it against their own SharePoint folder.
     const normalSP   = sharePointPath.replace(/\\/g, '/').replace(/\/$/, '')
     const normalNew  = newPath.replace(/\\/g, '/')
     const relPath    = normalNew.startsWith(normalSP + '/')
       ? normalNew.slice(normalSP.length + 1)
       : undefined
 
+    if (!relPath) {
+      alert('The project folder must be inside your SharePoint folder. Other users will not be able to see it otherwise.')
+      return
+    }
+
     // Actualizar en Firestore
     try {
-      await updateRecipeProject(projectId, {
-        rootPath: newPath,
-        ...(relPath !== undefined ? { relativeRootPath: relPath } : {}),
-      })
+      await updateRecipeProject(projectId, { relativeRootPath: relPath })
       // Disparar re-scan con la nueva ruta
       setScanKey(k => k + 1)
     } catch (err) {
@@ -701,7 +704,7 @@ export default function RecipeProjectPage() {
       {/* ── Main body: file list + detail panel ── */}
       {/* ── Photo Manager view ── */}
       {view === 'photo-manager' && project && (
-        <PhotoManagerView project={project} onBack={() => setView('recipes')} />
+        <PhotoManagerView project={project} effectiveRootPath={effectiveRootPath} onBack={() => setView('recipes')} />
       )}
 
       <div className={`flex flex-1 overflow-hidden ${view === 'photo-manager' ? 'hidden' : ''}`}>
@@ -1047,6 +1050,7 @@ export default function RecipeProjectPage() {
           <RecipeDetailPanel
             file={selectedFile}
             project={project}
+            effectiveRootPath={effectiveRootPath}
             settings={settings}
             currentUserName={user?.name ?? ''}
             users={users}

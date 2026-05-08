@@ -258,7 +258,9 @@ export default function NewRecipeProjectWizard() {
       steps = markStep(steps, 'database', 'running', 'Creating project record…')
       setProgress([...steps])
 
-      // Compute portable relative path from the creator's SharePoint root
+      // Compute portable relative path from the creator's SharePoint root.
+      // Only relativeRootPath is stored in Firestore — never the absolute rootPath —
+      // so every machine resolves it against their own local SharePoint folder.
       const spPath    = user.preferences?.sharePointPath ?? ''
       const normalSP  = spPath.replace(/\\/g, '/').replace(/\/$/, '')
       const normalRoot = projectRoot.replace(/\\/g, '/')
@@ -266,10 +268,15 @@ export default function NewRecipeProjectWizard() {
         ? normalRoot.slice(normalSP.length + 1)
         : undefined
 
+      if (!relativeRootPath) {
+        alert('The project folder must be inside your SharePoint folder. Please select a folder within your configured SharePoint path.')
+        setCreating(false)
+        return
+      }
+
       const projectId = await createRecipeProject({
         name: data.name.trim(),
-        rootPath: projectRoot,
-        ...(relativeRootPath !== undefined ? { relativeRootPath } : {}),
+        relativeRootPath,
         createdBy: user.uid,
         status: 'active',
         config: {

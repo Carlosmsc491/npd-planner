@@ -70,10 +70,14 @@ export default function RecipeHomePage() {
         ? normalFP.slice(normalSP.length + 1)
         : undefined
 
+      if (!relativeRootPath) {
+        setImportError('The project folder must be inside your SharePoint folder.')
+        return
+      }
+
       const newId = await createRecipeProject({
         name: cfg.projectName,
-        rootPath: folderPath,
-        ...(relativeRootPath !== undefined ? { relativeRootPath } : {}),
+        relativeRootPath,
         status: 'active',
         createdBy: user?.uid ?? '',
         config: {
