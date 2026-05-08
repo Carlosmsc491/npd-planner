@@ -64,6 +64,21 @@ export function fromLibraryRelativePath(relPath: string, spPath: string): string
   return `${normalLib}/${relPath}`
 }
 
+/**
+ * Format a relativeRootPath into a human-readable breadcrumb.
+ * e.g. relativeRootPath="IFPA 2026", spPath=".../Documents - NPD-SECURE/..."
+ *   → "NPD-SECURE / IFPA 2026"
+ */
+export function formatProjectLocation(relativeRootPath: string | undefined, spPath: string): string {
+  if (!relativeRootPath) return ''
+  const libraryRoot = getLibraryRoot(spPath)
+  const libraryName = libraryRoot
+    ? libraryRoot.replace(/\\/g, '/').split('/').pop()?.replace(/^Documents\s*[-–]\s*/i, '') ?? ''
+    : ''
+  const segments = relativeRootPath.replace(/\\/g, '/').split('/').filter(Boolean)
+  return libraryName ? [libraryName, ...segments].join(' / ') : segments.join(' / ')
+}
+
 /** Resolve a stored photo path to a local absolute path.
  *  - If already absolute (legacy data): returned unchanged.
  *  - If relative (new format): joined with project.rootPath.

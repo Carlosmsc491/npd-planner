@@ -12,7 +12,7 @@ import type { RecipeProject } from '../../types'
 import { Timestamp } from 'firebase/firestore'
 import { nanoid } from 'nanoid'
 import AppLayout from '../ui/AppLayout'
-import { toLibraryRelativePath } from '../../utils/photoUtils'
+import { toLibraryRelativePath, formatProjectLocation } from '../../utils/photoUtils'
 
 type FilterStatus = 'all' | 'active' | 'completed' | 'archived'
 
@@ -259,6 +259,7 @@ export default function RecipeHomePage() {
                 <ProjectRow
                   key={project.id}
                   project={project}
+                  spPath={user?.preferences?.sharePointPath ?? ''}
                   onClick={() => navigate(`/recipes/${project.id}`)}
                   onDelete={(e) => handleDelete(project.id, e)}
                   isDeleting={deletingId === project.id}
@@ -280,12 +281,14 @@ export default function RecipeHomePage() {
 
 function ProjectRow({
   project,
+  spPath,
   onClick,
   onDelete,
   isDeleting,
   confirmPending,
 }: {
   project: RecipeProject
+  spPath: string
   onClick: () => void
   onDelete: (e: React.MouseEvent) => void
   isDeleting: boolean
@@ -303,8 +306,9 @@ function ProjectRow({
         </div>
       </td>
       <td className="px-4 py-3 max-w-xs">
-        <span className="text-xs font-mono text-gray-400 dark:text-gray-500 truncate block" title={project.rootPath}>
-          {project.relativeRootPath ?? project.rootPath}
+        <span className="text-xs text-gray-400 dark:text-gray-500 truncate block"
+              title={project.relativeRootPath ?? project.rootPath ?? ''}>
+          {formatProjectLocation(project.relativeRootPath, spPath)}
         </span>
       </td>
       <td className="px-4 py-3">

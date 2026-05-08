@@ -39,7 +39,7 @@ import { PhotoManagerView } from './PhotoManagerView'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification, RenameWithPhotosResult } from '../../types'
 import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Download, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
-import { resolveProjectRootPath, toLibraryRelativePath } from '../../utils/photoUtils'
+import { resolveProjectRootPath, toLibraryRelativePath, formatProjectLocation } from '../../utils/photoUtils'
 
 export default function RecipeProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -906,25 +906,28 @@ export default function RecipeProjectPage() {
             {/* Error banner when project folder not found */}
             {scanError && (
               <div className="mb-4">
-                <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20
-                                border border-red-200 dark:border-red-800 rounded-lg">
-                  <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20
+                                border border-amber-200 dark:border-amber-700 rounded-lg">
+                  <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-red-800 dark:text-red-200">
-                      Project folder not found
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                      Couldn't locate the folder — but no worries.
                     </p>
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-0.5 truncate">
-                      {scanError}
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                      Just navigate to this location on your computer:
                     </p>
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                      {sharePointPath
-                        ? `Your SP root: ${sharePointPath}`
-                        : '⚠ SharePoint path not configured in Settings → General'}
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-100 mt-1">
+                      {formatProjectLocation(project?.relativeRootPath, sharePointPath)}
                     </p>
+                    {!sharePointPath && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        ⚠ SharePoint path not configured — go to Settings → General first.
+                      </p>
+                    )}
                   </div>
                   <button
                     onClick={handleUpdateFolderPath}
-                    className="text-xs text-red-700 dark:text-red-300 underline shrink-0"
+                    className="text-xs text-amber-700 dark:text-amber-300 underline shrink-0"
                   >
                     Update folder path
                   </button>
