@@ -54,9 +54,9 @@ const STEPS: Step[] = [
     color: '#217346',
     title: 'Open & Fill in Excel',
     detail:
-      'After claiming, click "Open in Excel" to edit the spec sheet. ' +
-      'Fill in all required fields: product details, pricing, distribution percentages, ' +
-      'wet pack, and any other required data for the recipe.',
+      'After claiming, click "Open in Excel" to start working on the spec sheet. ' +
+      'Fill in all required fields: flower details, pricing, distribution percentages, ' +
+      'packs, and any other required data for your quote.',
   },
   {
     icon: Save,
