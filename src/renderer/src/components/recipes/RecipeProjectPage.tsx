@@ -761,12 +761,21 @@ export default function RecipeProjectPage() {
             </div>
 
             {/* Bulk action bar */}
-            {selectedFileIds.size > 0 && (
+            {(selectedFileIds.size > 0 || selectedFile) && (
               <div className="flex items-center gap-2 mb-3 p-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
                 <CheckSquare size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />
                 <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
-                  {selectedFileIds.size} selected
+                  {selectedFileIds.size > 0 ? `${selectedFileIds.size} selected` : selectedFile?.displayName ?? '1 selected'}
                 </span>
+                {selectedFile && selectedFileIds.size === 0 && (
+                  <button
+                    onClick={() => setSelectedFile(null)}
+                    className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-800/40 text-blue-600 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-700/50 transition-colors ml-1"
+                    title="Deselect"
+                  >
+                    <X size={11} /> Deselect
+                  </button>
+                )}
                 <div className="flex items-center gap-1.5 ml-auto">
                   {/* Bulk Assign */}
                   {canEdit && (
@@ -1216,15 +1225,6 @@ function FileExplorerCard({
         ${file.status === 'done' ? 'opacity-60' : ''}
       `}
     >
-      {/* X to deselect — top-right, only when this card is selected */}
-      {selected && (
-        <div
-          className="absolute top-1 right-1 z-10 h-4 w-4 flex items-center justify-center rounded-full bg-green-400 text-white hover:bg-red-400 transition-colors"
-          title="Deselect"
-        >
-          <X size={9} />
-        </div>
-      )}
 
       {/* Checkbox top-left */}
       <div
