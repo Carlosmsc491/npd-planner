@@ -37,7 +37,7 @@ import RecipeFileManagerDialog from './RecipeFileManagerDialog'
 import RecipeSettingsTab from './settings/RecipeSettingsTab'
 import { PhotoManagerView } from './PhotoManagerView'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification, RenameWithPhotosResult } from '../../types'
-import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera, BookOpen } from 'lucide-react'
+import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera, BookOpen, FileText } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
 import { resolveProjectRootPath, toLibraryRelativePath, formatProjectLocation } from '../../utils/photoUtils'
 import RecipeInstructionsModal, { shouldShowInstructions } from './RecipeInstructionsModal'
@@ -572,8 +572,8 @@ export default function RecipeProjectPage() {
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border-gray-200 dark:border-gray-700'
             }`}
           >
-            <Camera size={13} />
-            {view === 'photo-manager' ? '← Recipes' : 'Photo Manager'}
+            {view === 'photo-manager' ? <FileText size={13} /> : <Camera size={13} />}
+            {view === 'photo-manager' ? 'Recipes' : 'Photo Manager'}
           </button>
         )}
 
@@ -901,7 +901,10 @@ export default function RecipeProjectPage() {
                       currentUserUid={user?.uid}
                       userRole={user?.role}
                       selectedFileIds={selectedFileIds}
-                      onSelectFile={setSelectedFile}
+                      onSelectFile={(file) => {
+                        if (selectedFile?.id === file.id) setSelectedFile(null)
+                        else setSelectedFile(file)
+                      }}
                       onOpenInExcel={handleOpenInExcelForFile}
                       onClaim={handleClaimForFile}
                       onCheckToggle={toggleCheck}
@@ -941,7 +944,10 @@ export default function RecipeProjectPage() {
                 currentUserUid={user?.uid}
                 userRole={user?.role}
                 selectedFileIds={selectedFileIds}
-                onSelectFile={setSelectedFile}
+                onSelectFile={(file) => {
+                  if (selectedFile?.id === file.id) setSelectedFile(null)
+                  else setSelectedFile(file)
+                }}
                 onOpenInExcel={handleOpenInExcelForFile}
                 onClaim={handleClaimForFile}
                 onCheckToggle={toggleCheck}
