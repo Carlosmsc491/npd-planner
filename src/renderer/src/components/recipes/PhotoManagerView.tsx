@@ -726,9 +726,21 @@ export function PhotoManagerView({ project, effectiveRootPath }: Props) {
             ))}
             {readyRecipes.length > 0 ? (
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">
-                  Processed — click to select
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                    Processed — click to select
+                  </p>
+                  <button
+                    onClick={() => {
+                      setSelectedReadyIds(new Set(readyRecipes.map(r => r.id)))
+                      openExportDialog('zip')
+                    }}
+                    disabled={exportLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                  >
+                    <Archive size={12} /> Compress All
+                  </button>
+                </div>
                 <div className="grid grid-cols-4 gap-3">
                   {readyRecipes.map(recipe => (
                     <ReadyCard
