@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import {
   X, Wrench, FolderSymlink, MapPin, ShieldCheck, MonitorCheck,
+  MousePointerClick, EyeOff, FileText, List,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.6.1'
+const CURRENT_VERSION = '1.6.2'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Fix {
@@ -16,40 +17,36 @@ interface Fix {
 
 const FIXES: Fix[] = [
   {
-    icon: FolderSymlink,
+    icon: MousePointerClick,
     color: '#1D9E75',
-    title: 'Portable Project Folders',
+    title: 'Deselect Recipe in List View',
     description:
-      'Project folders are now stored as library-relative paths instead of absolute machine paths. ' +
-      'Opening a project created on another computer — or on a different OS — resolves correctly ' +
-      'to each user\'s local OneDrive folder without any manual adjustments.',
+      'Clicking a selected recipe row in list view now deselects it, matching the grid view behavior. ' +
+      'You can also deselect from the grid by clicking the same card a second time.',
   },
   {
-    icon: MapPin,
+    icon: EyeOff,
     color: '#378ADD',
-    title: 'Friendly Location Display',
+    title: 'Excel Blocked Until Claimed',
     description:
-      'The Location column in the project list now shows a readable breadcrumb ' +
-      '(e.g. "NPD-SECURE / IFPA 2026") instead of a raw file-system path. ' +
-      'Works for both new and legacy projects created on any machine.',
+      'Double-clicking or clicking a recipe card no longer opens the Excel file directly. ' +
+      'Users must click "Claim Recipe" first — preventing accidental simultaneous edits.',
   },
   {
-    icon: ShieldCheck,
+    icon: FileText,
     color: '#8B5CF6',
-    title: 'Cross-Platform Path Resolution',
+    title: 'Photo Manager — Recipes Button',
     description:
-      'Fixed a bug where the SharePoint path saved on one operating system ' +
-      '(Mac or Windows) was being applied on the other, causing projects to appear ' +
-      'missing. Each machine now uses its own locally-stored path.',
+      'The "← Recipes" button in Photo Manager has been updated: it now shows a file icon ' +
+      'and reads "Recipes" without the back arrow, for a cleaner look.',
   },
   {
-    icon: MonitorCheck,
+    icon: List,
     color: '#F59E0B',
-    title: 'Smarter Folder Not Found Message',
+    title: 'Recipe Validation — Full Text Visible',
     description:
-      'When a project folder cannot be located on the current machine, the app now ' +
-      'shows a clear, non-alarming message with the expected location path and a quick ' +
-      'link to update the folder — instead of an abrupt error.',
+      'Field names and values in the validation dialog no longer get cut off. ' +
+      'All text wraps fully so you can read every field and suggested change without truncation.',
   },
 ]
 
