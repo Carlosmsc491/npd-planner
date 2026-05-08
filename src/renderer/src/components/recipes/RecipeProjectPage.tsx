@@ -49,6 +49,7 @@ export default function RecipeProjectPage() {
   const [project, setProject] = useState<RecipeProject | null>(null)
   const [projectLoading, setProjectLoading] = useState(true)
   const [selectedFile, setSelectedFile] = useState<RecipeFile | null>(null)
+  const [nudgeClaimAt, setNudgeClaimAt] = useState(0)
   const [presence, setPresence] = useState<RecipePresence[]>([])
   const [settings, setSettings] = useState<RecipeSettings | null>(null)
   const [scanKey, setScanKey] = useState(0)
@@ -1009,7 +1010,12 @@ export default function RecipeProjectPage() {
                     checked={selectedFileIds.has(file.id)}
                     currentUserUid={user?.uid}
                     userRole={user?.role}
-                    onSelect={() => setSelectedFile(file)}
+                    onSelect={() => {
+                      if (selectedFile?.id === file.id && file.status === 'pending') {
+                        setNudgeClaimAt(Date.now())
+                      }
+                      setSelectedFile(file)
+                    }}
                     onCheckToggle={() => toggleCheck(file.id)}
                     onDoubleClick={() => handleOpenInExcelForFile(file)}
                   />
@@ -1047,6 +1053,7 @@ export default function RecipeProjectPage() {
             onForceUnlock={handleForceUnlock}
             onRename={handleRename}
             ssdBase={ssdBase}
+            nudgeClaimAt={nudgeClaimAt}
           />
         </div>
       </div>
