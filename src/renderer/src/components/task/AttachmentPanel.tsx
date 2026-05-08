@@ -15,7 +15,7 @@ import { useAuthStore } from '../../store/authStore'
 import { Timestamp } from 'firebase/firestore'
 import * as pdfjsLib from 'pdfjs-dist'
 import type { Task, TaskAttachment, EmailAttachment } from '../../types'
-import { addEmailAttachment, removeEmailAttachment } from '../../lib/emailAttachments'
+import { addEmailAttachment, removeEmailAttachment, removeInnerAttachment } from '../../lib/emailAttachments'
 import EmailAttachmentCard from './EmailAttachmentCard'
 
 // Initialize PDF.js worker — different paths for dev vs production
@@ -568,6 +568,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
                 attachment={ea}
                 sharePointRoot={sharePointPath}
                 onRemove={(id) => removeEmailAttachment(task.id, task.emailAttachments ?? [], id)}
+                onRemoveInner={(innerId) => removeInnerAttachment(task.id, task.emailAttachments ?? [], ea.id, innerId)}
               />
             ))}
           </div>

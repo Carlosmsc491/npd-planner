@@ -2,7 +2,7 @@
 // Collapsible card showing an Outlook .msg attachment and its inner files
 
 import { useState, useEffect, useRef } from 'react'
-import { Mail, ChevronDown, Trash2, ExternalLink, Paperclip, Loader2 } from 'lucide-react'
+import { Mail, ChevronDown, Trash2, ExternalLink, Paperclip, Loader2, X } from 'lucide-react'
 import type { EmailAttachment, EmailInnerAttachment } from '../../types'
 import EmailViewerModal from './EmailViewerModal'
 
@@ -10,6 +10,7 @@ interface Props {
   attachment: EmailAttachment
   sharePointRoot: string | null
   onRemove: (id: string) => void
+  onRemoveInner: (innerId: string) => void
 }
 
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp']
@@ -41,9 +42,11 @@ function formatDate(ts: EmailAttachment['date']): string {
 function InnerAttRow({
   att,
   sharePointRoot,
+  onRemove,
 }: {
   att: EmailInnerAttachment
   sharePointRoot: string | null
+  onRemove: (id: string) => void
 }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState(false)
@@ -87,13 +90,22 @@ function InnerAttRow({
           )}
           <div className="flex items-center justify-between mt-1">
             <span className="text-[10px] text-gray-400 truncate">{att.name}</span>
-            <button
-              onClick={handleOpen}
-              title="Open in app"
-              className="shrink-0 flex items-center gap-1 text-[10px] text-blue-500 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              <ExternalLink size={9} /> Open
-            </button>
+            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <button
+                onClick={handleOpen}
+                title="Open in app"
+                className="flex items-center gap-1 text-[10px] text-blue-500 hover:text-blue-600"
+              >
+                <ExternalLink size={9} /> Open
+              </button>
+              <button
+                onClick={() => onRemove(att.id)}
+                title="Remove"
+                className="flex items-center justify-center text-gray-400 hover:text-red-500"
+              >
+                <X size={12} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -120,20 +132,29 @@ function InnerAttRow({
       <span className="flex-1 min-w-0 truncate text-xs text-gray-700 dark:text-gray-300">
         {att.name}
       </span>
-      <button
-        onClick={handleOpen}
-        title="Open file"
-        className="shrink-0 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900/30 opacity-0 group-hover:opacity-100 transition-opacity"
-      >
-        <ExternalLink size={10} />
-        Open
-      </button>
+      <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={handleOpen}
+          title="Open file"
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+        >
+          <ExternalLink size={10} />
+          Open
+        </button>
+        <button
+          onClick={() => onRemove(att.id)}
+          title="Remove"
+          className="rounded p-0.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+        >
+          <X size={12} />
+        </button>
+      </div>
     </div>
   )
 }
 
 // ── Main card ─────────────────────────────────────────────────────────────────
-export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemove }: Props) {
+export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemove, onRemoveInner }: Props) {
   const [expanded, setExpanded] = useState(attachment.innerAttachments.length > 0)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [viewerOpen, setViewerOpen] = useState(false)
@@ -254,7 +275,7 @@ export default function EmailAttachmentCard({ attachment, sharePointRoot, onRemo
         <div className="border-t border-blue-100 dark:border-blue-800/30 pb-1">
           {hasInner ? (
             attachment.innerAttachments.map((inner) => (
-              <InnerAttRow key={inner.id} att={inner} sharePointRoot={sharePointRoot} />
+              <InnerAttRow key={inner.id} att={inner} sharePointRoot={sharePointRoot} onRemove={onRemoveInner} />
             ))
           ) : (
             <p className="px-4 py-2 text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">

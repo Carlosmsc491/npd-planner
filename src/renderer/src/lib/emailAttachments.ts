@@ -28,3 +28,20 @@ export async function removeEmailAttachment(
     updatedAt: Timestamp.now(),
   })
 }
+
+export async function removeInnerAttachment(
+  taskId: string,
+  currentAttachments: EmailAttachment[],
+  emailId: string,
+  innerId: string
+): Promise<void> {
+  const ref = doc(db, 'tasks', taskId)
+  await updateDoc(ref, {
+    emailAttachments: currentAttachments.map((ea) =>
+      ea.id === emailId
+        ? { ...ea, innerAttachments: ea.innerAttachments.filter((ia) => ia.id !== innerId) }
+        : ea
+    ),
+    updatedAt: Timestamp.now(),
+  })
+}
