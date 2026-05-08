@@ -156,9 +156,6 @@ export default function RecipeInstructionsModal({ projectId, projectName, onClos
                   >
                     <Icon size={17} />
                   </div>
-                  {i < STEPS.length - 1 && (
-                    <ChevronRight size={12} className="text-gray-300 dark:text-gray-700 rotate-90" />
-                  )}
                 </div>
                 {/* Text */}
                 <div className="pb-1 pt-0.5">
