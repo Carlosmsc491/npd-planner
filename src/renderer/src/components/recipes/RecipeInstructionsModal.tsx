@@ -136,9 +136,9 @@ export default function RecipeInstructionsModal({ projectId, projectName, onClos
           </div>
           <button
             onClick={handleClose}
-            className="ml-auto shrink-0 h-7 w-7 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            className="ml-auto shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           >
-            <X size={14} />
+            <X size={18} />
           </button>
         </div>
 
