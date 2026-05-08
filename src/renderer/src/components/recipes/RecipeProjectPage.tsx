@@ -760,22 +760,13 @@ export default function RecipeProjectPage() {
               </div>
             </div>
 
-            {/* Bulk action bar */}
-            {(selectedFileIds.size > 0 || selectedFile) && (
+            {/* Bulk action bar — only for checkbox multi-select */}
+            {selectedFileIds.size > 0 && (
               <div className="flex items-center gap-2 mb-3 p-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
                 <CheckSquare size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />
                 <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
-                  {selectedFileIds.size > 0 ? `${selectedFileIds.size} selected` : selectedFile?.displayName ?? '1 selected'}
+                  {selectedFileIds.size} selected
                 </span>
-                {selectedFile && selectedFileIds.size === 0 && (
-                  <button
-                    onClick={() => setSelectedFile(null)}
-                    className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-800/40 text-blue-600 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-700/50 transition-colors ml-1"
-                    title="Deselect"
-                  >
-                    <X size={11} /> Deselect
-                  </button>
-                )}
                 <div className="flex items-center gap-1.5 ml-auto">
                   {/* Bulk Assign */}
                   {canEdit && (
@@ -815,10 +806,9 @@ export default function RecipeProjectPage() {
                   {/* Deselect */}
                   <button
                     onClick={() => setSelectedFileIds(new Set())}
-                    className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-1"
-                    title="Clear selection"
+                    className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
-                    <X size={14} />
+                    <X size={12} /> Deselect
                   </button>
                 </div>
               </div>
