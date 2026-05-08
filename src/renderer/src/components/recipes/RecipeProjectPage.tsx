@@ -1156,7 +1156,7 @@ function FileExplorerCard({
   const isSm = size === 'sm'
   const photoStatus = file.photoStatus ?? 'pending'
 
-  const { activeNotes } = useRecipeNotes(file.projectId, file.fileId)
+  const { activeNotes } = useRecipeNotes(file.projectId, file.fileId, file.activeNotesCount ?? 0)
 
   function handleCameraClick(e: React.MouseEvent) {
     e.stopPropagation()
@@ -1240,11 +1240,11 @@ function FileExplorerCard({
             <rect x="14" y="8" width="4" height="8" rx="1" fill="white" opacity="0.2" />
           </svg>
         </div>
-        {(file.activeNotesCount ?? 0) > 0 && (
+        {activeNotes.length > 0 && (
           <div
             className="absolute -bottom-1 -right-1 rounded-full bg-amber-400 dark:bg-amber-500 flex items-center justify-center"
             style={{ width: 14, height: 14 }}
-            title={`${file.activeNotesCount} active note${file.activeNotesCount !== 1 ? 's' : ''}`}
+            title={`${activeNotes.length} active note${activeNotes.length !== 1 ? 's' : ''}`}
           >
             <AlertTriangle size={8} className="text-white" />
           </div>
