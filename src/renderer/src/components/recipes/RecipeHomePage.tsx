@@ -308,7 +308,7 @@ function ProjectRow({
       <td className="px-4 py-3 max-w-xs">
         <span className="text-xs text-gray-400 dark:text-gray-500 truncate block"
               title={project.relativeRootPath ?? project.rootPath ?? ''}>
-          {formatProjectLocation(project.relativeRootPath, spPath)}
+          {formatProjectLocation(project.relativeRootPath, spPath, project.rootPath)}
         </span>
       </td>
       <td className="px-4 py-3">

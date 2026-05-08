@@ -69,14 +69,41 @@ export function fromLibraryRelativePath(relPath: string, spPath: string): string
  * e.g. relativeRootPath="IFPA 2026", spPath=".../Documents - NPD-SECURE/..."
  *   → "NPD-SECURE / IFPA 2026"
  */
-export function formatProjectLocation(relativeRootPath: string | undefined, spPath: string): string {
-  if (!relativeRootPath) return ''
+export function formatProjectLocation(relativeRootPath: string | undefined, spPath: string, fallbackAbsPath?: string): string {
   const libraryRoot = getLibraryRoot(spPath)
   const libraryName = libraryRoot
     ? libraryRoot.replace(/\\/g, '/').split('/').pop()?.replace(/^Documents\s*[-–]\s*/i, '') ?? ''
     : ''
-  const segments = relativeRootPath.replace(/\\/g, '/').split('/').filter(Boolean)
-  return libraryName ? [libraryName, ...segments].join(' / ') : segments.join(' / ')
+
+  // Use relativeRootPath if available
+  if (relativeRootPath) {
+    const segments = relativeRootPath.replace(/\\/g, '/').split('/').filter(Boolean)
+    return libraryName ? [libraryName, ...segments].join(' / ') : segments.join(' / ')
+  }
+
+  // Legacy: derive from absolute path via library root segment matching
+  if (fallbackAbsPath && libraryRoot) {
+    const normalLib = libraryRoot.replace(/\\/g, '/').replace(/\/$/, '')
+    const normalAbs = fallbackAbsPath.replace(/\\/g, '/')
+    if (normalAbs.startsWith(normalLib + '/')) {
+      const rel = normalAbs.slice(normalLib.length + 1)
+      const segments = rel.split('/').filter(Boolean)
+      return libraryName ? [libraryName, ...segments].join(' / ') : segments.join(' / ')
+    }
+    // Segment-match fallback: find library name in absolute path
+    const libSegment = normalLib.split('/').pop() ?? ''
+    const absIdx = normalAbs.indexOf(libSegment)
+    if (absIdx !== -1) {
+      const rel = normalAbs.slice(absIdx + libSegment.length + 1)
+      const segments = rel.split('/').filter(Boolean)
+      return libraryName ? [libraryName, ...segments].join(' / ') : segments.join(' / ')
+    }
+    // Final fallback: just the last 2 segments of the absolute path
+    const parts = normalAbs.split('/').filter(Boolean)
+    return parts.slice(-2).join(' / ')
+  }
+
+  return ''
 }
 
 /** Resolve a stored photo path to a local absolute path.
