@@ -37,15 +37,17 @@ export default function App() {
   const { open: searchOpen, openSearch, closeSearch } = useGlobalSearchState()
   const [updateReady, setUpdateReady] = useState(false)
   const [updateAvailable, setUpdateAvailable] = useState(false)
+  const [updaterError, setUpdaterError] = useState<string | null>(null)
   const navigate = useNavigate()
 
   useKeyboardShortcuts(openSearch)
 
   // Listen for auto-update events from main process
   useEffect(() => {
-    const offAvailable = window.electronAPI.onUpdateAvailable(() => setUpdateAvailable(true))
+    const offAvailable = window.electronAPI.onUpdateAvailable(() => { setUpdateAvailable(true); setUpdaterError(null) })
     const offReady = window.electronAPI.onUpdateDownloaded(() => { setUpdateReady(true); setUpdateAvailable(false) })
-    return () => { offAvailable(); offReady() }
+    const offError = window.electronAPI.onUpdaterError((msg) => setUpdaterError(msg))
+    return () => { offAvailable(); offReady(); offError() }
   }, [])
 
   // Listen for desktop notification clicks — navigate to the task
@@ -102,6 +104,20 @@ export default function App() {
     {/* Welcome Wizard — shown on first login when SharePoint path not set */}
     {user?.status === 'active' && !user?.preferences?.sharePointPath && (
       <WelcomeWizard user={user} onComplete={() => window.location.reload()} />
+    )}
+
+    {/* Updater error — visible so users can report it */}
+    {updaterError && !updateAvailable && !updateReady && (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-red-600 text-white px-5 py-3 rounded-xl shadow-xl text-sm font-medium max-w-lg">
+        <span className="truncate">Update check failed: {updaterError}</span>
+        <button
+          onClick={() => { setUpdaterError(null); window.electronAPI.checkForUpdatesNow() }}
+          className="shrink-0 bg-white text-red-600 px-3 py-1 rounded-lg font-semibold hover:bg-red-50 transition-colors"
+        >
+          Retry
+        </button>
+        <button onClick={() => setUpdaterError(null)} className="shrink-0 opacity-70 hover:opacity-100">✕</button>
+      </div>
     )}
 
     {/* Update available — downloading in background */}
