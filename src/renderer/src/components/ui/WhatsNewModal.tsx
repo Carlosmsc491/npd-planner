@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import {
   X, Wrench,
-  FolderSearch, ImageOff, AlertTriangle, Bell,
+  FolderSearch, FolderCheck, Layers, RefreshCw,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.6.3'
+const CURRENT_VERSION = '1.6.4'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Fix {
@@ -19,36 +19,35 @@ const FIXES: Fix[] = [
   {
     icon: FolderSearch,
     color: '#1D9E75',
-    title: 'Smart Project Folder Discovery',
+    title: 'NPD Projects Root Setup',
     description:
-      'The app now finds your project folder automatically on any machine. ' +
-      'It scans your configured projects root for a matching project ID, then falls back ' +
-      'to the OneDrive path — no manual re-linking needed when switching computers.',
+      'On first launch the app now prompts you to select your local NPD-SECURE sync folder. ' +
+      'This path is saved on each machine and pre-fills the wizard so you never have to browse manually.',
   },
   {
-    icon: ImageOff,
+    icon: FolderCheck,
     color: '#378ADD',
-    title: 'Photos Now Display in Photo Manager',
+    title: 'Project Folder Auto-Discovery',
     description:
-      'Fixed a bug where photos appeared blank on machines other than the one that ' +
-      'created the project. Images now load correctly across all team members.',
+      'Each project folder now contains a _project/project.json with its ID. ' +
+      'When another team member opens the app, it scans the projects root and finds the folder automatically — ' +
+      'no manual re-linking needed.',
   },
   {
-    icon: AlertTriangle,
+    icon: Layers,
     color: '#F59E0B',
-    title: 'False Warning Badge Fixed',
+    title: 'Recipe Subfolder Grouping Fixed',
     description:
-      'Recipe cards no longer show a warning triangle when there are no active notes. ' +
-      'The badge now reads from the live note list and auto-repairs any stale counter.',
+      'Recipes created inside subfolders (e.g. "test a / ELA") now correctly appear ' +
+      'grouped by their subfolder in the project view. Previously all recipes appeared flat on Windows.',
   },
   {
-    icon: Bell,
+    icon: RefreshCw,
     color: '#8B5CF6',
-    title: 'Selection Bar & Photo Manager',
+    title: 'Excel Write Retry (RPC_E_CALL_REJECTED)',
     description:
-      'The blue selection bar now only appears for checkbox multi-select. ' +
-      'A "Deselect" button was added next to "Assign to…". ' +
-      'Compress All button added to the READY tab in Photo Manager.',
+      'When Excel was busy at write time, the app now automatically retries the COM call ' +
+      'up to 6 times with backoff — eliminating the "Call was rejected by callee" error.',
   },
 ]
 
@@ -87,10 +86,10 @@ export default function WhatsNewModal() {
             <Wrench size={26} className="text-white" />
           </div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-            Improvements in {CURRENT_VERSION}
+            What&apos;s New in {CURRENT_VERSION}
           </h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Bug fixes and reliability improvements
+            Cross-machine discovery, subfolder fix & Excel reliability
           </p>
         </div>
 
@@ -130,7 +129,7 @@ export default function WhatsNewModal() {
             onClick={dismiss}
             className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:from-blue-700 hover:to-indigo-700 transition-all"
           >
-            Got it, let's go!
+            Got it, let&apos;s go!
           </button>
         </div>
       </div>
