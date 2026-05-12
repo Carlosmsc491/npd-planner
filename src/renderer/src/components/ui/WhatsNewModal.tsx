@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import {
   X, Wrench,
-  MousePointerClick, EyeOff, FileText, List,
+  FolderSearch, ImageOff, AlertTriangle, Bell,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.6.2'
+const CURRENT_VERSION = '1.6.3'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Fix {
@@ -17,36 +17,38 @@ interface Fix {
 
 const FIXES: Fix[] = [
   {
-    icon: MousePointerClick,
+    icon: FolderSearch,
     color: '#1D9E75',
-    title: 'Deselect Recipe in List View',
+    title: 'Smart Project Folder Discovery',
     description:
-      'Clicking a selected recipe row in list view now deselects it, matching the grid view behavior. ' +
-      'You can also deselect from the grid by clicking the same card a second time.',
+      'The app now finds your project folder automatically on any machine. ' +
+      'It scans your configured projects root for a matching project ID, then falls back ' +
+      'to the OneDrive path — no manual re-linking needed when switching computers.',
   },
   {
-    icon: EyeOff,
+    icon: ImageOff,
     color: '#378ADD',
-    title: 'Excel Blocked Until Claimed',
+    title: 'Photos Now Display in Photo Manager',
     description:
-      'Double-clicking or clicking a recipe card no longer opens the Excel file directly. ' +
-      'Users must click "Claim Recipe" first — preventing accidental simultaneous edits.',
+      'Fixed a bug where photos appeared blank on machines other than the one that ' +
+      'created the project. Images now load correctly across all team members.',
   },
   {
-    icon: FileText,
-    color: '#8B5CF6',
-    title: 'Photo Manager — Recipes Button',
-    description:
-      'The "← Recipes" button in Photo Manager has been updated: it now shows a file icon ' +
-      'and reads "Recipes" without the back arrow, for a cleaner look.',
-  },
-  {
-    icon: List,
+    icon: AlertTriangle,
     color: '#F59E0B',
-    title: 'Recipe Validation — Full Text Visible',
+    title: 'False Warning Badge Fixed',
     description:
-      'Field names and values in the validation dialog no longer get cut off. ' +
-      'All text wraps fully so you can read every field and suggested change without truncation.',
+      'Recipe cards no longer show a warning triangle when there are no active notes. ' +
+      'The badge now reads from the live note list and auto-repairs any stale counter.',
+  },
+  {
+    icon: Bell,
+    color: '#8B5CF6',
+    title: 'Selection Bar & Photo Manager',
+    description:
+      'The blue selection bar now only appears for checkbox multi-select. ' +
+      'A "Deselect" button was added next to "Assign to…". ' +
+      'Compress All button added to the READY tab in Photo Manager.',
   },
 ]
 
