@@ -155,7 +155,7 @@ async function walkXlsx(
       if (entry.name === '_project' || entry.name === 'PICTURES') continue
       await walkXlsx(rootPath, fullPath, results)
     } else if (entry.isFile() && entry.name.endsWith('.xlsx') && !entry.name.startsWith('~$')) {
-      const relativePath = path.relative(rootPath, fullPath)
+      const relativePath = path.relative(rootPath, fullPath).replace(/\\/g, '/')
       const parsed = parseRecipeFilename(entry.name)
       let recipeUid = ''
       try {
