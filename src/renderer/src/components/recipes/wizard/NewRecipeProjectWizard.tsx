@@ -73,10 +73,11 @@ export default function NewRecipeProjectWizard() {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<ProgressStep[]>([])
+  const [folderExistsError, setFolderExistsError] = useState<string | null>(null)
 
   const [data, setData] = useState<WizardData>({
     name: '',
-    rootPath: '',
+    rootPath: localStorage.getItem('npd:projects_root') ?? '',
     templatePath: '',
     sourceMode: 'from_scratch',
     dueDate: null,
@@ -90,6 +91,7 @@ export default function NewRecipeProjectWizard() {
   })
 
   function patchData(updates: Partial<WizardData>) {
+    if ('name' in updates || 'rootPath' in updates) setFolderExistsError(null)
     setData((prev) => ({ ...prev, ...updates }))
   }
 
@@ -112,7 +114,19 @@ export default function NewRecipeProjectWizard() {
 
   // ── Navigation ──────────────────────────────────────────────────────────
 
-  function goNext() {
+  async function goNext() {
+    if (step === 1) {
+      setFolderExistsError(null)
+      const folderName = sanitizeWindowsName(data.name.trim())
+      const proposedPath = `${data.rootPath}/${folderName}`
+      try {
+        const exists = await window.electronAPI.recipePathExists(proposedPath)
+        if (exists) {
+          setFolderExistsError(`A folder named "${folderName}" already exists in the selected location. Choose a different project name.`)
+          return
+        }
+      } catch { /* ignore — let creation step surface any real FS error */ }
+    }
     if (step < 3) setStep(step + 1)
   }
 
@@ -483,6 +497,13 @@ export default function NewRecipeProjectWizard() {
               }}
             />
           )}
+        </div>
+      )}
+
+      {/* Folder already exists error */}
+      {folderExistsError && (
+        <div className="mt-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+          {folderExistsError}
         </div>
       )}
 

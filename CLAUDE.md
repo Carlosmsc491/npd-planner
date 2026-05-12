@@ -686,6 +686,22 @@ Update these as you complete each feature. Add [x] when done.
 - `photo:show-save-dialog(defaultFilename)` → `string | null`
 - `photo:export-zip(entries, destZipPath)` → `{ success, error? }`
 
+### Phase 9 — Cross-Machine Project Discovery (v1.6.3+)
+- [x] `_project/project.json` written on project create/import with `{ projectId }`
+- [x] `useProjectRootPath` hook — 4-step resolution: cache → scan → legacy → pathNotFound
+- [x] `npd:projects_root` localStorage key — root folder where all NPD projects live
+- [x] `npd:project_path_{id}` localStorage key — per-machine cache of resolved absolute path
+- [x] IPC: `recipe:find-project-folder` — scans up to 3 levels for `_project/project.json` match
+- [x] IPC: `recipe:write-project-json` — writes/merges `_project/project.json`
+- [x] `RecipeHomePage` setup banner (amber/dashed) when `npd:projects_root` not set
+- [x] `RecipeHomePage` status bar (green) showing configured root with "Change" button
+- [x] `NewRecipeProjectWizard` pre-fills Parent Folder from `npd:projects_root`
+- [x] `NewRecipeProjectWizard` validates folder name doesn't already exist before step 2
+
+**localStorage keys:**
+- `npd:projects_root` → absolute path to root folder (set once per machine)
+- `npd:project_path_{projectId}` → absolute path to specific project on this machine
+
 ### Phase 8 — Analytics & Build
 - [ ] Analytics dashboard (admin only): tasks/week, load by person, top clients
 - [x] Annual archive: auto-detect tasks > 12 months old on startup

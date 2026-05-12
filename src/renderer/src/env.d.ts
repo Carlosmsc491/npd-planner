@@ -79,6 +79,8 @@ interface IElectronAPI {
     }
     error?: string
   }>
+  recipeFindProjectFolder: (args: { projectId: string; projectsRoot: string }) => Promise<{ found: string | null; error?: string }>
+  recipeWriteProjectJson: (args: { folderPath: string; projectId: string }) => Promise<{ success: boolean; error?: string }>
   // Camera / Photo Capture
   startCameraTethering: (outputDir: string) => Promise<{ success: boolean; error?: string }>
   stopCameraTethering: () => Promise<void>

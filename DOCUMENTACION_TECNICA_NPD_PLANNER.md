@@ -1289,7 +1289,42 @@ Para migrar proyectos creados con EliteQuote (la app hermana):
 6. Navega al proyecto
 ```
 
-### 12.7 Default Template
+### 12.7 Descubrimiento de Proyectos por ID (Cross-Machine)
+
+Cada proyecto en disco lleva un archivo `_project/project.json` con su `projectId`:
+```json
+{ "projectId": "abc123xyz" }
+```
+
+El hook `useProjectRootPath` resuelve el path absoluto de un proyecto en el orden:
+1. **Cache local** → `localStorage npd:project_path_{id}` (verificado contra disco; se elimina si ya no existe)
+2. **Scan** → busca bajo `npd:projects_root` carpetas con `_project/project.json` cuyo `projectId` coincida
+3. **Fallback legacy** → `resolveProjectRootPath(relativeRootPath, sharePointPath)` (guarda al cache si encontrado)
+4. **pathNotFound=true** → muestra banner "Locate Folder" en RecipeProjectPage
+
+Esto permite que cada máquina encuentre el proyecto automáticamente sin depender de rutas absolutas hardcodeadas.
+
+#### localStorage keys utilizados
+
+| Key | Valor | Descripción |
+|---|---|---|
+| `npd:projects_root` | Ruta absoluta | Carpeta raíz de todos los proyectos NPD en esta máquina |
+| `npd:project_path_{projectId}` | Ruta absoluta | Path resuelto del proyecto en esta máquina (cache) |
+
+#### Setup del folder raíz
+
+En `RecipeHomePage`, si `npd:projects_root` no está configurado, se muestra un **banner de setup** (amber/dashed) que invita al usuario a seleccionar la carpeta raíz. Una vez configurada, el banner cambia a verde con opción "Change".
+
+El wizard (`NewRecipeProjectWizard`) pre-llena el campo "Parent Folder" con `npd:projects_root`, y valida que el nombre del proyecto no exista ya como carpeta antes de avanzar al paso 2.
+
+#### IPC channels involucrados
+
+| Canal | Dirección | Descripción |
+|---|---|---|
+| `recipe:find-project-folder` | renderer→main | Escanea hasta 3 niveles bajo `projectsRoot` buscando `_project/project.json` con `projectId` |
+| `recipe:write-project-json` | renderer→main | Escribe/merge `_project/project.json` con `{ projectId }` |
+
+### 12.8 Default Template
 
 Un template Excel (`ELITE QUOTE BOUQUET 2026.xlsx`) está **bundleado en la app** en `resources/templates/`. Al abrir el wizard por primera vez, `WizardStepBasics` auto-rellena el campo de template con ese path, mostrando badge verde "Default". El usuario puede cambiarlo con Browse.
 

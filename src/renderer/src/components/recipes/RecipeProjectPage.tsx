@@ -91,7 +91,7 @@ export default function RecipeProjectPage() {
   const canEdit = user ? canEditArea(user, 'recipes') : false
 
   // Async path resolution: cache → scan projectsRoot → legacy relativeRootPath fallback
-  const { effectiveRootPath, pathLoading, pathNotFound, handleLocateFolder, refresh: refreshPath } =
+  const { effectiveRootPath, pathLoading, pathNotFound, handleLocateFolder } =
     useProjectRootPath(project, user)
 
   const sharePointPath = localStorage.getItem('npd_sharepoint_path') || user?.preferences?.sharePointPath || ''

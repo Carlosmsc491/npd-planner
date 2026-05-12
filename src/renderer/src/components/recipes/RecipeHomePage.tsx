@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, FolderOpen, FolderPlus, Trash2, Loader2, ChevronDown } from 'lucide-react'
+import { Plus, FolderOpen, FolderPlus, Trash2, Loader2, ChevronDown, FolderSearch, CheckCircle2 } from 'lucide-react'
 import { subscribeToRecipeProjects, deleteRecipeProject, createRecipeProject } from '../../lib/recipeFirestore'
 import { useRecipeStore } from '../../store/recipeStore'
 import { useTaskStore } from '../../store/taskStore'
@@ -32,6 +32,18 @@ export default function RecipeHomePage() {
   const [importError, setImportError] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+
+  const [projectsRoot, setProjectsRoot] = useState(() => localStorage.getItem('npd:projects_root') ?? '')
+  const [settingRoot, setSettingRoot] = useState(false)
+
+  async function handleSetProjectsRoot() {
+    const selected = await window.electronAPI.selectFolder()
+    if (!selected) return
+    setSettingRoot(true)
+    localStorage.setItem('npd:projects_root', selected)
+    setProjectsRoot(selected)
+    setSettingRoot(false)
+  }
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -214,6 +226,44 @@ export default function RecipeHomePage() {
         <div className="flex items-center gap-2 mb-4 px-4 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">
           <span className="flex-1">{importError}</span>
           <button onClick={() => setImportError(null)} className="ml-auto shrink-0 hover:opacity-70">✕</button>
+        </div>
+      )}
+
+      {/* NPD Projects root setup banner */}
+      {!projectsRoot ? (
+        <div className="mb-5 rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-5 py-4 flex items-start gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-800/40 text-amber-600 dark:text-amber-400">
+            <FolderSearch size={20} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+              Select your NPD Projects folder
+            </p>
+            <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+              Choose the root folder where all your NPD project folders live — typically your local
+              OneDrive NPD-SECURE sync folder. The app saves this path on this machine so the wizard
+              can pre-fill it automatically, and other users&apos; machines can scan it to find projects by ID.
+            </p>
+          </div>
+          <button
+            onClick={handleSetProjectsRoot}
+            disabled={settingRoot}
+            className="shrink-0 flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-2 transition-colors disabled:opacity-60"
+          >
+            {settingRoot ? <Loader2 size={12} className="animate-spin" /> : <FolderOpen size={12} />}
+            Select Folder
+          </button>
+        </div>
+      ) : (
+        <div className="mb-4 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-xs text-green-700 dark:text-green-400">
+          <CheckCircle2 size={13} className="shrink-0" />
+          <span className="truncate font-mono">{projectsRoot}</span>
+          <button
+            onClick={handleSetProjectsRoot}
+            className="ml-auto shrink-0 text-green-600 dark:text-green-400 hover:underline whitespace-nowrap"
+          >
+            Change
+          </button>
         </div>
       )}
 

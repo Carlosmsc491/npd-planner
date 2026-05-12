@@ -8,7 +8,7 @@
 import { useState } from 'react'
 import {
   X, MousePointerClick, FileSpreadsheet, CheckSquare, Camera,
-  MessageSquare, Lock, BookOpen, ChevronRight, Save,
+  MessageSquare, Lock, BookOpen, Save,
 } from 'lucide-react'
 
 const LS_FOREVER = 'npd:recipe_instr_forever'
