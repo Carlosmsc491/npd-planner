@@ -344,23 +344,39 @@ async function writeExcelViaCOMWindows(files: ExcelFileWrite[]): Promise<void> {
 
   if (filesToProcess.length === 0) return
 
+  // Retry helper: catches RPC_E_CALL_REJECTED (0x80010001) and retries with backoff
+  const retryFn = [
+    'function Invoke-ComRetry {',
+    '  param([scriptblock]$Block, [int]$Retries = 6)',
+    '  for ($i = 0; $i -lt $Retries; $i++) {',
+    '    try { return (& $Block) }',
+    '    catch [System.Runtime.InteropServices.COMException] {',
+    '      if ($i -eq $Retries - 1) { throw }',
+    '      Start-Sleep -Milliseconds (($i + 1) * 400)',
+    '    }',
+    '  }',
+    '}',
+  ]
+
   const inner: string[] = []
   for (const { filePath, updates } of filesToProcess) {
     const absPath = path.resolve(filePath).replace(/'/g, "''")
-    inner.push(`  $wb = $excel.Workbooks.Open('${absPath}', 0, $false)`)
+    inner.push(`  $wb = Invoke-ComRetry { $excel.Workbooks.Open('${absPath}', 0, $false) }`)
     for (const { sheet, cell, value } of updates) {
       const safeSheet = sheet.replace(/'/g, "''")
       const safeValue = value.replace(/'/g, "''")
-      inner.push(`  $wb.Worksheets('${safeSheet}').Range('${cell}').Value = '${safeValue}'`)
+      inner.push(`  Invoke-ComRetry { $wb.Worksheets('${safeSheet}').Range('${cell}').Value = '${safeValue}' }`)
     }
     inner.push('  try { $excel.CalculateFull() } catch { }')
-    inner.push('  $wb.Save()')
+    inner.push('  Invoke-ComRetry { $wb.Save() }')
     inner.push('  $wb.Close($false)')
   }
 
   const script = [
     '$ErrorActionPreference = "Stop"',
+    ...retryFn,
     '$excel = New-Object -ComObject Excel.Application',
+    'Start-Sleep -Milliseconds 800',
     '$excel.Visible = $false',
     '$excel.DisplayAlerts = $false',
     'try {',
@@ -397,12 +413,24 @@ async function writeExcelViaCOMWindows(files: ExcelFileWrite[]): Promise<void> {
 
 /**
  * Cross-platform dispatcher: uses AppleScript on Mac, PowerShell COM on Windows.
+ * On Windows, retries up to 2 extra times if the whole COM session is rejected.
  */
 async function writeExcelViaCOM(files: ExcelFileWrite[]): Promise<void> {
   if (process.platform === 'darwin') {
     return writeExcelViaAppleScript(files)
   }
-  return writeExcelViaCOMWindows(files)
+  let lastErr: unknown
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await writeExcelViaCOMWindows(files)
+    } catch (err) {
+      lastErr = err
+      const msg = String(err)
+      if (!msg.includes('RPC_E_CALL_REJECTED') && !msg.includes('0x80010001')) throw err
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)))
+    }
+  }
+  throw lastErr
 }
 
 export function registerRecipeHandlers(): void {
