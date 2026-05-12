@@ -31,6 +31,7 @@ export function setupAutoUpdater(mainWindow: BrowserWindow): void {
 
   autoUpdater.on('error', (err) => {
     console.error('[Updater] Error:', err.message)
+    try { mainWindow.webContents.send('app:updater-error', err.message) } catch { /* ignore */ }
   })
 
   // Renderer can request immediate restart to apply update
@@ -38,10 +39,19 @@ export function setupAutoUpdater(mainWindow: BrowserWindow): void {
     autoUpdater.quitAndInstall()
   })
 
+  // Renderer can manually trigger a check
+  ipcMain.on('app:check-for-updates', () => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.warn('[Updater] manual check failed:', err.message)
+      try { mainWindow.webContents.send('app:updater-error', err.message) } catch { /* ignore */ }
+    })
+  })
+
   // Check for updates 10 seconds after launch to avoid slowing startup
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err) => {
       console.warn('[Updater] checkForUpdates failed:', err.message)
+      try { mainWindow.webContents.send('app:updater-error', err.message) } catch { /* ignore */ }
     })
   }, 10_000)
 

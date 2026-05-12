@@ -5,7 +5,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.6.4'
+const CURRENT_VERSION = '1.6.5'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Fix {

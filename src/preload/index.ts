@@ -82,6 +82,16 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IPC.UPDATE_DOWNLOADED, callback)
   },
 
+  onUpdaterError: (callback: (msg: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, msg: string) => callback(msg)
+    ipcRenderer.on('app:updater-error', handler)
+    return () => ipcRenderer.removeListener('app:updater-error', handler)
+  },
+
+  checkForUpdatesNow: (): void => {
+    ipcRenderer.send('app:check-for-updates')
+  },
+
   onNotificationClicked: (callback: (taskId: string) => void) => {
     ipcRenderer.on(IPC.NOTIFICATION_CLICKED, (_event, taskId) => callback(taskId))
     return () => ipcRenderer.removeAllListeners(IPC.NOTIFICATION_CLICKED)

@@ -41,6 +41,8 @@ interface IElectronAPI {
   onErrorData: (callback: (data: unknown) => void) => void
   onUpdateAvailable: (callback: () => void) => () => void
   onUpdateDownloaded: (callback: () => void) => () => void
+  onUpdaterError: (callback: (msg: string) => void) => () => void
+  checkForUpdatesNow: () => void
   onNotificationClicked: (callback: (taskId: string) => void) => () => void
   deleteTrashFolder: (folderPath: string) => Promise<{ success: boolean; error?: string }>
   saveTextFile: (destPath: string, content: string) => Promise<{ success: boolean; error?: string }>
