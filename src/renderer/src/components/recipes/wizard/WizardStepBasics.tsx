@@ -2,7 +2,7 @@
 // Step 1: Project name, root folder, template file, creation mode
 
 import { useEffect, useState } from 'react'
-import { FolderOpen, FileSpreadsheet, Package } from 'lucide-react'
+import { FolderOpen, FileSpreadsheet, Package, AlertTriangle } from 'lucide-react'
 
 const DEFAULT_TEMPLATE_NAME = 'ELITE QUOTE BOUQUET 2026'
 
@@ -24,6 +24,18 @@ interface Props {
 export default function WizardStepBasics({ data, onChange }: Props) {
   const [loadingTemplate, setLoadingTemplate] = useState(false)
 
+  // Keep rootPath in sync with npd:projects_root from localStorage
+  const projectsRoot = localStorage.getItem('npd:projects_root') ?? ''
+  useEffect(() => {
+    if (projectsRoot && !data.rootPath) {
+      onChange({ rootPath: projectsRoot })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Preview: show rootPath / sanitized(name)
+  const folderName = data.name.trim().replace(/[<>:"/\\|?*]/g, '').trim() || 'Project Name'
+  const previewRoot = data.rootPath || projectsRoot
+
   // Auto-fill default template on first render if none is set
   useEffect(() => {
     if (data.templatePath) return
@@ -39,11 +51,6 @@ export default function WizardStepBasics({ data, onChange }: Props) {
       setLoadingTemplate(false)
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function browseFolder() {
-    const selected = await window.electronAPI.selectFolder()
-    if (selected) onChange({ rootPath: selected })
-  }
 
   async function browseTemplate() {
     const selected = await window.electronAPI.selectFile()
@@ -122,25 +129,25 @@ export default function WizardStepBasics({ data, onChange }: Props) {
         )}
       </div>
 
-      {/* Root folder */}
+      {/* Project location — read-only, computed from projectsRoot + name */}
       <div>
         <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Parent Folder <span className="text-red-500">*</span>
+          Project will be created at
         </label>
-        <div className="flex gap-2">
-          <div className="flex-1 flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 min-w-0">
-            <FolderOpen size={14} className="shrink-0 text-gray-400" />
-            <span className="text-sm truncate text-gray-600 dark:text-gray-300 font-mono">
-              {data.rootPath || <span className="text-gray-400 font-sans">No folder selected</span>}
+        {previewRoot ? (
+          <div className="flex items-start gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2.5 min-w-0">
+            <FolderOpen size={14} className="shrink-0 mt-0.5 text-green-500" />
+            <span className="text-xs font-mono text-gray-500 dark:text-gray-400 break-all leading-relaxed">
+              {previewRoot}
+              <span className="text-green-600 dark:text-green-400 font-semibold">/{folderName}</span>
             </span>
           </div>
-          <button
-            onClick={browseFolder}
-            className="shrink-0 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-          >
-            Browse
-          </button>
-        </div>
+        ) : (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
+            <AlertTriangle size={13} className="shrink-0" />
+            No projects root configured. Go back to NPD Projects and select your projects folder first.
+          </div>
+        )}
       </div>
 
       {/* Template file */}
