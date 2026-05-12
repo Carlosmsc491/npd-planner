@@ -39,7 +39,7 @@ import { PhotoManagerView } from './PhotoManagerView'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification, RenameWithPhotosResult } from '../../types'
 import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Download, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
-import { resolveProjectRootPath } from '../../utils/photoUtils'
+import { useProjectRootPath } from '../../hooks/useProjectRootPath'
 
 export default function RecipeProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -86,14 +86,14 @@ export default function RecipeProjectPage() {
 
   const canEdit = user ? canEditArea(user, 'recipes') : false
 
-  // Resolve the project root path for the current user's machine.
-  // Stored paths may be absolute from another OS (e.g. Windows path on Mac).
-  // resolveProjectRootPath reconstructs the correct local path using the
-  // SharePoint folder name as a landmark — portable across users and OS.
-  const sharePointPath = user?.preferences?.sharePointPath ?? ''
-  const effectiveRootPath = project
-    ? resolveProjectRootPath(project.relativeRootPath ?? project.rootPath, sharePointPath)
-    : ''
+  // Async path resolution: cache → scan projectsRoot → legacy relativeRootPath fallback
+  const { effectiveRootPath, pathLoading, pathNotFound, handleLocateFolder } =
+    useProjectRootPath(project, user)
+
+  const sharePointPath = localStorage.getItem('npd_sharepoint_path') || user?.preferences?.sharePointPath || ''
+
+  // Pass empty string while resolving so useRecipeFiles doesn't scan prematurely
+  const rootFolderLabel = effectiveRootPath.split(/[/\\]/).filter(Boolean).pop() ?? project?.name ?? '(root)'
 
   const { currentLock, claimFile, unclaimFile } = useRecipeLock()
   const { files, filesByFolder, isLoading: filesLoading, scanError } = useRecipeFiles(
