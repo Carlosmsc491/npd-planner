@@ -39,7 +39,8 @@ import { PhotoManagerView } from './PhotoManagerView'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification, RenameWithPhotosResult } from '../../types'
 import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera, BookOpen, FileText } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
-import { resolveProjectRootPath, toLibraryRelativePath, formatProjectLocation } from '../../utils/photoUtils'
+import { toLibraryRelativePath, formatProjectLocation } from '../../utils/photoUtils'
+import { useProjectRootPath } from '../../hooks/useProjectRootPath'
 import RecipeInstructionsModal, { shouldShowInstructions } from './RecipeInstructionsModal'
 
 export default function RecipeProjectPage() {
@@ -89,21 +90,19 @@ export default function RecipeProjectPage() {
 
   const canEdit = user ? canEditArea(user, 'recipes') : false
 
-  // Resolve the project root path for the current user's machine.
-  // Stored paths may be absolute from another OS (e.g. Windows path on Mac).
-  // resolveProjectRootPath reconstructs the correct local path using the
-  // SharePoint folder name as a landmark — portable across users and OS.
+  // Async path resolution: cache → scan projectsRoot → legacy relativeRootPath fallback
+  const { effectiveRootPath, pathLoading, pathNotFound, handleLocateFolder, refresh: refreshPath } =
+    useProjectRootPath(project, user)
+
   const sharePointPath = localStorage.getItem('npd_sharepoint_path') || user?.preferences?.sharePointPath || ''
-  const effectiveRootPath = project
-    ? resolveProjectRootPath(project.relativeRootPath ?? project.rootPath ?? '', sharePointPath)
-    : ''
-  // Last segment of the root path (e.g. "EASTER") used as label for files with no subfolder
+
+  // Pass empty string while resolving so useRecipeFiles doesn't scan prematurely
   const rootFolderLabel = effectiveRootPath.split(/[/\\]/).filter(Boolean).pop() ?? project?.name ?? '(root)'
 
   const { currentLock, claimFile, unclaimFile } = useRecipeLock()
   const { files, filesByFolder, isLoading: filesLoading, scanError } = useRecipeFiles(
     projectId ?? '',
-    effectiveRootPath,
+    pathLoading ? '' : effectiveRootPath,
     scanKey,
     rootFolderLabel
   )
@@ -378,40 +377,21 @@ export default function RecipeProjectPage() {
     setScanKey((k) => k + 1)
   }, [projectId, project, selectedFile, files])
 
-  // ── Update folder path when project folder not found ─────────────────────
+  // ── Locate folder manually (used when path cannot be resolved automatically) ──
   const handleUpdateFolderPath = useCallback(async () => {
     if (!projectId || !project) return
-
-    const newPath = await window.electronAPI.selectFolder()
-    if (!newPath) return
-
-    // Verificar que la nueva ruta existe
-    const exists = await window.electronAPI.recipePathExists(newPath)
-    if (!exists) {
-      // Mostrar toast de error (usar alert por ahora, o implementar toast si existe)
-      alert('Selected folder does not exist or is not accessible.')
-      return
+    // The hook handles folder picker, caching, and writing project.json
+    await handleLocateFolder()
+    // Also update relativeRootPath in Firestore (keep legacy fallback current)
+    const newPath = localStorage.getItem(`npd:project_path_${projectId}`)
+    if (newPath && sharePointPath) {
+      const relPath = toLibraryRelativePath(newPath, sharePointPath)
+      if (relPath) {
+        updateRecipeProject(projectId, { relativeRootPath: relPath }).catch(() => {})
+      }
     }
-
-    // Only relativeRootPath is stored — relative to the OneDrive library root —
-    // so each machine resolves it against their own local library path.
-    const relPath = sharePointPath ? toLibraryRelativePath(newPath, sharePointPath) : undefined
-
-    if (!relPath) {
-      alert('The project folder must be inside your OneDrive library. Other users will not be able to see it otherwise.')
-      return
-    }
-
-    // Actualizar en Firestore
-    try {
-      await updateRecipeProject(projectId, { relativeRootPath: relPath })
-      // Disparar re-scan con la nueva ruta
-      setScanKey(k => k + 1)
-    } catch (err) {
-      console.error('Failed to update project path:', err)
-      alert('Failed to update project folder path.')
-    }
-  }, [projectId, project])
+    setScanKey(k => k + 1)
+  }, [projectId, project, handleLocateFolder, sharePointPath])
 
   // ── Filtered files logic ────────────────────────────────────────────────
   const filteredFiles = useMemo(() => {
@@ -839,27 +819,56 @@ export default function RecipeProjectPage() {
               </div>
             )}
 
-            {/* Error banner when project folder not found */}
-            {scanError && (
+            {/* Path resolving skeleton — shown while useProjectRootPath is working */}
+            {pathLoading && (
+              <div className="mb-4 flex items-center gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
+                <Loader2 size={14} className="animate-spin text-gray-400 shrink-0" />
+                <span className="text-xs text-gray-500 dark:text-gray-400">Locating project folder…</span>
+              </div>
+            )}
+
+            {/* Error banner — only shown once resolution is complete and path was not found */}
+            {!pathLoading && pathNotFound && (
               <div className="mb-4">
                 <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20
                                 border border-amber-200 dark:border-amber-700 rounded-lg">
                   <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                      Couldn't locate the folder — but no worries.
+                      Project folder not found on this machine.
                     </p>
                     <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-                      Just navigate to this location on your computer:
+                      Click "Locate Folder" to point to the correct folder once — it will be remembered.
                     </p>
-                    <p className="text-sm font-medium text-amber-900 dark:text-amber-100 mt-1">
-                      {formatProjectLocation(project?.relativeRootPath, sharePointPath)}
-                    </p>
-                    {!sharePointPath && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        ⚠ SharePoint path not configured — go to Settings → General first.
+                    {project?.relativeRootPath && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 font-mono">
+                        Expected: {formatProjectLocation(project.relativeRootPath, sharePointPath)}
                       </p>
                     )}
+                  </div>
+                  <button
+                    onClick={handleUpdateFolderPath}
+                    className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-medium transition-colors"
+                  >
+                    Locate Folder
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* scanError shown only when path resolved but folder disappeared (e.g. OneDrive not synced) */}
+            {!pathLoading && !pathNotFound && scanError && (
+              <div className="mb-4">
+                <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20
+                                border border-amber-200 dark:border-amber-700 rounded-lg">
+                  <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                      Couldn't access the project folder.
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                      {formatProjectLocation(project?.relativeRootPath, sharePointPath)}
+                    </p>
                   </div>
                   <button
                     onClick={handleUpdateFolderPath}
@@ -871,10 +880,10 @@ export default function RecipeProjectPage() {
               </div>
             )}
 
-            {filesLoading ? (
+            {(pathLoading || filesLoading) ? (
               <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
                 <Loader2 size={16} className="animate-spin" />
-                <span className="text-sm">Scanning files…</span>
+                <span className="text-sm">{pathLoading ? 'Locating project folder…' : 'Scanning files…'}</span>
               </div>
             ) : Object.keys(filesByFolder).length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">

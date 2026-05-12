@@ -97,6 +97,20 @@ export default function RecipeHomePage() {
         },
       })
 
+      // Write project.json so any user on any machine can discover this project by ID
+      window.electronAPI.recipeWriteProjectJson({ folderPath, projectId: newId }).catch(() => {})
+      // Cache the resolved path on this machine
+      localStorage.setItem(`npd:project_path_${newId}`, folderPath)
+      // Seed projectsRoot if not yet configured
+      if (!localStorage.getItem('npd:projects_root')) {
+        const sep   = folderPath.includes('\\') ? '\\' : '/'
+        const parts = folderPath.split(sep).filter(Boolean)
+        if (parts.length > 1) {
+          const parent = (folderPath.startsWith('/') ? '/' : '') + parts.slice(0, -1).join(sep)
+          localStorage.setItem('npd:projects_root', parent)
+        }
+      }
+
       navigate(`/recipes/${newId}`)
     } catch (err) {
       setImportError(`Import failed: ${String(err)}`)

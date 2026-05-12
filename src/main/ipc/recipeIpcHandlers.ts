@@ -1061,4 +1061,70 @@ export function registerRecipeHandlers(): void {
 
   // ── Generate a new stable UUID (for legacy file backfill) ─────────────────
   ipcMain.handle('recipe:generate-uid', () => randomUUID())
+
+  // ── Find project folder by scanning for _project/project.json ──────────────
+  ipcMain.handle(
+    'recipe:find-project-folder',
+    async (_event, { projectId, projectsRoot }: { projectId: string; projectsRoot: string }):
+      Promise<{ found: string | null; error?: string }> => {
+      try {
+        if (!fs.existsSync(np(projectsRoot))) {
+          return { found: null, error: 'Projects root folder not found' }
+        }
+
+        function scan(dir: string, depth: number): string | null {
+          if (depth > 3) return null
+          let entries: fs.Dirent[]
+          try { entries = fs.readdirSync(np(dir), { withFileTypes: true }) }
+          catch { return null }
+
+          for (const entry of entries) {
+            if (!entry.isDirectory()) continue
+            const childPath = path.join(dir, entry.name)
+            const jsonPath  = path.join(childPath, '_project', 'project.json')
+            if (fs.existsSync(jsonPath)) {
+              try {
+                const json = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'))
+                if (json.projectId === projectId) return childPath
+              } catch { /* malformed JSON — keep scanning */ }
+            }
+            // Recurse one level deeper
+            const found = scan(childPath, depth + 1)
+            if (found) return found
+          }
+          return null
+        }
+
+        const found = scan(projectsRoot, 1)
+        return { found }
+      } catch (err) {
+        return { found: null, error: String(err) }
+      }
+    }
+  )
+
+  // ── Write (or update) _project/project.json with the Firestore projectId ───
+  ipcMain.handle(
+    'recipe:write-project-json',
+    async (_event, { folderPath, projectId }: { folderPath: string; projectId: string }):
+      Promise<{ success: boolean; error?: string }> => {
+      try {
+        const projectDir = np(path.join(folderPath, '_project'))
+        if (!fs.existsSync(projectDir)) {
+          fs.mkdirSync(projectDir, { recursive: true })
+        }
+        const jsonPath = path.join(projectDir, 'project.json')
+        // Merge with any existing content so we don't clobber project_config.json data
+        let existing: Record<string, unknown> = {}
+        if (fs.existsSync(jsonPath)) {
+          try { existing = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')) } catch { /* ignore */ }
+        }
+        existing.projectId = projectId
+        fs.writeFileSync(jsonPath, JSON.stringify(existing, null, 2), 'utf-8')
+        return { success: true }
+      } catch (err) {
+        return { success: false, error: String(err) }
+      }
+    }
+  )
 }

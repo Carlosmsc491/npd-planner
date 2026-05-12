@@ -354,6 +354,20 @@ export default function NewRecipeProjectWizard() {
       steps = markStep(steps, 'done', 'done', 'Navigating to project…')
       setProgress([...steps])
 
+      // Write project.json so any user on any machine can find this project by ID
+      window.electronAPI.recipeWriteProjectJson({ folderPath: projectRoot, projectId }).catch(() => {})
+      // Cache the absolute path locally so this machine resolves instantly next time
+      localStorage.setItem(`npd:project_path_${projectId}`, projectRoot)
+      // Seed projectsRoot if not yet configured
+      if (!localStorage.getItem('npd:projects_root')) {
+        const sep    = projectRoot.includes('\\') ? '\\' : '/'
+        const parts  = projectRoot.split(sep).filter(Boolean)
+        if (parts.length > 1) {
+          const parent = (projectRoot.startsWith('/') ? '/' : '') + parts.slice(0, -1).join(sep)
+          localStorage.setItem('npd:projects_root', parent)
+        }
+      }
+
       // Brief pause so user sees "done" before navigation
       await new Promise((r) => setTimeout(r, 600))
       navigate(`/recipes/${projectId}`)

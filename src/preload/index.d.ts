@@ -50,6 +50,8 @@ export interface IElectronAPI {
     }
     error?: string
   }>
+  recipeFindProjectFolder: (args: { projectId: string; projectsRoot: string }) => Promise<{ found: string | null; error?: string }>
+  recipeWriteProjectJson: (args: { folderPath: string; projectId: string }) => Promise<{ success: boolean; error?: string }>
   // Email attachments (.msg)
   parseAndAttachEmail: (req: {
     msgFilePath: string

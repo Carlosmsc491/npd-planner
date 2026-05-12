@@ -216,6 +216,12 @@ const electronAPI = {
   recipeGenerateUid: (): Promise<string> =>
     ipcRenderer.invoke('recipe:generate-uid'),
 
+  recipeFindProjectFolder: (args: { projectId: string; projectsRoot: string }): Promise<{ found: string | null; error?: string }> =>
+    ipcRenderer.invoke('recipe:find-project-folder', args),
+
+  recipeWriteProjectJson: (args: { folderPath: string; projectId: string }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('recipe:write-project-json', args),
+
   copyToSelected: (args: { sourcePath: string; destPath: string }): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('photo:copy-to-selected', args),
 
