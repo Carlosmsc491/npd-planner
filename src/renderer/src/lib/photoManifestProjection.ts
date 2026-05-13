@@ -53,7 +53,7 @@ export function manifestReadyPngRel(m: PhotoManifest): string | null {
 export function manifestReadyJpgRel(m: PhotoManifest): string | null {
   if (!m.ready) return null
   return m.subfolderName
-    ? `PICTURES/4. READY/JPG/${m.ready.jpgFilename}`
+    ? `PICTURES/4. READY/JPG/${m.subfolderName}/${m.ready.jpgFilename}`
     : `PICTURES/4. READY/JPG/${m.ready.jpgFilename}`
 }
 

@@ -89,8 +89,11 @@ export function registerCameraHandlers(): void {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const sharp = require('sharp')
-      fs.mkdirSync(path.dirname(destJpg), { recursive: true })
-      await sharp(sourcePng).jpeg({ quality: quality ?? 90 }).toFile(destJpg)
+      await fs.promises.mkdir(path.dirname(destJpg), { recursive: true })
+      await sharp(sourcePng)
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .jpeg({ quality: quality ?? 90 })
+        .toFile(destJpg)
       return { success: true }
     } catch (err) {
       return { success: false, error: String(err) }
