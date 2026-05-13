@@ -10,6 +10,7 @@ import { registerAwbIpcHandlers } from './ipc/awbIpcHandlers'
 import { errorReporter } from './services/errorReporter'
 import { startTrashCleanupService, registerTrashCleanupHandlers } from './services/trashCleanupService'
 import { registerRecipeHandlers } from './ipc/recipeIpcHandlers'
+import { registerPhotoManifestHandlers } from './ipc/photoManifestHandlers'
 import { registerCameraHandlers } from './ipc/cameraHandlers'
 import { registerExcelHandlers } from './ipc/excelHandlers'
 import { registerCrashReportHandlers } from './ipc/crashReportHandlers'
@@ -257,6 +258,7 @@ app.whenReady().then(() => {
   registerAwbIpcHandlers()
   registerTrashCleanupHandlers()
   registerRecipeHandlers()
+  registerPhotoManifestHandlers()
   registerExcelHandlers()
   registerCrashReportHandlers()
   registerEmailHandlers()

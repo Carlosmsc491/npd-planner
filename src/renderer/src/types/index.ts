@@ -707,21 +707,35 @@ export interface RecipeFile {
   assignedTo: string | null       // uid del usuario asignado
   assignedToName: string | null   // nombre display (para mostrar sin query)
   photoStatus: 'pending' | 'in_progress' | 'complete' | 'selected' | 'ready'
+  // ── Photo manifest summary (source of truth lives in _project/photos/{recipeUid}.json) ──
+  photoCount?: number             // total photos in CAMERA
+  selectedCount?: number          // photos with isSelected=true
+  cleanedCount?: number           // cleaned PNG count
+  hasReady?: boolean              // true when ready entry exists
+  manifestUpdatedAt?: Timestamp | null  // when the on-disk manifest was last written
+  // ── Deprecated photo fields (kept for legacy reads + auto-migration) ──
   capturedPhotos: CapturedPhoto[]
-  // Fase 3 — READY
   readyPngPath: string | null
   readyJpgPath: string | null
   readyProcessedAt: Timestamp | null
   readyProcessedBy: string | null
   // Notes & warnings (denormalized count for quick display)
   activeNotesCount: number
-  // Cleaned photos (optional pre-retouch step)
-  cleanedPhotoPaths: string[]            // one or more cleaned PNGs
+  // Cleaned photos (legacy — replaced by manifest.cleaned[])
+  cleanedPhotoPaths: string[]
   cleanedPhotoStatus: 'needs_retouch' | 'done' | null
   cleanedPhotoDroppedAt: Timestamp | null
-  // Fase 4 — Excel insertion
+  // Excel insertion — written by both manifest summary push and legacy paths
   excelInsertedAt: Timestamp | null
   excelInsertedBy: string | null
+  // ── Cross-machine lock for Excel photo insertion ────────────────────────
+  // Held while a user is running the Python script that opens, inserts, and
+  // saves the Excel file. Prevents two users from corrupting the same workbook.
+  excelInsertLock?: {
+    userId: string
+    userName: string
+    startedAt: Timestamp
+  } | null
 }
 
 // ─────────────────────────────────────────

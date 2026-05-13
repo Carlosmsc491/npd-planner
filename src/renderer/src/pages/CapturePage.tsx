@@ -7,6 +7,7 @@ import { doc, getDoc, Timestamp } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { ChevronLeft, Camera, Loader2, AlertTriangle, CheckCircle, Star, Trash2 } from 'lucide-react'
 import type { RecipeFile, RecipeProject, CapturedPhoto, GlobalSettings } from '../types'
+import type { CameraEntry } from '../../../shared/photoManifest'
 import { useAuthStore } from '../store/authStore'
 import {
   addCapturedPhoto,
@@ -14,7 +15,27 @@ import {
   deleteCapturedPhoto,
   getGlobalSettings,
 } from '../lib/firestore'
+import {
+  appendCameraEntry,
+  replaceCameraEntries,
+  removeCameraEntries,
+} from '../lib/photoManifestApi'
 import { resolvePhotoPath, toRelativePhotoPath, resolveProjectRootPath } from '../utils/photoUtils'
+
+/** Derive the values the manifest API needs from a recipe + user. Returns null if recipeUid missing. */
+function buildRecipeRef(recipe: RecipeFile, userId: string) {
+  if (!recipe.recipeUid) return null
+  const relParts = recipe.relativePath.replace(/\\/g, '/').split('/')
+  const subfolderName = relParts.length > 1 ? relParts[0] : ''
+  return {
+    recipeId:          recipe.id,
+    recipeUid:         recipe.recipeUid,
+    excelRelativePath: recipe.relativePath,
+    recipeName:        recipe.recipeName || recipe.displayName,
+    subfolderName,
+    userId,
+  }
+}
 
 // ── Local state shape for photos in this session ─────────────────────────────
 interface LocalPhoto {
@@ -380,23 +401,36 @@ export default function CapturePage() {
             .catch(err => console.warn('[Capture] SSD copy failed:', err))
         }
 
-        // Firestore: store relative paths so any user can resolve them
-        const capturedPhoto: CapturedPhoto = {
-          sequence:      nextSeq,
-          filename,
-          subfolderName,
-          picturePath:   cameraRelPath,
-          cameraPath:    cameraRelPath,
-          ssdPath,
-          capturedAt:    Timestamp.now(),
-          capturedBy:    user?.uid ?? '',
-          isSelected:    false,
+        // Manifest first (source of truth, on disk). Falls back to Firestore for legacy
+        // recipes with no recipeUid yet — those will be migrated in Phase 6.
+        const ref = buildRecipeRef(currentRecipe, user?.uid ?? '')
+        if (ref) {
+          const cameraEntry: Omit<CameraEntry, 'capturedBy'> = {
+            sequence:    nextSeq,
+            filename,
+            isSelected:  false,
+            capturedAt:  new Date().toISOString(),
+          }
+          appendCameraEntry(projectRoot, ref, cameraEntry).catch(err =>
+            console.warn('[Capture] Manifest write queued (will retry):', err)
+          )
+        } else {
+          // Legacy fallback — write to Firestore capturedPhotos[]
+          const capturedPhoto: CapturedPhoto = {
+            sequence:      nextSeq,
+            filename,
+            subfolderName,
+            picturePath:   cameraRelPath,
+            cameraPath:    cameraRelPath,
+            ssdPath,
+            capturedAt:    Timestamp.now(),
+            capturedBy:    user?.uid ?? '',
+            isSelected:    false,
+          }
+          addCapturedPhoto(recipeId, capturedPhoto).catch(err =>
+            console.warn('[Capture] Firestore write queued (will retry):', err)
+          )
         }
-        // Fire-and-forget the Firestore write so quota errors / backoff never block the shutter.
-        // The file is already safe on disk; Firestore will sync when quota recovers.
-        addCapturedPhoto(recipeId, capturedPhoto).catch(err =>
-          console.warn('[Capture] Firestore write queued (will retry):', err)
-        )
 
         // LocalPhoto: dataUrl left null — lazy-loaded by loadDataUrl when the thumbnail is visible.
         // Do NOT call readFileAsDataUrl here: large DSLRs produce 15-25MB JPEGs; reading them
@@ -500,25 +534,31 @@ export default function CapturePage() {
         }
       }
 
-      // Re-build remaining array with re-sequenced numbers.
-      // LocalPhoto uses absolute paths; Firestore needs relative paths.
-      const rootPath    = effectiveRootRef.current
-      const subfolderForRecipe = (recipeRef.current?.relativePath ?? '').replace(/\\/g, '/').split('/').slice(0, -1)[0] ?? ''
-      const remaining: CapturedPhoto[] = photosRef.current
-        .filter(p => p.filename !== filename)
-        .map((p, i) => ({
-          sequence:      i + 1,
-          filename:      p.filename,
-          subfolderName: subfolderForRecipe,
-          picturePath:   toRelativePhotoPath(p.picturePath, rootPath),
-          cameraPath:    toRelativePhotoPath(p.cameraPath,  rootPath),
-          ssdPath:       p.ssdPath,
-          capturedAt:    Timestamp.now(),
-          capturedBy:    user?.uid ?? '',
-          isSelected:    localSelection[p.filename] ?? false,
-        }))
-
-      await deleteCapturedPhoto(recipeId, remaining)
+      // Manifest delete (preferred) — falls back to Firestore for legacy recipes
+      const currentRecipe = recipeRef.current
+      const ref = currentRecipe ? buildRecipeRef(currentRecipe, user?.uid ?? '') : null
+      const projectRoot   = effectiveRootRef.current.replace(/\\/g, '/')
+      if (ref && projectRoot) {
+        await removeCameraEntries(projectRoot, ref, [filename])
+      } else {
+        // Legacy fallback
+        const rootPath    = effectiveRootRef.current
+        const subfolderForRecipe = (recipeRef.current?.relativePath ?? '').replace(/\\/g, '/').split('/').slice(0, -1)[0] ?? ''
+        const remaining: CapturedPhoto[] = photosRef.current
+          .filter(p => p.filename !== filename)
+          .map((p, i) => ({
+            sequence:      i + 1,
+            filename:      p.filename,
+            subfolderName: subfolderForRecipe,
+            picturePath:   toRelativePhotoPath(p.picturePath, rootPath),
+            cameraPath:    toRelativePhotoPath(p.cameraPath,  rootPath),
+            ssdPath:       p.ssdPath,
+            capturedAt:    Timestamp.now(),
+            capturedBy:    user?.uid ?? '',
+            isSelected:    localSelection[p.filename] ?? false,
+          }))
+        await deleteCapturedPhoto(recipeId, remaining)
+      }
 
       // Update local state
       const newPhotos = photosRef.current.filter(p => p.filename !== filename)
@@ -590,8 +630,26 @@ export default function CapturePage() {
         }
       }
 
-      const newStatus = updatedPhotos.some(p => p.isSelected) ? 'selected' : 'complete'
-      await updateRecipePhotoSelections(recipeId, updatedPhotos, newStatus)
+      // Persist the final selection state. Prefer manifest write (source of truth);
+      // fall back to Firestore for legacy recipes (no recipeUid yet).
+      const currentRecipe = recipeRef.current
+      const ref = currentRecipe ? buildRecipeRef(currentRecipe, user?.uid ?? '') : null
+      if (ref && projectRoot) {
+        const cameraEntries: CameraEntry[] = currentPhotos.map(p => ({
+          sequence:    p.sequence,
+          filename:    p.filename,
+          isSelected:  localSelection[p.filename] ?? false,
+          capturedAt:  new Date().toISOString(),
+          capturedBy:  user?.uid ?? '',
+          ...(localSelection[p.filename]
+            ? { selectedAt: new Date().toISOString(), selectedBy: user?.uid ?? '' }
+            : {}),
+        }))
+        await replaceCameraEntries(projectRoot, ref, cameraEntries)
+      } else {
+        const newStatus = updatedPhotos.some(p => p.isSelected) ? 'selected' : 'complete'
+        await updateRecipePhotoSelections(recipeId, updatedPhotos, newStatus)
+      }
       // Navigate back to the project page (not browser history, which could go to /recipes list)
       navigate(project?.id ? `/recipes/${project.id}` : '/recipes')
     } catch (err) {

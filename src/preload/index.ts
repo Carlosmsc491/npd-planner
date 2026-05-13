@@ -232,6 +232,22 @@ const electronAPI = {
   recipeWriteProjectJson: (args: { folderPath: string; projectId: string }): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('recipe:write-project-json', args),
 
+  // ── Photo manifest (per-recipe JSON at _project/photos/{recipeUid}.json) ────
+  photoManifestRead: (args: { projectRoot: string; recipeUid: string }) =>
+    ipcRenderer.invoke('photo-manifest:read', args),
+
+  photoManifestReadAll: (args: { projectRoot: string }) =>
+    ipcRenderer.invoke('photo-manifest:read-all', args),
+
+  photoManifestWrite: (args: { projectRoot: string; manifest: unknown }) =>
+    ipcRenderer.invoke('photo-manifest:write', args),
+
+  photoManifestDelete: (args: { projectRoot: string; recipeUid: string }) =>
+    ipcRenderer.invoke('photo-manifest:delete', args),
+
+  photoManifestScanDisk: (args: { projectRoot: string }) =>
+    ipcRenderer.invoke('photo-manifest:scan-disk', args),
+
   copyToSelected: (args: { sourcePath: string; destPath: string }): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('photo:copy-to-selected', args),
 

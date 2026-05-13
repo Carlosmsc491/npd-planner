@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import {
   X, Wrench,
-  FolderSearch, FolderCheck, Layers, RefreshCw,
+  Image, Lock, Eye, ArrowDownToLine,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.6.5'
+const CURRENT_VERSION = '1.7.0'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Fix {
@@ -17,37 +17,38 @@ interface Fix {
 
 const FIXES: Fix[] = [
   {
-    icon: FolderSearch,
+    icon: Image,
     color: '#1D9E75',
-    title: 'NPD Projects Root Setup',
+    title: 'Photos are now portable',
     description:
-      'On first launch the app now prompts you to select your local NPD-SECURE sync folder. ' +
-      'This path is saved on each machine and pre-fills the wizard so you never have to browse manually.',
+      'Each project folder now contains a manifest per recipe under _project/photos/. ' +
+      'No more path mismatches: any team member on any machine sees the photos as long as the project folder syncs via OneDrive — ' +
+      'no SharePoint setup or manual re-linking needed.',
   },
   {
-    icon: FolderCheck,
+    icon: ArrowDownToLine,
     color: '#378ADD',
-    title: 'Project Folder Auto-Discovery',
+    title: 'Auto-migration of existing projects',
     description:
-      'Each project folder now contains a _project/project.json with its ID. ' +
-      'When another team member opens the app, it scans the projects root and finds the folder automatically — ' +
-      'no manual re-linking needed.',
+      'The first time you open the Photo Manager for an existing project, the app copies your captured-photo metadata ' +
+      'from Firestore into the new manifest format. One-time, automatic, and idempotent — nothing for you to do.',
   },
   {
-    icon: Layers,
+    icon: Eye,
     color: '#F59E0B',
-    title: 'Recipe Subfolder Grouping Fixed',
+    title: 'Read-only access for non-photographers',
     description:
-      'Recipes created inside subfolders (e.g. "test a / ELA") now correctly appear ' +
-      'grouped by their subfolder in the project view. Previously all recipes appeared flat on Windows.',
+      'Only owners and photographers can capture, mark candidates, drop cleaned PNGs and promote to READY. ' +
+      'Other team members see CAMERA / SELECTED / CLEANED tabs read-only and use READY to download, ZIP or insert into Excel.',
   },
   {
-    icon: RefreshCw,
+    icon: Lock,
     color: '#8B5CF6',
-    title: 'Excel Write Retry (RPC_E_CALL_REJECTED)',
+    title: 'Excel insert lock',
     description:
-      'When Excel was busy at write time, the app now automatically retries the COM call ' +
-      'up to 6 times with backoff — eliminating the "Call was rejected by callee" error.',
+      'Inserting the JPG into an Excel workbook now acquires a cross-machine lock. ' +
+      'If a teammate is already running the insert on that recipe, you see "In progress (their name)" and the button stays disabled ' +
+      'so two users can no longer corrupt the same file at the same time.',
   },
 ]
 
@@ -89,7 +90,7 @@ export default function WhatsNewModal() {
             What&apos;s New in {CURRENT_VERSION}
           </h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Cross-machine discovery, subfolder fix & Excel reliability
+            Portable photos, role-based access & cross-machine insert lock
           </p>
         </div>
 

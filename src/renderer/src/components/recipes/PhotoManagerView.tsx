@@ -10,12 +10,45 @@ import {
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { useAuthStore } from '../../store/authStore'
-import { updateRecipeReadyPaths, updateRecipeCleanedPaths, updateRecipeExcelInserted, updateRecipePhotoSelections } from '../../lib/firestore'
+import {
+  updateRecipeReadyPaths, updateRecipeCleanedPaths, updateRecipeExcelInserted,
+  updateRecipePhotoSelections, acquireExcelInsertLock, releaseExcelInsertLock,
+  EXCEL_LOCK_TTL_MS,
+} from '../../lib/firestore'
 import { resolvePhotoPath, toRelativePhotoPath } from '../../utils/photoUtils'
 import { resolveAllRecipeNotes } from '../../lib/recipeFirestore'
+import { canTakePhotos } from '../../lib/permissions'
 import { useRecipeNotes } from '../../hooks/useRecipeNotes'
 import PhotoGalleryPopup from './PhotoGalleryPopup'
 import type { RecipeProject, RecipeFile, CapturedPhoto } from '../../types'
+import type { PhotoManifest } from '../../../../shared/photoManifest'
+import {
+  loadAllManifests,
+  toggleCameraSelected,
+  removeCameraEntries,
+  appendCleanedEntry,
+  markCleanedDone,
+  setReady,
+  clearReady,
+  markExcelInserted,
+  migrateLegacyManifests,
+} from '../../lib/photoManifestApi'
+import { projectManifestOntoRecipe } from '../../lib/photoManifestProjection'
+
+/** Derive subfolder + manifest ref from a recipe + current user. */
+function refFromRecipe(recipe: RecipeFile, userId: string) {
+  if (!recipe.recipeUid) return null
+  const parts = recipe.relativePath.replace(/\\/g, '/').split('/')
+  const subfolderName = parts.length > 1 ? parts[0] : ''
+  return {
+    recipeId:          recipe.id,
+    recipeUid:         recipe.recipeUid,
+    excelRelativePath: recipe.relativePath,
+    recipeName:        recipe.recipeName || recipe.displayName,
+    subfolderName,
+    userId,
+  }
+}
 
 interface Props {
   project: RecipeProject
@@ -63,8 +96,16 @@ function sanitize(name: string) {
 
 export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onLocateFolder }: Props) {
   const { user } = useAuthStore()
+  /**
+   * Only owner + photographer (or anyone with the isPhotographer add-on) can
+   * mutate the photo pipeline at the CAMERA / SELECTED / CLEANED stages and
+   * promote files into READY. Everyone else has view + READY-only consumption
+   * access (select, ZIP, download, insert into Excel).
+   */
+  const canEdit = user ? canTakePhotos(user) : false
   const [activeTab, setActiveTab]   = useState<Tab>('camera')
-  const [recipes, setRecipes]       = useState<RecipeFile[]>([])
+  const [recipesRaw, setRecipesRaw] = useState<RecipeFile[]>([])
+  const [manifests, setManifests]   = useState<Record<string, PhotoManifest>>({})
   const [loading, setLoading]       = useState(true)
 
   // Gallery popup
@@ -119,7 +160,7 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
     const unsub = onSnapshot(
       collection(db, 'recipeProjects', project.id, 'recipeFiles'),
       (snap) => {
-        setRecipes(snap.docs.map(d => ({ id: d.id, ...d.data() } as RecipeFile)))
+        setRecipesRaw(snap.docs.map(d => ({ id: d.id, ...d.data() } as RecipeFile)))
         setLoading(false)
       },
       (err) => {
@@ -129,6 +170,58 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
     )
     return unsub
   }, [project.id])
+
+  // ── Load on-disk photo manifests once we have the project root ──────────────
+  // The manifest is the source of truth; Firestore fields are read-only fallback
+  // for legacy data that hasn't been migrated yet.
+  useEffect(() => {
+    if (!effectiveRootPath) { setManifests({}); return }
+    let cancelled = false
+    loadAllManifests(effectiveRootPath)
+      .then(ms => {
+        if (cancelled) return
+        const map: Record<string, PhotoManifest> = {}
+        for (const m of ms) map[m.recipeUid] = m
+        setManifests(map)
+      })
+      .catch(err => console.warn('[PhotoManagerView] manifest load failed:', err))
+    return () => { cancelled = true }
+  }, [effectiveRootPath, project.id])
+
+  // ── One-time migration of legacy projects (capturedPhotos[] → manifest) ─────
+  // Runs once per project per session. The migrator itself is idempotent (skips
+  // recipes that already have a manifest on disk), so a duplicate run is cheap.
+  const migrationRanRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!effectiveRootPath || !user || recipesRaw.length === 0) return
+    const key = `${project.id}::${effectiveRootPath}`
+    if (migrationRanRef.current === key) return
+    migrationRanRef.current = key
+    migrateLegacyManifests(effectiveRootPath, recipesRaw, manifests, user.uid)
+      .then(({ stats, manifests: newOnes }) => {
+        if (stats.migrated > 0) {
+          console.log(`[PhotoManagerView] auto-migrated ${stats.migrated} legacy recipes`)
+          setManifests(prev => {
+            const next = { ...prev }
+            for (const m of newOnes) next[m.recipeUid] = m
+            return next
+          })
+        }
+      })
+      .catch(err => console.warn('[PhotoManagerView] migration failed:', err))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveRootPath, project.id, recipesRaw.length, user?.uid])
+
+  /** Merge manifest data onto each recipe so the rest of the component reads a single shape. */
+  const recipes = useMemo(
+    () => recipesRaw.map(r => projectManifestOntoRecipe(r, r.recipeUid ? manifests[r.recipeUid] ?? null : null)),
+    [recipesRaw, manifests]
+  )
+
+  /** Apply a manifest change locally so the UI updates instantly (writes return the merged manifest from the IPC). */
+  const upsertManifest = useCallback((m: PhotoManifest) => {
+    setManifests(prev => ({ ...prev, [m.recipeUid]: m }))
+  }, [])
 
   // ── KPIs ─────────────────────────────────────────────────────────────────────
 
@@ -231,50 +324,47 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
     ? selectedReadyIds.size
     : selectedPhotoKeys.size
 
-  // ── Star / un-star a photo from CAMERA tab (marks isSelected in Firestore) ────
+  // ── Star / un-star a photo from CAMERA tab ─────────────────────────────────
 
   async function togglePhotoSelected(photo: CapturedPhoto & { recipeId: string }) {
-    const recipe = recipes.find(r => r.id === photo.recipeId)
+    const recipe = recipesRaw.find(r => r.id === photo.recipeId)
     if (!recipe) return
+    const ref = refFromRecipe(recipe, user?.uid ?? '')
+    const projectRoot = effectiveRootPath.replace(/\\/g, '/')
+    if (!ref || !projectRoot) {
+      // Legacy fallback (no recipeUid yet) — keep old Firestore path.
+      const newIsSelected = !photo.isSelected
+      const updatedPhotos = (recipe.capturedPhotos ?? []).map(p =>
+        p.filename === photo.filename
+          ? { ...p, isSelected: newIsSelected,
+              ...(newIsSelected
+                ? { selectedAt: Timestamp.now(), selectedBy: user?.uid ?? '' }
+                : { selectedAt: undefined, selectedBy: undefined }) }
+          : p
+      )
+      const anySelected = updatedPhotos.some(p => p.isSelected)
+      const newStatus: 'complete' | 'selected' = anySelected ? 'selected' : 'complete'
+      try { await updateRecipePhotoSelections(recipe.id, updatedPhotos, newStatus) }
+      catch (err) { console.error('[togglePhotoSelected] legacy write failed:', err) }
+      return
+    }
+
     const newIsSelected = !photo.isSelected
-    const updatedPhotos = (recipe.capturedPhotos ?? []).map(p =>
-      p.filename === photo.filename
-        ? {
-            ...p,
-            isSelected: newIsSelected,
-            ...(newIsSelected
-              ? { selectedAt: Timestamp.now(), selectedBy: user?.uid ?? '' }
-              : { selectedAt: undefined, selectedBy: undefined }),
-          }
-        : p
-    )
-    const anySelected = updatedPhotos.some(p => p.isSelected)
-    // Only transition between complete/selected — don't overwrite in_progress or ready
-    const newStatus: 'complete' | 'selected' =
-      anySelected ? 'selected'
-      : (recipe.photoStatus === 'selected' || recipe.photoStatus === 'complete') ? 'complete'
-      : recipe.photoStatus === 'ready' ? 'complete'
-      : 'complete'
-    // Optimistic update
-    setRecipes(prev => prev.map(r => r.id === recipe.id ? { ...r, capturedPhotos: updatedPhotos, photoStatus: newStatus } : r))
     try {
-      await updateRecipePhotoSelections(recipe.id, updatedPhotos, newStatus)
-      // Best-effort: sync SELECTED/ folder on disk
-      const projectRoot = effectiveRootPath.replace(/\\/g, '/')
-      if (projectRoot) {
-        const selectedPath = photo.subfolderName
-          ? `${projectRoot}/PICTURES/2. SELECTED/${photo.subfolderName}/${photo.filename}`
-          : `${projectRoot}/PICTURES/2. SELECTED/${photo.filename}`
-        const absCamera = resolvePhotoPath(photo.picturePath, projectRoot)
-        if (newIsSelected) {
-          window.electronAPI.copyToSelected({ sourcePath: absCamera, destPath: selectedPath }).catch(() => {})
-        } else {
-          window.electronAPI.deleteFromSelected({ filePath: selectedPath }).catch(() => {})
-        }
+      const merged = await toggleCameraSelected(projectRoot, ref, photo.filename)
+      upsertManifest(merged)
+      // Mirror to SELECTED/ folder on disk (best-effort).
+      const selectedPath = ref.subfolderName
+        ? `${projectRoot}/PICTURES/2. SELECTED/${ref.subfolderName}/${photo.filename}`
+        : `${projectRoot}/PICTURES/2. SELECTED/${photo.filename}`
+      const absCamera = resolvePhotoPath(photo.picturePath, projectRoot)
+      if (newIsSelected) {
+        window.electronAPI.copyToSelected({ sourcePath: absCamera, destPath: selectedPath }).catch(() => {})
+      } else {
+        window.electronAPI.deleteFromSelected({ filePath: selectedPath }).catch(() => {})
       }
-    } catch {
-      // Revert on error
-      setRecipes(prev => prev.map(r => r.id === recipe.id ? { ...r, capturedPhotos: recipe.capturedPhotos, photoStatus: recipe.photoStatus } : r))
+    } catch (err) {
+      console.error('[togglePhotoSelected] manifest write failed:', err)
     }
   }
 
@@ -283,68 +373,91 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
   async function handleDelete() {
     setDeleteConfirm(false)
     setDeleteLoading(true)
+    const projectRoot = effectiveRootPath.replace(/\\/g, '/')
     try {
       if (activeTab === 'ready') {
         for (const recipeId of selectedReadyIds) {
-          const recipe = recipes.find(r => r.id === recipeId)
+          const recipe = recipesRaw.find(r => r.id === recipeId)
           if (!recipe) continue
-          if (recipe.readyPngPath) await window.electronAPI.recipeDeleteItem(resolvePhotoPath(recipe.readyPngPath, effectiveRootPath)).catch(() => {})
-          if (recipe.readyJpgPath) await window.electronAPI.recipeDeleteItem(resolvePhotoPath(recipe.readyJpgPath, effectiveRootPath)).catch(() => {})
-          const projectId = recipeId.substring(0, recipeId.indexOf('::'))
-          const newStatus = recipe.capturedPhotos?.some(p => p.isSelected) ? 'selected' as const
-                          : (recipe.capturedPhotos?.length ?? 0) > 0 ? 'in_progress' as const
-                          : 'pending' as const
-          await updateDoc(doc(db, 'recipeProjects', projectId, 'recipeFiles', recipeId), {
-            readyPngPath: null, readyJpgPath: null,
-            readyProcessedAt: null, readyProcessedBy: null,
-            photoStatus: newStatus,
-            updatedAt: serverTimestamp(),
-          })
+          const projected = projectManifestOntoRecipe(recipe, recipe.recipeUid ? manifests[recipe.recipeUid] ?? null : null)
+          if (projected.readyPngPath) await window.electronAPI.recipeDeleteItem(resolvePhotoPath(projected.readyPngPath, effectiveRootPath)).catch(() => {})
+          if (projected.readyJpgPath) await window.electronAPI.recipeDeleteItem(resolvePhotoPath(projected.readyJpgPath, effectiveRootPath)).catch(() => {})
+          const ref = refFromRecipe(recipe, user?.uid ?? '')
+          if (ref && projectRoot) {
+            try {
+              const merged = await clearReady(projectRoot, ref)
+              upsertManifest(merged)
+            } catch (err) {
+              console.error('[handleDelete:ready] manifest write failed:', err)
+            }
+          } else {
+            // Legacy fallback
+            const projectId = recipeId.substring(0, recipeId.indexOf('::'))
+            const newStatus = recipe.capturedPhotos?.some(p => p.isSelected) ? 'selected' as const
+                            : (recipe.capturedPhotos?.length ?? 0) > 0 ? 'in_progress' as const
+                            : 'pending' as const
+            await updateDoc(doc(db, 'recipeProjects', projectId, 'recipeFiles', recipeId), {
+              readyPngPath: null, readyJpgPath: null,
+              readyProcessedAt: null, readyProcessedBy: null,
+              photoStatus: newStatus,
+              updatedAt: serverTimestamp(),
+            })
+          }
         }
-        setRecipes(prev => prev.map(r => {
-          if (!selectedReadyIds.has(r.id)) return r
-          const newStatus = r.capturedPhotos?.some(p => p.isSelected) ? 'selected' as const
-                          : (r.capturedPhotos?.length ?? 0) > 0 ? 'in_progress' as const
-                          : 'pending' as const
-          return { ...r, readyPngPath: null, readyJpgPath: null, photoStatus: newStatus }
-        }))
         setSelectedReadyIds(new Set())
       } else {
-        // CAMERA / SELECTED tabs
-        const byRecipe = new Map<string, string[]>()
+        // CAMERA / SELECTED tabs — group selected photos by recipe
+        const byRecipe = new Map<string, { filenames: string[]; absPaths: string[] }>()
         for (const g of activeGroups) {
           for (const photo of g.photos) {
             if (!selectedPhotoKeys.has(photo.picturePath)) continue
-            const arr = byRecipe.get(photo.recipeId) ?? []
-            arr.push(photo.picturePath)
+            const arr = byRecipe.get(photo.recipeId) ?? { filenames: [], absPaths: [] }
+            arr.filenames.push(photo.filename)
+            arr.absPaths.push(resolvePhotoPath(photo.picturePath, effectiveRootPath))
             byRecipe.set(photo.recipeId, arr)
           }
         }
-        for (const picturePath of selectedPhotoKeys)
-          await window.electronAPI.recipeDeleteItem(resolvePhotoPath(picturePath, effectiveRootPath)).catch(() => {})
-        for (const [recipeId, pathsToDelete] of byRecipe) {
-          const recipe = recipes.find(r => r.id === recipeId)!
-          const projectId = recipeId.substring(0, recipeId.indexOf('::'))
-          const remaining = (recipe.capturedPhotos ?? []).filter(p => !pathsToDelete.includes(p.picturePath))
-          const newStatus = remaining.length === 0 ? 'pending' as const
-                          : remaining.some(p => p.isSelected) ? 'selected' as const
-                          : 'in_progress' as const
-          await updateDoc(doc(db, 'recipeProjects', projectId, 'recipeFiles', recipeId), {
-            capturedPhotos: remaining, photoStatus: newStatus, updatedAt: serverTimestamp(),
-          })
-        }
-        setRecipes(prev => prev.map(r => {
-          const pathsToDelete = byRecipe.get(r.id)
-          if (!pathsToDelete) return r
-          const remaining = (r.capturedPhotos ?? []).filter(p => !pathsToDelete.includes(p.picturePath))
-          return {
-            ...r,
-            capturedPhotos: remaining,
-            photoStatus: remaining.length === 0 ? 'pending' as const
-                       : remaining.some(p => p.isSelected) ? 'selected' as const
-                       : 'in_progress' as const,
+        // Delete files from disk first (camera + selected mirror)
+        for (const [recipeId, { absPaths, filenames }] of byRecipe) {
+          for (const absPath of absPaths) {
+            await window.electronAPI.recipeDeleteItem(absPath).catch(() => {})
           }
-        }))
+          // Also clear SELECTED/ mirror
+          const recipe = recipesRaw.find(r => r.id === recipeId)
+          if (recipe && projectRoot) {
+            const parts = recipe.relativePath.replace(/\\/g, '/').split('/')
+            const sub = parts.length > 1 ? parts[0] : ''
+            for (const filename of filenames) {
+              const selPath = sub
+                ? `${projectRoot}/PICTURES/2. SELECTED/${sub}/${filename}`
+                : `${projectRoot}/PICTURES/2. SELECTED/${filename}`
+              window.electronAPI.deleteFromSelected({ filePath: selPath }).catch(() => {})
+            }
+          }
+        }
+        // Update manifests (or legacy Firestore array)
+        for (const [recipeId, { filenames }] of byRecipe) {
+          const recipe = recipesRaw.find(r => r.id === recipeId)
+          if (!recipe) continue
+          const ref = refFromRecipe(recipe, user?.uid ?? '')
+          if (ref && projectRoot) {
+            try {
+              const merged = await removeCameraEntries(projectRoot, ref, filenames)
+              upsertManifest(merged)
+            } catch (err) {
+              console.error('[handleDelete:camera] manifest write failed:', err)
+            }
+          } else {
+            const projectId = recipeId.substring(0, recipeId.indexOf('::'))
+            const remaining = (recipe.capturedPhotos ?? []).filter(p => !filenames.includes(p.filename))
+            const newStatus = remaining.length === 0 ? 'pending' as const
+                            : remaining.some(p => p.isSelected) ? 'selected' as const
+                            : 'in_progress' as const
+            await updateDoc(doc(db, 'recipeProjects', projectId, 'recipeFiles', recipeId), {
+              capturedPhotos: remaining, photoStatus: newStatus, updatedAt: serverTimestamp(),
+            })
+          }
+        }
         setSelectedPhotoKeys(new Set())
       }
     } finally {
@@ -453,16 +566,18 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
       return
     }
     const baseName      = file.name.replace(/\.png$/i, '')
-    const subfolderName = recipe.capturedPhotos?.[0]?.subfolderName ?? ''
+    const parts         = recipe.relativePath.replace(/\\/g, '/').split('/')
+    const subfolderName = parts.length > 1 ? parts[0] : (recipe.capturedPhotos?.[0]?.subfolderName ?? '')
     const projectRoot   = effectiveRootPath.replace(/\\/g, '/')
 
-    // Absolute paths for local file ops
+    const pngFilename = `${baseName}.png`
+    const jpgFilename = `${baseName}.jpg`
     const pngDest = subfolderName
-      ? `${projectRoot}/PICTURES/4. READY/PNG/${subfolderName}/${baseName}.png`
-      : `${projectRoot}/PICTURES/4. READY/PNG/${baseName}.png`
+      ? `${projectRoot}/PICTURES/4. READY/PNG/${subfolderName}/${pngFilename}`
+      : `${projectRoot}/PICTURES/4. READY/PNG/${pngFilename}`
     const jpgDest = subfolderName
-      ? `${projectRoot}/PICTURES/4. READY/JPG/${subfolderName}/${baseName}.jpg`
-      : `${projectRoot}/PICTURES/4. READY/JPG/${baseName}.jpg`
+      ? `${projectRoot}/PICTURES/4. READY/JPG/${subfolderName}/${jpgFilename}`
+      : `${projectRoot}/PICTURES/4. READY/JPG/${jpgFilename}`
 
     await moveOldReady(recipe)
 
@@ -477,25 +592,39 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
       return
     }
 
-    // Firestore: store relative paths so any user can resolve them
-    const pngRel = toRelativePhotoPath(pngDest, projectRoot)
-    const jpgRel = toRelativePhotoPath(jpgDest, projectRoot)
-    await updateRecipeReadyPaths(recipe.id, pngRel, jpgRel, user?.uid ?? '')
-    setRecipes(prev => prev.map(r => r.id === recipe.id
-      ? { ...r, readyPngPath: pngRel, readyJpgPath: jpgRel, photoStatus: 'ready' }
-      : r
-    ))
+    const ref = refFromRecipe(recipe, user?.uid ?? '')
+    if (ref) {
+      try {
+        const merged = await setReady(projectRoot, ref, pngFilename, jpgFilename)
+        upsertManifest(merged)
+      } catch (err) {
+        setProcessErrors(prev => [...prev, `${file.name}: manifest write failed — ${err}`])
+      }
+    } else {
+      // Legacy fallback — store relative paths in Firestore
+      const pngRel = toRelativePhotoPath(pngDest, projectRoot)
+      const jpgRel = toRelativePhotoPath(jpgDest, projectRoot)
+      await updateRecipeReadyPaths(recipe.id, pngRel, jpgRel, user?.uid ?? '')
+    }
   }
 
   async function finalizeReadyPhoto(file: File, recipe: RecipeFile, resolveNotes: boolean): Promise<void> {
     if (resolveNotes && user) {
       await resolveAllRecipeNotes(recipe.projectId, recipe.fileId, user.uid, user.name)
-      setRecipes(prev => prev.map(r => r.id === recipe.id ? { ...r, activeNotesCount: 0 } : r))
     }
     await processPng(file, recipe)
-    if ((recipe.cleanedPhotoPaths?.length ?? 0) > 0) {
+    const ref = refFromRecipe(recipe, user?.uid ?? '')
+    const projectRoot = effectiveRootPath.replace(/\\/g, '/')
+    if (ref && projectRoot && (recipe.cleanedPhotoPaths?.length ?? 0) > 0) {
+      try {
+        const merged = await markCleanedDone(projectRoot, ref)
+        upsertManifest(merged)
+      } catch (err) {
+        console.error('[finalizeReadyPhoto] markCleanedDone failed:', err)
+      }
+    } else if ((recipe.cleanedPhotoPaths?.length ?? 0) > 0) {
+      // Legacy fallback
       await updateRecipeCleanedPaths(recipe.id, recipe.cleanedPhotoPaths ?? [], 'done', user?.uid ?? '')
-      setRecipes(prev => prev.map(r => r.id === recipe.id ? { ...r, cleanedPhotoStatus: 'done' } : r))
     }
   }
 
@@ -538,22 +667,30 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
   async function processCleaned(file: File, recipe: RecipeFile): Promise<void> {
     const srcPath = (file as File & { path?: string }).path
     if (!srcPath) { setCleanedErrors(prev => [...prev, `${file.name}: cannot read file path`]); return }
-    const baseName      = file.name.replace(/\.png$/i, '')
-    const subfolderName = recipe.capturedPhotos?.[0]?.subfolderName ?? ''
+    const filename      = file.name.toLowerCase().endsWith('.png') ? file.name : `${file.name}.png`
+    const parts         = recipe.relativePath.replace(/\\/g, '/').split('/')
+    const subfolderName = parts.length > 1 ? parts[0] : (recipe.capturedPhotos?.[0]?.subfolderName ?? '')
     const projectRoot   = effectiveRootPath.replace(/\\/g, '/')
     const destPath      = subfolderName
-      ? `${projectRoot}/PICTURES/3. CLEANED/${subfolderName}/${baseName}.png`
-      : `${projectRoot}/PICTURES/3. CLEANED/${baseName}.png`
+      ? `${projectRoot}/PICTURES/3. CLEANED/${subfolderName}/${filename}`
+      : `${projectRoot}/PICTURES/3. CLEANED/${filename}`
     const copyResult = await window.electronAPI.copyToSelected({ sourcePath: srcPath, destPath })
     if (!copyResult.success) { setCleanedErrors(prev => [...prev, `${file.name}: copy failed — ${copyResult.error}`]); return }
-    // Firestore: store relative path so any user can resolve it
-    const destRel  = toRelativePhotoPath(destPath, projectRoot)
-    const newPaths = [...(recipe.cleanedPhotoPaths ?? []), destRel]
-    await updateRecipeCleanedPaths(recipe.id, newPaths, 'needs_retouch', user?.uid ?? '')
-    setRecipes(prev => prev.map(r => r.id === recipe.id
-      ? { ...r, cleanedPhotoPaths: newPaths, cleanedPhotoStatus: 'needs_retouch' }
-      : r
-    ))
+
+    const ref = refFromRecipe(recipe, user?.uid ?? '')
+    if (ref) {
+      try {
+        const merged = await appendCleanedEntry(projectRoot, ref, filename)
+        upsertManifest(merged)
+      } catch (err) {
+        setCleanedErrors(prev => [...prev, `${file.name}: manifest write failed — ${err}`])
+      }
+    } else {
+      // Legacy fallback
+      const destRel  = toRelativePhotoPath(destPath, projectRoot)
+      const newPaths = [...(recipe.cleanedPhotoPaths ?? []), destRel]
+      await updateRecipeCleanedPaths(recipe.id, newPaths, 'needs_retouch', user?.uid ?? '')
+    }
   }
 
   async function handleCleanedDrop(file: File, recipe: RecipeFile): Promise<void> {
@@ -687,13 +824,15 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
             Deselect All
           </button>
           <div className="flex-1" />
-          <button
-            onClick={() => setDeleteConfirm(true)}
-            disabled={deleteLoading}
-            className="flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-semibold bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 disabled:opacity-50"
-          >
-            <Trash2 size={10} /> Delete
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setDeleteConfirm(true)}
+              disabled={deleteLoading}
+              className="flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-semibold bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 disabled:opacity-50"
+            >
+              <Trash2 size={10} /> Delete
+            </button>
+          )}
           <button
             onClick={() => openExportDialog('saveAs')}
             disabled={exportLoading}
@@ -736,7 +875,8 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
             allSelected={activeTab === 'selected'}
             selectedKeys={selectedPhotoKeys}
             projectRootPath={effectiveRootPath}
-            showStarButton={activeTab === 'camera'}
+            showStarButton={activeTab === 'camera' && canEdit}
+            allowSelection={canEdit}
             onToggle={togglePhoto}
             onToggleStar={togglePhotoSelected}
             onOpen={(photos, idx, name) => openGallery(photos, idx, name)}
@@ -757,6 +897,11 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
                 <AlertTriangle size={12} className="shrink-0 mt-0.5" />{err}
               </div>
             ))}
+            {!canEdit && (
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 italic">
+                View-only — only owners and photographers can promote photos through cleaning.
+              </p>
+            )}
             {recipes.length === 0
               ? <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2"><Camera size={32} strokeWidth={1} /><p className="text-sm">No recipes in this project.</p></div>
               : recipes.map(recipe => (
@@ -764,6 +909,7 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
                     key={recipe.id}
                     recipe={recipe}
                     isProcessing={cleanedProcessing === recipe.id}
+                    canEdit={canEdit}
                     onDrop={file => handleCleanedDrop(file, recipe)}
                     onOpenPhotoshop={path => window.electronAPI.openFile(resolvePhotoPath(path, effectiveRootPath))}
                     onWarningClick={() => setNotesModal({ recipeId: recipe.id, projectId: project.id, recipeName: recipe.recipeName || recipe.displayName })}
@@ -777,22 +923,24 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
             {warningProcessing && (
               <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 size={14} className="animate-spin" /> Processing…</div>
             )}
-            {/* Drop zone */}
-            <div
-              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={e => { e.preventDefault(); setDragOver(false); handleFiles(Array.from(e.dataTransfer.files)) }}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors duration-200 ${
-                dragOver ? 'border-green-500 bg-green-50 dark:bg-green-900/20' : 'border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
-              }`}
-            >
-              <input ref={fileInputRef} type="file" accept=".png" multiple className="hidden"
-                onChange={e => handleFiles(Array.from(e.target.files ?? []))} />
-              <Upload size={28} className="mx-auto mb-3 text-gray-400" />
-              <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">Drop your retouched PNGs here</p>
-              <p className="text-xs text-gray-400 mt-1">or click to select files · only .png accepted</p>
-            </div>
+            {/* Drop zone — only photographers/owners promote to READY */}
+            {canEdit && (
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={e => { e.preventDefault(); setDragOver(false); handleFiles(Array.from(e.dataTransfer.files)) }}
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors duration-200 ${
+                  dragOver ? 'border-green-500 bg-green-50 dark:bg-green-900/20' : 'border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
+                }`}
+              >
+                <input ref={fileInputRef} type="file" accept=".png" multiple className="hidden"
+                  onChange={e => handleFiles(Array.from(e.target.files ?? []))} />
+                <Upload size={28} className="mx-auto mb-3 text-gray-400" />
+                <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">Drop your retouched PNGs here</p>
+                <p className="text-xs text-gray-400 mt-1">or click to select files · only .png accepted</p>
+              </div>
+            )}
             {processing.length > 0 && (
               <div className="flex items-center gap-2 text-sm text-gray-500">
                 <Loader2 size={14} className="animate-spin" />Processing {processing.join(', ')}…
@@ -827,9 +975,11 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
                       recipe={recipe}
                       effectiveRootPath={effectiveRootPath}
                       userId={user?.uid ?? ''}
+                      userName={user?.name ?? ''}
                       isSelected={selectedReadyIds.has(recipe.id)}
                       onToggle={() => toggleReadyRecipe(recipe.id)}
                       onWarningClick={() => setNotesModal({ recipeId: recipe.id, projectId: project.id, recipeName: recipe.recipeName || recipe.displayName })}
+                      onManifestUpdate={upsertManifest}
                     />
                   ))}
                 </div>
@@ -1027,8 +1177,9 @@ function KpiCard({ label, value, total, subtitle, color, alert }: {
 
 // ── CLEANED recipe row ─────────────────────────────────────────────────────────
 
-function CleanedRecipeRow({ recipe, isProcessing, onDrop, onOpenPhotoshop, onWarningClick }: {
+function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onOpenPhotoshop, onWarningClick }: {
   recipe: RecipeFile; isProcessing: boolean
+  canEdit: boolean
   onDrop: (file: File) => void; onOpenPhotoshop: (path: string) => void
   onWarningClick?: () => void
 }) {
@@ -1069,20 +1220,22 @@ function CleanedRecipeRow({ recipe, isProcessing, onDrop, onOpenPhotoshop, onWar
           <ExternalLink size={10} /><span className="hidden sm:inline">Open in Photoshop</span>
         </button>
       )}
-      <div
-        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={e => { e.preventDefault(); setDragOver(false); const png = Array.from(e.dataTransfer.files).find(f => f.name.toLowerCase().endsWith('.png')); if (png) onDrop(png) }}
-        onClick={() => fileInputRef.current?.click()}
-        className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg border-2 border-dashed text-[10px] cursor-pointer transition-colors ${
-          dragOver ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400' : 'border-gray-300 dark:border-gray-600 text-gray-400 hover:border-gray-400 dark:hover:border-gray-500'
-        }`}
-      >
-        <input ref={fileInputRef} type="file" accept=".png" className="hidden"
-          onChange={e => { const png = Array.from(e.target.files ?? []).find(f => f.name.toLowerCase().endsWith('.png')); if (png) onDrop(png) }} />
-        {isProcessing ? <Loader2 size={10} className="animate-spin" /> : <Upload size={10} />}
-        <span>{needsRetouch ? 'Drop retouched' : 'Drop cleaned PNG'}</span>
-      </div>
+      {canEdit && (
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={e => { e.preventDefault(); setDragOver(false); const png = Array.from(e.dataTransfer.files).find(f => f.name.toLowerCase().endsWith('.png')); if (png) onDrop(png) }}
+          onClick={() => fileInputRef.current?.click()}
+          className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg border-2 border-dashed text-[10px] cursor-pointer transition-colors ${
+            dragOver ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400' : 'border-gray-300 dark:border-gray-600 text-gray-400 hover:border-gray-400 dark:hover:border-gray-500'
+          }`}
+        >
+          <input ref={fileInputRef} type="file" accept=".png" className="hidden"
+            onChange={e => { const png = Array.from(e.target.files ?? []).find(f => f.name.toLowerCase().endsWith('.png')); if (png) onDrop(png) }} />
+          {isProcessing ? <Loader2 size={10} className="animate-spin" /> : <Upload size={10} />}
+          <span>{needsRetouch ? 'Drop retouched' : 'Drop cleaned PNG'}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -1145,9 +1298,10 @@ function ReadyWarningDialog({ file, recipe, dataUrl, onConfirm, onCancel }: {
 
 // ── Photo group grid (CAMERA + SELECTED tabs) ──────────────────────────────────
 
-function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, projectRootPath, showStarButton, onToggle, onToggleStar, onOpen, onWarningClick }: {
+function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, projectRootPath, showStarButton, allowSelection = true, onToggle, onToggleStar, onOpen, onWarningClick }: {
   groups: PhotoGroup[]; emptyMessage: string; allSelected?: boolean
   selectedKeys: Set<string>; projectRootPath: string; showStarButton?: boolean
+  allowSelection?: boolean
   onToggle: (picturePath: string, recipeId: string, recipeName: string) => void
   onToggleStar?: (photo: CapturedPhoto & { recipeId: string; recipeName: string }) => void
   onOpen: (photos: CapturedPhoto[], idx: number, recipeName: string) => void
@@ -1187,6 +1341,7 @@ function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, proje
                 forceSelected={allSelected}
                 isChecked={selectedKeys.has(photo.picturePath)}
                 showStarButton={showStarButton}
+                allowSelection={allowSelection}
                 onToggle={() => onToggle(photo.picturePath, photo.recipeId, photo.recipeName)}
                 onToggleStar={onToggleStar ? () => onToggleStar(photo) : undefined}
                 onDoubleClick={() => onOpen(group.photos, idx, photo.recipeName)}
@@ -1201,9 +1356,10 @@ function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, proje
 
 // ── Manager thumbnail ──────────────────────────────────────────────────────────
 
-function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, showStarButton, onToggle, onToggleStar, onDoubleClick }: {
+function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, showStarButton, allowSelection = true, onToggle, onToggleStar, onDoubleClick }: {
   photo: CapturedPhoto; projectRootPath: string; forceSelected?: boolean; isChecked: boolean
   showStarButton?: boolean
+  allowSelection?: boolean
   onToggle: () => void; onToggleStar?: () => void; onDoubleClick: () => void
 }) {
   const [dataUrl, setDataUrl] = useState<string | null | undefined>(undefined)
@@ -1239,28 +1395,32 @@ function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, sh
         <img src={dataUrl} alt={photo.filename} className="w-full h-full object-cover" />
       )}
 
-      {/* Checkbox — top left, always visible when checked, visible on hover otherwise */}
-      <div
-        onClick={e => { e.stopPropagation(); onToggle() }}
-        className={`absolute top-1 left-1 z-10 h-4 w-4 rounded border-2 flex items-center justify-center cursor-pointer transition-all duration-150 ${
-          isChecked
-            ? 'opacity-100 bg-blue-500 border-blue-500'
-            : 'opacity-0 group-hover:opacity-100 bg-white/70 border-white backdrop-blur-sm'
-        }`}
-      >
-        {isChecked && <Check size={9} className="text-white" strokeWidth={3} />}
-      </div>
+      {/* Checkbox — top left. Hidden for read-only viewers. */}
+      {allowSelection && (
+        <div
+          onClick={e => { e.stopPropagation(); onToggle() }}
+          className={`absolute top-1 left-1 z-10 h-4 w-4 rounded border-2 flex items-center justify-center cursor-pointer transition-all duration-150 ${
+            isChecked
+              ? 'opacity-100 bg-blue-500 border-blue-500'
+              : 'opacity-0 group-hover:opacity-100 bg-white/70 border-white backdrop-blur-sm'
+          }`}
+        >
+          {isChecked && <Check size={9} className="text-white" strokeWidth={3} />}
+        </div>
+      )}
 
       {/* Hover overlay */}
       {hovered && (
         <div className="absolute inset-0 bg-black/40 flex flex-col items-end justify-between p-1 pointer-events-none">
-          {/* Select button — top right */}
-          <button
-            onClick={e => { e.stopPropagation(); onToggle() }}
-            className="pointer-events-auto rounded px-1.5 py-0.5 text-[9px] font-semibold bg-white/20 text-white hover:bg-white/40 backdrop-blur-sm"
-          >
-            {isChecked ? '✓ Selected' : 'Select'}
-          </button>
+          {/* Select button — only for editors */}
+          {allowSelection && (
+            <button
+              onClick={e => { e.stopPropagation(); onToggle() }}
+              className="pointer-events-auto rounded px-1.5 py-0.5 text-[9px] font-semibold bg-white/20 text-white hover:bg-white/40 backdrop-blur-sm"
+            >
+              {isChecked ? '✓ Selected' : 'Select'}
+            </button>
+          )}
           {/* Filename — bottom */}
           <span className="w-full text-[9px] text-white leading-tight line-clamp-2 pointer-events-none">{photo.filename}</span>
         </div>
@@ -1286,19 +1446,34 @@ function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, sh
 
 // ── Ready card ─────────────────────────────────────────────────────────────────
 
-function ReadyCard({ recipe, effectiveRootPath, userId, isSelected, onToggle, onWarningClick }: {
+function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, onToggle, onWarningClick, onManifestUpdate }: {
   recipe: RecipeFile
   effectiveRootPath: string
   userId: string
+  userName: string
   isSelected: boolean
   onToggle: () => void
   onWarningClick?: () => void
+  onManifestUpdate?: (m: PhotoManifest) => void
 }) {
   const [dataUrl, setDataUrl]           = useState<string | null | undefined>(undefined)
   const [inserting, setInserting]       = useState(false)
   const [insertError, setInsertError]   = useState<string | null>(null)
   const [insertedAt, setInsertedAt]     = useState<Date | null>(
     recipe.excelInsertedAt ? (recipe.excelInsertedAt as { toDate(): Date }).toDate() : null
+  )
+
+  /**
+   * If another user holds the Excel insert lock (and it's not stale), block our
+   * UI and show "In progress by X". The recipe doc is subscribed live by the
+   * parent's onSnapshot so we re-render automatically when the lock changes.
+   */
+  const lock = recipe.excelInsertLock
+  const isLockedByOther = !!(
+    lock &&
+    lock.userId &&
+    lock.userId !== userId &&
+    Date.now() - (lock.startedAt?.toDate?.()?.getTime?.() ?? 0) < EXCEL_LOCK_TTL_MS
   )
 
   useEffect(() => {
@@ -1318,6 +1493,13 @@ function ReadyCard({ recipe, effectiveRootPath, userId, isSelected, onToggle, on
     if (!recipe.readyJpgPath) return
     setInserting(true)
     setInsertError(null)
+    // ── Acquire cross-machine lock so two users don't corrupt the same workbook
+    const holder = await acquireExcelInsertLock(recipe.id, userId, userName)
+    if (holder) {
+      setInsertError(`Already being inserted by ${holder.holderUserName}. Try again in a moment.`)
+      setInserting(false)
+      return
+    }
     try {
       const sep = effectiveRootPath.includes('\\') ? '\\' : '/'
       const excelPath = effectiveRootPath + sep + recipe.relativePath.replace(/\//g, sep)
@@ -1326,12 +1508,35 @@ function ReadyCard({ recipe, effectiveRootPath, userId, isSelected, onToggle, on
       if (!result.success) {
         setInsertError(result.error ?? 'Unknown error')
       } else {
-        await updateRecipeExcelInserted(recipe.id, userId)
+        // Prefer manifest write; fall back to legacy Firestore field
+        const projectRoot = effectiveRootPath.replace(/\\/g, '/')
+        const parts = recipe.relativePath.replace(/\\/g, '/').split('/')
+        const subfolderName = parts.length > 1 ? parts[0] : ''
+        if (recipe.recipeUid && projectRoot && onManifestUpdate) {
+          try {
+            const merged = await markExcelInserted(projectRoot, {
+              recipeId:          recipe.id,
+              recipeUid:         recipe.recipeUid,
+              excelRelativePath: recipe.relativePath,
+              recipeName:        recipe.recipeName || recipe.displayName,
+              subfolderName,
+              userId,
+            })
+            onManifestUpdate(merged)
+          } catch (err) {
+            console.warn('[handleInsertExcel] manifest write failed, falling back:', err)
+            await updateRecipeExcelInserted(recipe.id, userId)
+          }
+        } else {
+          await updateRecipeExcelInserted(recipe.id, userId)
+        }
         setInsertedAt(new Date())
       }
     } catch (err) {
       setInsertError(err instanceof Error ? err.message : String(err))
     } finally {
+      // Always release the lock, even on error, so other users aren't blocked.
+      releaseExcelInsertLock(recipe.id, userId).catch(() => {})
       setInserting(false)
     }
   }
@@ -1384,7 +1589,14 @@ function ReadyCard({ recipe, effectiveRootPath, userId, isSelected, onToggle, on
       {/* Insertar en Excel — only show when JPG is available */}
       {recipe.readyJpgPath && (
         <div className="flex flex-col gap-0.5 px-0.5" onClick={e => e.stopPropagation()}>
-          {insertedAt ? (
+          {isLockedByOther ? (
+            <div className="flex items-center justify-center gap-1 text-[9px] font-semibold rounded-md px-1.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 cursor-not-allowed">
+              <Loader2 size={9} className="animate-spin" />
+              <span className="truncate" title={`${lock?.userName} is inserting now`}>
+                En progreso ({lock?.userName})
+              </span>
+            </div>
+          ) : insertedAt ? (
             <div className="flex gap-1 items-center">
               <span className="text-[9px] text-green-600 dark:text-green-400 font-medium flex items-center gap-0.5 flex-1 truncate">
                 <Check size={9} strokeWidth={3} />

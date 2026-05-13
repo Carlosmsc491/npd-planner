@@ -1,4 +1,5 @@
 import type { IpcFileRequest, IpcFileResponse, IpcSharePointVerifyResponse } from '../renderer/src/types'
+import type { PhotoManifest, OrphanFile } from '../shared/photoManifest'
 
 export interface IElectronAPI {
   copyFile: (sourcePath: string, destPath: string, createDirs: boolean) => Promise<IpcFileResponse>
@@ -52,6 +53,12 @@ export interface IElectronAPI {
   }>
   recipeFindProjectFolder: (args: { projectId: string; projectsRoot: string }) => Promise<{ found: string | null; error?: string }>
   recipeWriteProjectJson: (args: { folderPath: string; projectId: string }) => Promise<{ success: boolean; error?: string }>
+  // Photo manifest (per-recipe JSON at _project/photos/{recipeUid}.json)
+  photoManifestRead: (args: { projectRoot: string; recipeUid: string }) => Promise<{ manifest: PhotoManifest | null; error?: string }>
+  photoManifestReadAll: (args: { projectRoot: string }) => Promise<{ manifests: PhotoManifest[]; error?: string }>
+  photoManifestWrite: (args: { projectRoot: string; manifest: PhotoManifest }) => Promise<{ manifest: PhotoManifest | null; error?: string }>
+  photoManifestDelete: (args: { projectRoot: string; recipeUid: string }) => Promise<{ success: boolean; error?: string }>
+  photoManifestScanDisk: (args: { projectRoot: string }) => Promise<{ files: OrphanFile[]; error?: string }>
   // Email attachments (.msg)
   parseAndAttachEmail: (req: {
     msgFilePath: string

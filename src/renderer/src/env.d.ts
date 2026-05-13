@@ -83,6 +83,12 @@ interface IElectronAPI {
   }>
   recipeFindProjectFolder: (args: { projectId: string; projectsRoot: string }) => Promise<{ found: string | null; error?: string }>
   recipeWriteProjectJson: (args: { folderPath: string; projectId: string }) => Promise<{ success: boolean; error?: string }>
+  // Photo manifest (per-recipe JSON at _project/photos/{recipeUid}.json)
+  photoManifestRead: (args: { projectRoot: string; recipeUid: string }) => Promise<{ manifest: import('../../shared/photoManifest').PhotoManifest | null; error?: string }>
+  photoManifestReadAll: (args: { projectRoot: string }) => Promise<{ manifests: import('../../shared/photoManifest').PhotoManifest[]; error?: string }>
+  photoManifestWrite: (args: { projectRoot: string; manifest: import('../../shared/photoManifest').PhotoManifest }) => Promise<{ manifest: import('../../shared/photoManifest').PhotoManifest | null; error?: string }>
+  photoManifestDelete: (args: { projectRoot: string; recipeUid: string }) => Promise<{ success: boolean; error?: string }>
+  photoManifestScanDisk: (args: { projectRoot: string }) => Promise<{ files: import('../../shared/photoManifest').OrphanFile[]; error?: string }>
   // Camera / Photo Capture
   startCameraTethering: (outputDir: string) => Promise<{ success: boolean; error?: string }>
   stopCameraTethering: () => Promise<void>

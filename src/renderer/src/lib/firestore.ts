@@ -1237,6 +1237,117 @@ export async function updateRecipeExcelInserted(
 }
 
 // ─────────────────────────────────────────
+// EXCEL INSERT LOCK
+// ─────────────────────────────────────────
+//
+// Held on the recipeFile doc while a user is running the Python script that
+// inserts the JPG into the Excel workbook. Prevents two users from corrupting
+// the same file concurrently. Auto-expires after EXCEL_LOCK_TTL_MS so a crashed
+// app can't permanently block other users.
+
+export const EXCEL_LOCK_TTL_MS = 90_000  // 90 seconds — typical insert is <10s
+
+/**
+ * Try to acquire the lock. Returns the holder if it's already taken (and not stale)
+ * by someone else. Returns null on success.
+ *
+ * Atomic via Firestore transaction — exactly one client can acquire at a time.
+ */
+export async function acquireExcelInsertLock(
+  recipeId: string,
+  userId: string,
+  userName: string,
+): Promise<{ holderUserId: string; holderUserName: string } | null> {
+  const projectId = recipeId.substring(0, recipeId.indexOf('::'))
+  const ref = doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId)
+  try {
+    return await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref)
+      if (!snap.exists()) throw new Error('Recipe not found')
+      const data = snap.data() as { excelInsertLock?: { userId: string; userName: string; startedAt: Timestamp } | null }
+      const lock = data.excelInsertLock
+      if (lock && lock.userId !== userId) {
+        const startedAt = lock.startedAt?.toDate?.()?.getTime?.() ?? 0
+        const isStale = Date.now() - startedAt > EXCEL_LOCK_TTL_MS
+        if (!isStale) {
+          return { holderUserId: lock.userId, holderUserName: lock.userName }
+        }
+      }
+      tx.update(ref, {
+        excelInsertLock: { userId, userName, startedAt: Timestamp.now() },
+      })
+      return null
+    })
+  } catch (err) {
+    console.error('acquireExcelInsertLock failed:', err)
+    return { holderUserId: '?', holderUserName: 'unknown error' }
+  }
+}
+
+/** Release the lock if we hold it. Idempotent. */
+export async function releaseExcelInsertLock(recipeId: string, userId: string): Promise<void> {
+  const projectId = recipeId.substring(0, recipeId.indexOf('::'))
+  const ref = doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId)
+  try {
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref)
+      if (!snap.exists()) return
+      const data = snap.data() as { excelInsertLock?: { userId: string } | null }
+      // Only clear if we still hold it — avoids racing a re-acquire by another user.
+      if (data.excelInsertLock?.userId === userId) {
+        tx.update(ref, { excelInsertLock: null })
+      }
+    })
+  } catch (err) {
+    console.warn('releaseExcelInsertLock failed (non-fatal):', err)
+  }
+}
+
+// ─────────────────────────────────────────
+// PHOTO MANIFEST SUMMARY
+// ─────────────────────────────────────────
+//
+// Aggregate fields written to the recipeFile doc every time the on-disk photo
+// manifest changes. The recipe row UI and dashboards read these instead of the
+// (now deprecated) capturedPhotos[] array. The manifest on disk remains the
+// source of truth — these fields are an index for fast queries.
+
+interface PhotoSummary {
+  photoCount: number
+  selectedCount: number
+  cleanedCount: number
+  hasReady: boolean
+  excelInsertedAt: string | null
+  photoStatus: 'pending' | 'in_progress' | 'selected' | 'complete' | 'ready'
+}
+
+export async function updateRecipePhotoSummary(
+  recipeId: string,
+  summary: PhotoSummary,
+): Promise<void> {
+  try {
+    const projectId = recipeId.substring(0, recipeId.indexOf('::'))
+    const patch: Record<string, unknown> = {
+      photoCount:     summary.photoCount,
+      selectedCount:  summary.selectedCount,
+      cleanedCount:   summary.cleanedCount,
+      hasReady:       summary.hasReady,
+      photoStatus:    summary.photoStatus,
+      manifestUpdatedAt: serverTimestamp(),
+      updatedAt:      serverTimestamp(),
+    }
+    // Mirror excelInsertedAt as a real Timestamp so existing queries keep working.
+    if (summary.excelInsertedAt) {
+      patch.excelInsertedAt = Timestamp.fromDate(new Date(summary.excelInsertedAt))
+    }
+    await updateDoc(doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, recipeId), patch)
+  } catch (err) {
+    console.error('updateRecipePhotoSummary failed:', err)
+    // Non-throwing — the manifest on disk is canonical, summary self-heals on next write.
+  }
+}
+
+// ─────────────────────────────────────────
 // TASK ATTACHMENTS
 // ─────────────────────────────────────────
 
