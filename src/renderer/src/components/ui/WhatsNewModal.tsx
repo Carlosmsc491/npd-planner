@@ -17,6 +17,22 @@ interface Fix {
 
 const FIXES: Fix[] = [
   {
+    icon: Wrench,
+    color: '#1D9E75',
+    title: 'Capture no longer gets stuck',
+    description:
+      'The "Saving photo…" spinner used to freeze when Firestore quota was hit or the file was large. ' +
+      'File copy and Firestore writes are now non-blocking — the shutter is always ready for the next shot.',
+  },
+  {
+    icon: Image,
+    color: '#F59E0B',
+    title: 'READY tab: white background JPG',
+    description:
+      'Dropping a transparent PNG into the READY tab now produces a JPG with a white background. ' +
+      'Previously the transparent areas were filled with black.',
+  },
+  {
     icon: Image,
     color: '#1D9E75',
     title: 'Photos are now portable',
