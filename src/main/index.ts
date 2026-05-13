@@ -221,11 +221,15 @@ app.whenReady().then(() => {
     return path.join(__dirname, '../../resources/templates/ELITE QUOTE BOUQUET 2026.xlsx')
   })
 
-  ipcMain.handle('app:read-file-as-dataurl', async (_event, filePath: string) => {
-    const buffer = fs.readFileSync(filePath)
-    const ext = path.extname(filePath).toLowerCase().replace('.', '')
-    const mime = (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg' : `image/${ext}`
-    return `data:${mime};base64,${buffer.toString('base64')}`
+  ipcMain.handle('app:read-file-as-dataurl', (_event, filePath: string) => {
+    return new Promise<string>((resolve, reject) => {
+      fs.readFile(filePath, (err, buffer) => {
+        if (err) { reject(err); return }
+        const ext  = path.extname(filePath).toLowerCase().replace('.', '')
+        const mime = (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg' : `image/${ext}`
+        resolve(`data:${mime};base64,${buffer.toString('base64')}`)
+      })
+    })
   })
 
 

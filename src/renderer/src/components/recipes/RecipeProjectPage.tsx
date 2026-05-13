@@ -637,7 +637,13 @@ export default function RecipeProjectPage() {
       {/* ── Main body: file list + detail panel ── */}
       {/* ── Photo Manager view ── */}
       {view === 'photo-manager' && project && (
-        <PhotoManagerView project={project} effectiveRootPath={effectiveRootPath} onBack={() => setView('recipes')} />
+        <PhotoManagerView
+          project={project}
+          effectiveRootPath={effectiveRootPath}
+          pathNotFound={!pathLoading && pathNotFound}
+          onLocateFolder={handleLocateFolder}
+          onBack={() => setView('recipes')}
+        />
       )}
 
       <div className={`flex flex-1 overflow-hidden ${view === 'photo-manager' ? 'hidden' : ''}`}>
@@ -1172,7 +1178,7 @@ function FileExplorerCard({
     if (activeNotes.length > 0) {
       setShowWarning(true)
     } else {
-      navigate(`/capture/${file.id}`)
+      navigate(`/capture/${encodeURIComponent(file.id)}`)
     }
   }
 
@@ -1180,7 +1186,7 @@ function FileExplorerCard({
     if (!user) return
     await resolveAllRecipeNotes(file.projectId, file.fileId, user.uid, user.name)
     setShowWarning(false)
-    navigate(`/capture/${file.id}`)
+    navigate(`/capture/${encodeURIComponent(file.id)}`)
   }
 
   const cameraBtnConfig = (() => {
@@ -1314,7 +1320,7 @@ function FileExplorerCard({
         <CaptureWarningModal
           recipeName={file.displayName}
           activeNotes={activeNotes}
-          onFixLater={() => { setShowWarning(false); navigate(`/capture/${file.id}`) }}
+          onFixLater={() => { setShowWarning(false); navigate(`/capture/${encodeURIComponent(file.id)}`) }}
           onFixNow={handleFixNow}
         />
       )}

@@ -7,10 +7,10 @@ import {
   Camera, Star, Upload, ImageOff, Loader2, AlertTriangle,
   ExternalLink, CheckCircle2, Check, Trash2, FolderDown, Archive,
 } from 'lucide-react'
-import { collection, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, onSnapshot, doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { useAuthStore } from '../../store/authStore'
-import { updateRecipeReadyPaths, updateRecipeCleanedPaths, updateRecipeExcelInserted } from '../../lib/firestore'
+import { updateRecipeReadyPaths, updateRecipeCleanedPaths, updateRecipeExcelInserted, updateRecipePhotoSelections } from '../../lib/firestore'
 import { resolvePhotoPath, toRelativePhotoPath } from '../../utils/photoUtils'
 import { resolveAllRecipeNotes } from '../../lib/recipeFirestore'
 import { useRecipeNotes } from '../../hooks/useRecipeNotes'
@@ -20,6 +20,8 @@ import type { RecipeProject, RecipeFile, CapturedPhoto } from '../../types'
 interface Props {
   project: RecipeProject
   effectiveRootPath: string
+  pathNotFound?: boolean
+  onLocateFolder?: () => Promise<void>
   onBack: () => void
 }
 
@@ -59,7 +61,7 @@ function sanitize(name: string) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function PhotoManagerView({ project, effectiveRootPath }: Props) {
+export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onLocateFolder }: Props) {
   const { user } = useAuthStore()
   const [activeTab, setActiveTab]   = useState<Tab>('camera')
   const [recipes, setRecipes]       = useState<RecipeFile[]>([])
@@ -228,6 +230,53 @@ export function PhotoManagerView({ project, effectiveRootPath }: Props) {
   const selectionCount = activeTab === 'ready'
     ? selectedReadyIds.size
     : selectedPhotoKeys.size
+
+  // ── Star / un-star a photo from CAMERA tab (marks isSelected in Firestore) ────
+
+  async function togglePhotoSelected(photo: CapturedPhoto & { recipeId: string }) {
+    const recipe = recipes.find(r => r.id === photo.recipeId)
+    if (!recipe) return
+    const newIsSelected = !photo.isSelected
+    const updatedPhotos = (recipe.capturedPhotos ?? []).map(p =>
+      p.filename === photo.filename
+        ? {
+            ...p,
+            isSelected: newIsSelected,
+            ...(newIsSelected
+              ? { selectedAt: Timestamp.now(), selectedBy: user?.uid ?? '' }
+              : { selectedAt: undefined, selectedBy: undefined }),
+          }
+        : p
+    )
+    const anySelected = updatedPhotos.some(p => p.isSelected)
+    // Only transition between complete/selected — don't overwrite in_progress or ready
+    const newStatus: 'complete' | 'selected' =
+      anySelected ? 'selected'
+      : (recipe.photoStatus === 'selected' || recipe.photoStatus === 'complete') ? 'complete'
+      : recipe.photoStatus === 'ready' ? 'complete'
+      : 'complete'
+    // Optimistic update
+    setRecipes(prev => prev.map(r => r.id === recipe.id ? { ...r, capturedPhotos: updatedPhotos, photoStatus: newStatus } : r))
+    try {
+      await updateRecipePhotoSelections(recipe.id, updatedPhotos, newStatus)
+      // Best-effort: sync SELECTED/ folder on disk
+      const projectRoot = effectiveRootPath.replace(/\\/g, '/')
+      if (projectRoot) {
+        const selectedPath = photo.subfolderName
+          ? `${projectRoot}/PICTURES/2. SELECTED/${photo.subfolderName}/${photo.filename}`
+          : `${projectRoot}/PICTURES/2. SELECTED/${photo.filename}`
+        const absCamera = resolvePhotoPath(photo.picturePath, projectRoot)
+        if (newIsSelected) {
+          window.electronAPI.copyToSelected({ sourcePath: absCamera, destPath: selectedPath }).catch(() => {})
+        } else {
+          window.electronAPI.deleteFromSelected({ filePath: selectedPath }).catch(() => {})
+        }
+      }
+    } catch {
+      // Revert on error
+      setRecipes(prev => prev.map(r => r.id === recipe.id ? { ...r, capturedPhotos: recipe.capturedPhotos, photoStatus: recipe.photoStatus } : r))
+    }
+  }
 
   // ── Delete ────────────────────────────────────────────────────────────────────
 
@@ -524,8 +573,13 @@ export function PhotoManagerView({ project, effectiveRootPath }: Props) {
       reader.readAsDataURL(file)
     } else {
       setCleanedProcessing(recipe.id)
-      await processCleaned(file, recipe)
-      setCleanedProcessing(null)
+      try {
+        await processCleaned(file, recipe)
+      } catch (err) {
+        setCleanedErrors(prev => [...prev, `${file.name}: ${err instanceof Error ? err.message : String(err)}`])
+      } finally {
+        setCleanedProcessing(null)
+      }
     }
   }
 
@@ -548,6 +602,29 @@ export function PhotoManagerView({ project, effectiveRootPath }: Props) {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
+
+      {/* Path not found banner — shown for Windows/new-machine users who need to locate the project folder */}
+      {pathNotFound && (
+        <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-700">
+          <AlertTriangle size={14} className="text-amber-500 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+              Project folder not found on this machine — photos can't be loaded.
+            </p>
+            <p className="text-[10px] text-amber-600 dark:text-amber-400">
+              Click "Locate Folder" to point to your local OneDrive-synced project folder.
+            </p>
+          </div>
+          {onLocateFolder && (
+            <button
+              onClick={onLocateFolder}
+              className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-medium transition-colors"
+            >
+              Locate Folder
+            </button>
+          )}
+        </div>
+      )}
 
       {/* KPI strip */}
       <div className="grid grid-cols-5 gap-2 px-4 pt-3 pb-2 shrink-0">
@@ -655,11 +732,13 @@ export function PhotoManagerView({ project, effectiveRootPath }: Props) {
             groups={activeGroups}
             emptyMessage={activeTab === 'camera'
               ? 'No photos in CAMERA. Go to Take Photos to start a session.'
-              : 'No candidates selected yet. Complete a capture session.'}
+              : 'No candidates selected yet. Select photos in the CAMERA tab.'}
             allSelected={activeTab === 'selected'}
             selectedKeys={selectedPhotoKeys}
             projectRootPath={effectiveRootPath}
+            showStarButton={activeTab === 'camera'}
             onToggle={togglePhoto}
+            onToggleStar={togglePhotoSelected}
             onOpen={(photos, idx, name) => openGallery(photos, idx, name)}
             onWarningClick={(recipeId, recipeName) => setNotesModal({
               recipeId,
@@ -1066,10 +1145,11 @@ function ReadyWarningDialog({ file, recipe, dataUrl, onConfirm, onCancel }: {
 
 // ── Photo group grid (CAMERA + SELECTED tabs) ──────────────────────────────────
 
-function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, projectRootPath, onToggle, onOpen, onWarningClick }: {
+function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, projectRootPath, showStarButton, onToggle, onToggleStar, onOpen, onWarningClick }: {
   groups: PhotoGroup[]; emptyMessage: string; allSelected?: boolean
-  selectedKeys: Set<string>; projectRootPath: string
+  selectedKeys: Set<string>; projectRootPath: string; showStarButton?: boolean
   onToggle: (picturePath: string, recipeId: string, recipeName: string) => void
+  onToggleStar?: (photo: CapturedPhoto & { recipeId: string; recipeName: string }) => void
   onOpen: (photos: CapturedPhoto[], idx: number, recipeName: string) => void
   onWarningClick?: (recipeId: string, recipeName: string) => void
 }) {
@@ -1106,7 +1186,9 @@ function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, proje
                 projectRootPath={projectRootPath}
                 forceSelected={allSelected}
                 isChecked={selectedKeys.has(photo.picturePath)}
+                showStarButton={showStarButton}
                 onToggle={() => onToggle(photo.picturePath, photo.recipeId, photo.recipeName)}
+                onToggleStar={onToggleStar ? () => onToggleStar(photo) : undefined}
                 onDoubleClick={() => onOpen(group.photos, idx, photo.recipeName)}
               />
             ))}
@@ -1119,9 +1201,10 @@ function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, proje
 
 // ── Manager thumbnail ──────────────────────────────────────────────────────────
 
-function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, onToggle, onDoubleClick }: {
+function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, showStarButton, onToggle, onToggleStar, onDoubleClick }: {
   photo: CapturedPhoto; projectRootPath: string; forceSelected?: boolean; isChecked: boolean
-  onToggle: () => void; onDoubleClick: () => void
+  showStarButton?: boolean
+  onToggle: () => void; onToggleStar?: () => void; onDoubleClick: () => void
 }) {
   const [dataUrl, setDataUrl] = useState<string | null | undefined>(undefined)
   const [hovered, setHovered] = useState(false)
@@ -1183,10 +1266,18 @@ function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, on
         </div>
       )}
 
-      {/* Star (candidate selected) */}
-      {isStarred && (
-        <div className="absolute bottom-0.5 right-0.5 pointer-events-none">
-          <Star size={12} fill="#F59E0B" className="text-yellow-400" />
+      {/* Star button — clickable in CAMERA tab; display-only indicator in SELECTED tab */}
+      {(showStarButton || isStarred) && (
+        <div
+          className={`absolute bottom-0.5 right-0.5 ${showStarButton ? 'cursor-pointer' : 'pointer-events-none'}`}
+          onClick={showStarButton ? (e) => { e.stopPropagation(); onToggleStar?.() } : undefined}
+          title={showStarButton ? (isStarred ? 'Remove from Selected' : 'Add to Selected') : undefined}
+        >
+          <Star
+            size={14}
+            fill={isStarred ? '#F59E0B' : 'transparent'}
+            className={isStarred ? 'text-yellow-400 drop-shadow' : 'text-white/60 drop-shadow'}
+          />
         </div>
       )}
     </div>

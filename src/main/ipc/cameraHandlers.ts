@@ -46,8 +46,8 @@ export function registerCameraHandlers(): void {
     destPath: string
   ): Promise<{ success: boolean; error?: string }> => {
     try {
-      fs.mkdirSync(path.dirname(destPath), { recursive: true })
-      fs.copyFileSync(sourcePath, destPath)
+      await fs.promises.mkdir(path.dirname(destPath), { recursive: true })
+      await fs.promises.copyFile(sourcePath, destPath)
       return { success: true }
     } catch (err) {
       return { success: false, error: String(err) }
@@ -60,8 +60,8 @@ export function registerCameraHandlers(): void {
     { sourcePath, destPath }: { sourcePath: string; destPath: string }
   ): Promise<{ success: boolean; error?: string }> => {
     try {
-      fs.mkdirSync(path.dirname(destPath), { recursive: true })
-      fs.copyFileSync(sourcePath, destPath)
+      await fs.promises.mkdir(path.dirname(destPath), { recursive: true })
+      await fs.promises.copyFile(sourcePath, destPath)
       return { success: true }
     } catch (err) {
       return { success: false, error: String(err) }

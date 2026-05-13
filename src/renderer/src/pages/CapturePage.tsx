@@ -32,7 +32,9 @@ export default function CapturePage() {
   const { recipeId } = useParams<{ recipeId: string }>()
   const navigate = useNavigate()
   const { user } = useAuthStore()
-  const sharePointPath = user?.preferences?.sharePointPath ?? ''
+  // Mirror RecipeProjectPage: prefer localStorage over Firestore preferences so the
+  // same path is used whether or not the Firestore user doc has been synced yet.
+  const sharePointPath = localStorage.getItem('npd_sharepoint_path') || user?.preferences?.sharePointPath || ''
 
   // ── Recipe / project state ─────────────────────────────────────────────────
   const [recipe, setRecipe]   = useState<RecipeFile | null>(null)
@@ -95,9 +97,15 @@ export default function CapturePage() {
   useEffect(() => { recipeRef.current     = recipe },          [recipe])
   useEffect(() => {
     projectRef.current = project
-    effectiveRootRef.current = project
-      ? resolveProjectRootPath(project.relativeRootPath ?? project.rootPath ?? '', sharePointPath)
-      : ''
+    if (project) {
+      // Prefer the per-machine cached path (same source as useProjectRootPath step-1)
+      // so CapturePage writes files to the same location PhotoManager reads from.
+      const cached = localStorage.getItem(`npd:project_path_${project.id}`)
+      effectiveRootRef.current = cached
+        || resolveProjectRootPath(project.relativeRootPath ?? project.rootPath ?? '', sharePointPath)
+    } else {
+      effectiveRootRef.current = ''
+    }
   }, [project, sharePointPath])
   useEffect(() => { settingsRef.current   = globalSettings },  [globalSettings])
   useEffect(() => { tetheringRef.current  = tetheringActive }, [tetheringActive])
@@ -132,6 +140,11 @@ export default function CapturePage() {
           const loadedProject = { id: projectSnap.id, ...projectSnap.data() } as RecipeProject
           setProject(loadedProject)
           projectRef.current = loadedProject
+          // Set effectiveRootRef immediately here — don't wait for the useEffect re-render —
+          // so that a photo arriving right after load uses the correct path.
+          const cachedPath = localStorage.getItem(`npd:project_path_${loadedProject.id}`)
+          effectiveRootRef.current = cachedPath
+            || resolveProjectRootPath(loadedProject.relativeRootPath ?? loadedProject.rootPath ?? '', sharePointPath)
         }
 
         setGlobalSettings(settings)
@@ -147,7 +160,12 @@ export default function CapturePage() {
         // Pre-populate from previously captured photos in Firestore
         // Paths stored in Firestore may be relative (new) or absolute (legacy) — resolve both.
         if (loadedRecipe.capturedPhotos?.length) {
-          const projRoot = projectRef.current?.rootPath ?? ''
+          // Compute inline because effectiveRootRef hasn't been updated yet
+          // (project state was just set above; its useEffect fires on next render)
+          const projForResolve = projectRef.current
+          const cached = projForResolve ? localStorage.getItem(`npd:project_path_${projForResolve.id}`) : null
+          const projRoot = cached
+            || resolveProjectRootPath(projForResolve?.relativeRootPath ?? projForResolve?.rootPath ?? '', sharePointPath)
           const existing: LocalPhoto[] = loadedRecipe.capturedPhotos.map(cp => ({
             sequence:    cp.sequence,
             filename:    cp.filename,
@@ -331,6 +349,7 @@ export default function CapturePage() {
         const filename      = `${baseName} - ${nextSeq}.jpg`
 
         const projectRoot = effectiveRootRef.current.replace(/\\/g, '/')
+        console.log('[Capture] projectRoot:', projectRoot)
         // Absolute paths — for local file ops on THIS machine
         const cameraAbsPath = subfolderName
           ? `${projectRoot}/PICTURES/1. CAMERA/${subfolderName}/${filename}`
@@ -347,8 +366,12 @@ export default function CapturePage() {
               : `${ssdBase}/${currentProject.name}/PICTURES/1. CAMERA/${filename}`)
           : null
 
-        const [camResult] = await Promise.all([
+        const copyTimeout = new Promise<{ success: false; error: string }>(resolve =>
+          setTimeout(() => resolve({ success: false, error: 'copy timed out after 15s' }), 15_000)
+        )
+        const camResult = await Promise.race([
           window.electronAPI.cameraCopyFile(data.tempPath, cameraAbsPath),
+          copyTimeout,
         ])
         if (!camResult.success) console.error('[Capture] CAMERA copy failed:', camResult.error)
 
@@ -369,19 +392,20 @@ export default function CapturePage() {
           capturedBy:    user?.uid ?? '',
           isSelected:    false,
         }
-        await addCapturedPhoto(recipeId, capturedPhoto)
+        // Fire-and-forget the Firestore write so quota errors / backoff never block the shutter.
+        // The file is already safe on disk; Firestore will sync when quota recovers.
+        addCapturedPhoto(recipeId, capturedPhoto).catch(err =>
+          console.warn('[Capture] Firestore write queued (will retry):', err)
+        )
 
-        let dataUrl: string | null = null
-        try {
-          dataUrl = await window.electronAPI.readFileAsDataUrl(cameraAbsPath)
-        } catch { /* skip */ }
-
-        // LocalPhoto: absolute paths for immediate use on this machine
+        // LocalPhoto: dataUrl left null — lazy-loaded by loadDataUrl when the thumbnail is visible.
+        // Do NOT call readFileAsDataUrl here: large DSLRs produce 15-25MB JPEGs; reading them
+        // synchronously in the main process blocks the IPC channel and keeps the spinner stuck.
         const newPhoto: LocalPhoto = {
           sequence: nextSeq, filename,
           picturePath: cameraAbsPath,
           cameraPath:  cameraAbsPath,
-          ssdPath, dataUrl,
+          ssdPath, dataUrl: null,
         }
 
         const newIndex = photosRef.current.length
