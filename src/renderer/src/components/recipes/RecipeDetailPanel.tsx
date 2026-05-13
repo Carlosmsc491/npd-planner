@@ -568,7 +568,7 @@ export default function RecipeDetailPanel({
               <PhotoCaptureButton
                 photoStatus={file.photoStatus ?? 'pending'}
                 canAct={canActOnPhotos}
-                onNavigate={() => navigate(`/capture/${file.id}`)}
+                onNavigate={() => navigate(`/capture/${encodeURIComponent(file.id)}`)}
               />
             </div>
           </div>

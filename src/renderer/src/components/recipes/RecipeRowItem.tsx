@@ -108,7 +108,7 @@ export default function RecipeRowItem({
     if (activeNotes.length > 0) {
       setShowWarning(true)
     } else {
-      navigate(`/capture/${file.id}`)
+      navigate(`/capture/${encodeURIComponent(file.id)}`)
     }
   }
 
@@ -116,7 +116,7 @@ export default function RecipeRowItem({
     if (!user) return
     await resolveAllRecipeNotes(file.projectId, file.fileId, user.uid, user.name)
     setShowWarning(false)
-    navigate(`/capture/${file.id}`)
+    navigate(`/capture/${encodeURIComponent(file.id)}`)
   }
 
   const cameraBtnConfig: {
@@ -278,7 +278,7 @@ export default function RecipeRowItem({
         <CaptureWarningModal
           recipeName={file.displayName}
           activeNotes={activeNotes}
-          onFixLater={() => { setShowWarning(false); navigate(`/capture/${file.id}`) }}
+          onFixLater={() => { setShowWarning(false); navigate(`/capture/${encodeURIComponent(file.id)}`) }}
           onFixNow={handleFixNow}
         />
       )}
