@@ -7,7 +7,7 @@ import {
   updateDateType,
   deleteDateType,
 } from '../../lib/firestore'
-import { Plus, Edit2, Check, X, Trash2, AlertTriangle, Hammer, Truck, Wrench, Star, Calendar, Package, MapPin, Flag, Clock, Zap } from 'lucide-react'
+import { Plus, Edit2, Check, X, Trash2, AlertTriangle, Hammer, Truck, Cog, Star, Calendar, Package, MapPin, Flag, Clock, Zap } from 'lucide-react'
 import { useDateTypeStore } from '../../store/dateTypeStore'
 import type { DateType } from '../../types'
 
@@ -15,7 +15,7 @@ import type { DateType } from '../../types'
 const AVAILABLE_ICONS = [
   { name: 'Hammer',   label: 'Hammer',   Icon: Hammer },
   { name: 'Truck',    label: 'Truck',    Icon: Truck },
-  { name: 'Wrench',   label: 'Wrench',   Icon: Wrench },
+  { name: 'Cog',      label: 'Cog',      Icon: Cog },
   { name: 'Star',     label: 'Star',     Icon: Star },
   { name: 'Calendar', label: 'Calendar', Icon: Calendar },
   { name: 'Package',  label: 'Package',  Icon: Package },

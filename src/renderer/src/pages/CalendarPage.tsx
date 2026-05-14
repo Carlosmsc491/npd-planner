@@ -7,7 +7,7 @@ import interactionPlugin from '@fullcalendar/interaction'
 import type { EventDropArg, EventClickArg, DayCellContentArg, EventApi } from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import {
-  Hammer, Truck, Wrench, Star,
+  Hammer, Truck, Cog, Star,
   Calendar as CalendarIcon,
   Package, MapPin, Flag, Clock, Zap,
   ChevronDown, Search, X,
@@ -24,7 +24,7 @@ import { toFirestoreDate, toLocalDateString, toFCExclusiveEnd, fromFCExclusiveEn
 import type { Task, Board } from '../types'
 
 const ICON_MAP: Record<string, LucideIcon> = {
-  Hammer, Truck, Wrench, Star, Calendar: CalendarIcon,
+  Hammer, Truck, Cog, Star, Calendar: CalendarIcon,
   Package, MapPin, Flag, Clock, Zap,
 }
 

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { onSnapshot, doc } from 'firebase/firestore'
 import {
   User, Calendar, CircleDot, Zap, Users, Tag,
-  Layers, Maximize2, ChevronDown, Plus, X, Hammer, Truck, Wrench, Star, Edit2,
+  Layers, Maximize2, ChevronDown, Plus, X, Hammer, Truck, Cog, Star, Edit2,
   type LucideIcon,
 } from 'lucide-react'
 import { nanoid } from 'nanoid'
@@ -1234,7 +1234,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
 
 // Icon helper for date types
 const ICON_MAP: Record<string, LucideIcon> = {
-  Hammer, Truck, Wrench, Star, Calendar,
+  Hammer, Truck, Cog, Star, Calendar,
 }
 
 function getDateTypeIcon(iconName: string): LucideIcon {

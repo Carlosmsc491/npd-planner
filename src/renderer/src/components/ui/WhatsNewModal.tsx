@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  X, Camera, Sparkles, Image, FileSpreadsheet, Shield, Mail,
+  X, Camera, Sparkles, Image, FileSpreadsheet, Shield, Mail, Cog,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -35,7 +35,7 @@ const FEATURES: Feature[] = [
       'Select multiple photos, delete, Save As, or export as ZIP directly from the manager.',
   },
   {
-    icon: Wrench,
+    icon: Cog,
     color: '#1D9E75',
     title: 'Capture no longer gets stuck',
     description:
