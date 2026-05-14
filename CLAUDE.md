@@ -502,6 +502,25 @@ const PRIORITY_COLORS = {
 
 ---
 
+## Release Process
+
+To publish a new version to all users:
+
+1. Bump version in `package.json`
+2. Update WhatsNewModal version constant
+3. Commit all changes
+4. Run: `npm run release:win`
+   - This builds the app and publishes directly to GitHub Releases
+   - Requires GH_TOKEN environment variable (already configured)
+   - Creates the release with latest.yml so auto-updater works
+5. Users with older versions will receive the update automatically
+   within 1 hour (autoUpdater checks on app start and every hour)
+
+IMPORTANT: Never manually upload .exe files to GitHub Releases.
+Always use `npm run release:win` to keep latest.yml in sync.
+
+---
+
 ## Build Configuration (electron-builder.yml)
 
 ```yaml
