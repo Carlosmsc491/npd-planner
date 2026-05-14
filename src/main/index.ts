@@ -216,17 +216,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle('app:clear-firebase-cache', async () => {
     try {
-      const userData = app.getPath('userData')
-      const targets = [
-        path.join(userData, 'IndexedDB'),
-        path.join(userData, 'Local Storage'),
-        path.join(userData, 'Session Storage'),
-      ]
-      for (const target of targets) {
-        if (fs.existsSync(target)) {
-          fs.rmSync(target, { recursive: true, force: true })
-        }
-      }
+      const { session } = await import('electron')
+      await session.defaultSession.clearStorageData({
+        storages: ['indexdb', 'localstorage', 'sessionstorage', 'shadercache', 'cachestorage'],
+      })
       return { success: true }
     } catch (err) {
       return { success: false, error: String(err) }
