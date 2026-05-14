@@ -1,9 +1,9 @@
 // src/renderer/src/components/recipes/RecipeDetailPanel.tsx
 // Right-side panel showing file details and action buttons with full Mark Done flow
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, Lock, Check, RotateCcw, ExternalLink, MousePointerClick, UserPlus, ChevronDown, Camera, Star, ImageOff, Pencil, ChevronRight } from 'lucide-react'
+import { Loader2, Lock, Check, RotateCcw, ExternalLink, MousePointerClick, UserPlus, ChevronDown, Camera, Star, ImageOff, Pencil } from 'lucide-react'
 import { Timestamp } from 'firebase/firestore'
 import { useTaskStore } from '../../store/taskStore'
 import { useAuthStore } from '../../store/authStore'
@@ -21,7 +21,6 @@ import { nanoid } from 'nanoid'
 interface Props {
   file: RecipeFile | null
   project: RecipeProject
-  effectiveRootPath: string
   settings: RecipeSettings | null
   currentUserName: string
   users: AppUser[]                                              // for assign dropdown
@@ -35,7 +34,6 @@ interface Props {
   onForceUnlock?: () => Promise<void>
   onRename?: (result: RenameWithPhotosResult, newDisplayName: string) => Promise<void>
   ssdBase?: string | null
-  nudgeClaimAt?: number
 }
 
 type ActionState =
@@ -60,7 +58,6 @@ const MARK_DONE_LABEL: Record<string, string> = {
 export default function RecipeDetailPanel({
   file,
   project,
-  effectiveRootPath,
   settings,
   currentUserName,
   users,
@@ -74,22 +71,12 @@ export default function RecipeDetailPanel({
   onForceUnlock,
   onRename,
   ssdBase,
-  nudgeClaimAt,
 }: Props) {
   const navigate = useNavigate()
   const setToast = useTaskStore((s) => s.setToast)
   const currentUser = useAuthStore((s) => s.user)
 
   const [actionState, setActionState] = useState<ActionState>('idle')
-  const [nudging, setNudging] = useState(false)
-  const nudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (!nudgeClaimAt) return
-    setNudging(true)
-    if (nudgeTimer.current) clearTimeout(nudgeTimer.current)
-    nudgeTimer.current = setTimeout(() => setNudging(false), 2000)
-  }, [nudgeClaimAt])
   const [error, setError] = useState<string | null>(null)
   const [confirmReopen, setConfirmReopen] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
@@ -128,7 +115,7 @@ export default function RecipeDetailPanel({
   const handleMarkDone = useCallback(async () => {
     if (!file || !settings) return
 
-    const fullPath = buildFullPath(effectiveRootPath, file.relativePath)
+    const fullPath = buildFullPath(project.rootPath, file.relativePath)
     setError(null)
 
     setActionState('checking')
@@ -141,7 +128,7 @@ export default function RecipeDetailPanel({
       return
     }
     if (fileOpen) {
-      setError('Excel is still open. Save your changes, close the file, then try again.')
+      setError('Close Excel before finishing this recipe.')
       setActionState('idle')
       return
     }
@@ -188,7 +175,7 @@ export default function RecipeDetailPanel({
   const handleDialogApply = useCallback(async (acceptedChanges: ValidationChange[]) => {
     if (!file) return
     setDialogOpen(false)
-    const fullPath = buildFullPath(effectiveRootPath, file.relativePath)
+    const fullPath = buildFullPath(project.rootPath, file.relativePath)
     await applyAndFinalize(fullPath, acceptedChanges, file)
   }, [file, project]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -218,14 +205,9 @@ export default function RecipeDetailPanel({
     try {
       const namingChange = acceptedChanges.find((c) => c.field === 'Final File Name')
       if (namingChange) {
-        // Use the last separator (\ or /) to locate the directory — handles both Windows and Mac paths
-        const sepIdx = Math.max(fullPath.lastIndexOf('\\'), fullPath.lastIndexOf('/'))
-        const sep    = fullPath.includes('\\') ? '\\' : '/'
-        const dir    = sepIdx > 0 ? fullPath.substring(0, sepIdx) : ''
-        const newPath = dir ? `${dir}${sep}${namingChange.suggestedValue}` : namingChange.suggestedValue as string
-        if (newPath !== fullPath) {
-          await window.electronAPI.recipeRenameFile(fullPath, newPath)
-        }
+        const dir = fullPath.substring(0, fullPath.lastIndexOf('\\'))
+        const newPath = `${dir}\\${namingChange.suggestedValue}`
+        await window.electronAPI.recipeRenameFile(fullPath, newPath)
       }
 
       await onMarkDone()
@@ -392,29 +374,14 @@ export default function RecipeDetailPanel({
 
           {/* PENDING → Claim */}
           {file.status === 'pending' && canEdit && (
-            <div className="relative">
-              {/* Nudge hint — arrows + message above button */}
-              {nudging && (
-                <div className="absolute -top-8 left-0 right-0 flex items-center justify-center gap-1 text-green-600 dark:text-green-400 text-xs font-semibold animate-bounce pointer-events-none">
-                  <ChevronRight size={13} className="rotate-90" />
-                  <span>Click here to open this recipe</span>
-                  <ChevronRight size={13} className="rotate-90" />
-                </div>
-              )}
-              <button
-                disabled={busy}
-                onClick={() => runAction('claiming', onClaim)}
-                className={`w-full flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all
-                  ${nudging
-                    ? 'bg-green-500 ring-4 ring-green-300 dark:ring-green-700 scale-[1.03] animate-pulse'
-                    : 'bg-green-500 hover:bg-green-600'
-                  }
-                  disabled:opacity-50`}
-              >
-                {actionState === 'claiming' && <Loader2 size={14} className="animate-spin" />}
-                Claim Recipe
-              </button>
-            </div>
+            <button
+              disabled={busy}
+              onClick={() => runAction('claiming', onClaim)}
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-green-500 px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
+            >
+              {actionState === 'claiming' && <Loader2 size={14} className="animate-spin" />}
+              Claim Recipe
+            </button>
           )}
 
           {/* IN PROGRESS — own lock */}
@@ -564,7 +531,6 @@ export default function RecipeDetailPanel({
                 projectId={file.projectId}
                 fileId={file.fileId}
                 currentUser={currentUser}
-                storedCount={file.activeNotesCount ?? 0}
               />
             </div>
           )}
@@ -576,7 +542,7 @@ export default function RecipeDetailPanel({
               <PhotoCaptureButton
                 photoStatus={file.photoStatus ?? 'pending'}
                 canAct={canActOnPhotos}
-                onNavigate={() => navigate(`/capture/${encodeURIComponent(file.id)}`)}
+                onNavigate={() => navigate(`/capture/${file.id}`)}
               />
             </div>
           </div>
@@ -590,7 +556,7 @@ export default function RecipeDetailPanel({
                   <PhotoThumbnail
                     key={photo.filename}
                     photo={photo}
-                    projectRootPath={effectiveRootPath}
+                    projectRootPath={project.rootPath}
                     onDoubleClick={() => { setGalleryIndex(idx); setGalleryOpen(true) }}
                   />
                 ))}
@@ -606,7 +572,7 @@ export default function RecipeDetailPanel({
           photos={file.capturedPhotos}
           initialIndex={galleryIndex}
           recipeName={file.recipeName || file.displayName}
-          projectRootPath={effectiveRootPath}
+          projectRootPath={project.rootPath}
           onClose={() => setGalleryOpen(false)}
         />
       )}
@@ -624,7 +590,6 @@ export default function RecipeDetailPanel({
         <RenameRecipeModal
           file={file}
           project={project}
-          effectiveRootPath={effectiveRootPath}
           ssdBase={ssdBase ?? null}
           onClose={() => setRenameOpen(false)}
           onSuccess={async (result, newDisplayName) => {

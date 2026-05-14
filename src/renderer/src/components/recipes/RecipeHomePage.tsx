@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, FolderOpen, FolderPlus, Trash2, Loader2, ChevronDown, FolderSearch, CheckCircle2 } from 'lucide-react'
+import { Plus, FolderOpen, FolderPlus, Trash2, Loader2, ChevronDown } from 'lucide-react'
 import { subscribeToRecipeProjects, deleteRecipeProject, createRecipeProject } from '../../lib/recipeFirestore'
 import { useRecipeStore } from '../../store/recipeStore'
 import { useTaskStore } from '../../store/taskStore'
@@ -12,7 +12,6 @@ import type { RecipeProject } from '../../types'
 import { Timestamp } from 'firebase/firestore'
 import { nanoid } from 'nanoid'
 import AppLayout from '../ui/AppLayout'
-import { toLibraryRelativePath, formatProjectLocation } from '../../utils/photoUtils'
 
 type FilterStatus = 'all' | 'active' | 'completed' | 'archived'
 
@@ -32,18 +31,6 @@ export default function RecipeHomePage() {
   const [importError, setImportError] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
-
-  const [projectsRoot, setProjectsRoot] = useState(() => localStorage.getItem('npd:projects_root') ?? '')
-  const [settingRoot, setSettingRoot] = useState(false)
-
-  async function handleSetProjectsRoot() {
-    const selected = await window.electronAPI.selectFolder()
-    if (!selected) return
-    setSettingRoot(true)
-    localStorage.setItem('npd:projects_root', selected)
-    setProjectsRoot(selected)
-    setSettingRoot(false)
-  }
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -76,17 +63,17 @@ export default function RecipeHomePage() {
       }
 
       const cfg = result.config
-      const spPath = localStorage.getItem('npd_sharepoint_path') || user?.preferences?.sharePointPath || ''
-      const relativeRootPath = spPath ? toLibraryRelativePath(folderPath, spPath) : undefined
-
-      if (!relativeRootPath) {
-        setImportError('The project folder must be inside your OneDrive library.')
-        return
-      }
+      const spPath   = user?.preferences?.sharePointPath ?? ''
+      const normalSP = spPath.replace(/\\/g, '/').replace(/\/$/, '')
+      const normalFP = folderPath.replace(/\\/g, '/')
+      const relativeRootPath = normalSP && normalFP.startsWith(normalSP + '/')
+        ? normalFP.slice(normalSP.length + 1)
+        : undefined
 
       const newId = await createRecipeProject({
         name: cfg.projectName,
-        relativeRootPath,
+        rootPath: folderPath,
+        ...(relativeRootPath !== undefined ? { relativeRootPath } : {}),
         status: 'active',
         createdBy: user?.uid ?? '',
         config: {
@@ -108,20 +95,6 @@ export default function RecipeHomePage() {
           dueDate:      null,
         },
       })
-
-      // Write project.json so any user on any machine can discover this project by ID
-      window.electronAPI.recipeWriteProjectJson({ folderPath, projectId: newId }).catch(() => {})
-      // Cache the resolved path on this machine
-      localStorage.setItem(`npd:project_path_${newId}`, folderPath)
-      // Seed projectsRoot if not yet configured
-      if (!localStorage.getItem('npd:projects_root')) {
-        const sep   = folderPath.includes('\\') ? '\\' : '/'
-        const parts = folderPath.split(sep).filter(Boolean)
-        if (parts.length > 1) {
-          const parent = (folderPath.startsWith('/') ? '/' : '') + parts.slice(0, -1).join(sep)
-          localStorage.setItem('npd:projects_root', parent)
-        }
-      }
 
       navigate(`/recipes/${newId}`)
     } catch (err) {
@@ -229,44 +202,6 @@ export default function RecipeHomePage() {
         </div>
       )}
 
-      {/* NPD Projects root setup banner */}
-      {!projectsRoot ? (
-        <div className="mb-5 rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-5 py-4 flex items-start gap-4">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-800/40 text-amber-600 dark:text-amber-400">
-            <FolderSearch size={20} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-              Select your NPD Projects folder
-            </p>
-            <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-              Choose the root folder where all your NPD project folders live — typically your local
-              OneDrive NPD-SECURE sync folder. The app saves this path on this machine so the wizard
-              can pre-fill it automatically, and other users&apos; machines can scan it to find projects by ID.
-            </p>
-          </div>
-          <button
-            onClick={handleSetProjectsRoot}
-            disabled={settingRoot}
-            className="shrink-0 flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-2 transition-colors disabled:opacity-60"
-          >
-            {settingRoot ? <Loader2 size={12} className="animate-spin" /> : <FolderOpen size={12} />}
-            Select Folder
-          </button>
-        </div>
-      ) : (
-        <div className="mb-4 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-xs text-green-700 dark:text-green-400">
-          <CheckCircle2 size={13} className="shrink-0" />
-          <span className="truncate font-mono">{projectsRoot}</span>
-          <button
-            onClick={handleSetProjectsRoot}
-            className="ml-auto shrink-0 text-green-600 dark:text-green-400 hover:underline whitespace-nowrap"
-          >
-            Change
-          </button>
-        </div>
-      )}
-
       {/* Filters + Search */}
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
         <div className="flex gap-1 flex-wrap">
@@ -323,7 +258,6 @@ export default function RecipeHomePage() {
                 <ProjectRow
                   key={project.id}
                   project={project}
-                  spPath={localStorage.getItem('npd_sharepoint_path') || user?.preferences?.sharePointPath || ''}
                   onClick={() => navigate(`/recipes/${project.id}`)}
                   onDelete={(e) => handleDelete(project.id, e)}
                   isDeleting={deletingId === project.id}
@@ -345,14 +279,12 @@ export default function RecipeHomePage() {
 
 function ProjectRow({
   project,
-  spPath,
   onClick,
   onDelete,
   isDeleting,
   confirmPending,
 }: {
   project: RecipeProject
-  spPath: string
   onClick: () => void
   onDelete: (e: React.MouseEvent) => void
   isDeleting: boolean
@@ -370,9 +302,8 @@ function ProjectRow({
         </div>
       </td>
       <td className="px-4 py-3 max-w-xs">
-        <span className="text-xs text-gray-400 dark:text-gray-500 truncate block"
-              title={project.relativeRootPath ?? project.rootPath ?? ''}>
-          {formatProjectLocation(project.relativeRootPath, spPath, project.rootPath)}
+        <span className="text-xs font-mono text-gray-400 dark:text-gray-500 truncate block" title={project.rootPath}>
+          {project.relativeRootPath ?? project.rootPath}
         </span>
       </td>
       <td className="px-4 py-3">

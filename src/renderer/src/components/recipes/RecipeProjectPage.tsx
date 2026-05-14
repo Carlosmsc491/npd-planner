@@ -37,11 +37,9 @@ import RecipeFileManagerDialog from './RecipeFileManagerDialog'
 import RecipeSettingsTab from './settings/RecipeSettingsTab'
 import { PhotoManagerView } from './PhotoManagerView'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification, RenameWithPhotosResult } from '../../types'
-import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera, BookOpen, FileText } from 'lucide-react'
+import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Download, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
-import { toLibraryRelativePath, formatProjectLocation } from '../../utils/photoUtils'
-import { useProjectRootPath } from '../../hooks/useProjectRootPath'
-import RecipeInstructionsModal, { shouldShowInstructions } from './RecipeInstructionsModal'
+import { resolveProjectRootPath } from '../../utils/photoUtils'
 
 export default function RecipeProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -51,8 +49,6 @@ export default function RecipeProjectPage() {
   const [project, setProject] = useState<RecipeProject | null>(null)
   const [projectLoading, setProjectLoading] = useState(true)
   const [selectedFile, setSelectedFile] = useState<RecipeFile | null>(null)
-  const [nudgeClaimAt, setNudgeClaimAt] = useState(0)
-  const [instructionsOpen, setInstructionsOpen] = useState(false)
   const [presence, setPresence] = useState<RecipePresence[]>([])
   const [settings, setSettings] = useState<RecipeSettings | null>(null)
   const [scanKey, setScanKey] = useState(0)
@@ -90,21 +86,20 @@ export default function RecipeProjectPage() {
 
   const canEdit = user ? canEditArea(user, 'recipes') : false
 
-  // Async path resolution: cache → scan projectsRoot → legacy relativeRootPath fallback
-  const { effectiveRootPath, pathLoading, pathNotFound, handleLocateFolder } =
-    useProjectRootPath(project, user)
-
-  const sharePointPath = localStorage.getItem('npd_sharepoint_path') || user?.preferences?.sharePointPath || ''
-
-  // Pass empty string while resolving so useRecipeFiles doesn't scan prematurely
-  const rootFolderLabel = effectiveRootPath.split(/[/\\]/).filter(Boolean).pop() ?? project?.name ?? '(root)'
+  // Resolve the project root path for the current user's machine.
+  // Stored paths may be absolute from another OS (e.g. Windows path on Mac).
+  // resolveProjectRootPath reconstructs the correct local path using the
+  // SharePoint folder name as a landmark — portable across users and OS.
+  const sharePointPath = user?.preferences?.sharePointPath ?? ''
+  const effectiveRootPath = project
+    ? resolveProjectRootPath(project.relativeRootPath ?? project.rootPath, sharePointPath)
+    : ''
 
   const { currentLock, claimFile, unclaimFile } = useRecipeLock()
   const { files, filesByFolder, isLoading: filesLoading, scanError } = useRecipeFiles(
     projectId ?? '',
-    pathLoading ? '' : effectiveRootPath,
-    scanKey,
-    rootFolderLabel
+    effectiveRootPath,
+    scanKey
   )
 
   // ── Load project from Firestore ──────────────────────────────────────────
@@ -114,9 +109,7 @@ export default function RecipeProjectPage() {
       doc(db, 'recipeProjects', projectId),
       (snap) => {
         if (snap.exists()) {
-          const p = { id: snap.id, ...snap.data() } as RecipeProject
-          setProject(p)
-          if (shouldShowInstructions(p.id)) setInstructionsOpen(true)
+          setProject({ id: snap.id, ...snap.data() } as RecipeProject)
         } else {
           setProject(null)
         }
@@ -238,13 +231,7 @@ export default function RecipeProjectPage() {
     if (!project) return
     const fullPath = await window.electronAPI.resolveSharePointPath(effectiveRootPath, file.relativePath)
     await window.electronAPI.recipeOpenInExcel(fullPath)
-  }, [project, effectiveRootPath])
-
-  const handleClaimForFile = useCallback(async (file: RecipeFile) => {
-    if (!projectId || !user) return
-    setSelectedFile(file)
-    await claimFile(projectId, file.id, user.name)
-  }, [projectId, user, claimFile])
+  }, [project])
 
   // ── Assign handler ──────────────────────────────────────────────────────
   const handleAssign = useCallback(async (uid: string | null, name: string | null) => {
@@ -290,6 +277,29 @@ export default function RecipeProjectPage() {
     })
   }
 
+  const handleBulkReopen = useCallback(async () => {
+    if (!projectId || selectedFileIds.size === 0) return
+    setBulkBusy(true)
+    try {
+      const ids = [...selectedFileIds]
+      await Promise.all(ids.map(id => reopenRecipeFile(projectId, id)))
+      setSelectedFileIds(new Set())
+    } finally {
+      setBulkBusy(false)
+    }
+  }, [projectId, selectedFileIds])
+
+  const handleBulkDone = useCallback(async () => {
+    if (!projectId || selectedFileIds.size === 0 || !user) return
+    setBulkBusy(true)
+    try {
+      const ids = [...selectedFileIds]
+      await Promise.all(ids.map(id => markRecipeDone(projectId, id, user.name, '')))
+      setSelectedFileIds(new Set())
+    } finally {
+      setBulkBusy(false)
+    }
+  }, [projectId, selectedFileIds, user])
 
   const handleBulkAssign = useCallback(async (uid: string | null, name: string | null) => {
     if (!projectId || selectedFileIds.size === 0) return
@@ -377,21 +387,41 @@ export default function RecipeProjectPage() {
     setScanKey((k) => k + 1)
   }, [projectId, project, selectedFile, files])
 
-  // ── Locate folder manually (used when path cannot be resolved automatically) ──
+  // ── Update folder path when project folder not found ─────────────────────
   const handleUpdateFolderPath = useCallback(async () => {
     if (!projectId || !project) return
-    // The hook handles folder picker, caching, and writing project.json
-    await handleLocateFolder()
-    // Also update relativeRootPath in Firestore (keep legacy fallback current)
-    const newPath = localStorage.getItem(`npd:project_path_${projectId}`)
-    if (newPath && sharePointPath) {
-      const relPath = toLibraryRelativePath(newPath, sharePointPath)
-      if (relPath) {
-        updateRecipeProject(projectId, { relativeRootPath: relPath }).catch(() => {})
-      }
+
+    const newPath = await window.electronAPI.selectFolder()
+    if (!newPath) return
+
+    // Verificar que la nueva ruta existe
+    const exists = await window.electronAPI.recipePathExists(newPath)
+    if (!exists) {
+      // Mostrar toast de error (usar alert por ahora, o implementar toast si existe)
+      alert('Selected folder does not exist or is not accessible.')
+      return
     }
-    setScanKey(k => k + 1)
-  }, [projectId, project, handleLocateFolder, sharePointPath])
+
+    // Compute portable relative path from this user's SharePoint root
+    const normalSP   = sharePointPath.replace(/\\/g, '/').replace(/\/$/, '')
+    const normalNew  = newPath.replace(/\\/g, '/')
+    const relPath    = normalNew.startsWith(normalSP + '/')
+      ? normalNew.slice(normalSP.length + 1)
+      : undefined
+
+    // Actualizar en Firestore
+    try {
+      await updateRecipeProject(projectId, {
+        rootPath: newPath,
+        ...(relPath !== undefined ? { relativeRootPath: relPath } : {}),
+      })
+      // Disparar re-scan con la nueva ruta
+      setScanKey(k => k + 1)
+    } catch (err) {
+      console.error('Failed to update project path:', err)
+      alert('Failed to update project folder path.')
+    }
+  }, [projectId, project])
 
   // ── Filtered files logic ────────────────────────────────────────────────
   const filteredFiles = useMemo(() => {
@@ -421,7 +451,7 @@ export default function RecipeProjectPage() {
     const grouped: Record<string, RecipeFile[]> = {}
     for (const file of filteredFiles) {
       const parts = file.relativePath.split('/')
-      const folder = parts.length > 1 ? parts[0] : rootFolderLabel
+      const folder = parts.length > 1 ? parts[0] : '(root)'
       if (!grouped[folder]) grouped[folder] = []
       grouped[folder].push(file)
     }
@@ -435,6 +465,31 @@ export default function RecipeProjectPage() {
     }
   }, [filteredFilesByFolder, currentFolder])
 
+  // ── CSV export (after filteredFiles is declared) ────────────────────────
+  const handleExportCSV = useCallback(() => {
+    const rows = filteredFiles.map(f => [
+      f.displayName,
+      f.price,
+      f.option,
+      f.status,
+      f.lockedBy ?? '',
+      f.doneBy ?? '',
+      f.assignedToName ?? '',
+      f.holidayOverride,
+      f.customerOverride,
+    ])
+    const header = ['Name', 'Price', 'Option', 'Status', 'Locked By', 'Done By', 'Assigned To', 'Holiday', 'Customer']
+    const csv = [header, ...rows]
+      .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${project?.name ?? 'recipes'}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [filteredFiles, project?.name])
 
   // ── Progress stats ───────────────────────────────────────────────────────
   const total      = files.length
@@ -531,14 +586,14 @@ export default function RecipeProjectPage() {
           Files &amp; Folders
         </button>
 
-        {/* Instructions / Rules */}
+        {/* CSV export */}
         <button
-          onClick={() => setInstructionsOpen(true)}
-          title="How to work in this project"
+          onClick={handleExportCSV}
+          title="Export recipes as CSV"
           className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 transition-colors shrink-0"
         >
-          <BookOpen size={13} />
-          Guide
+          <Download size={13} />
+          CSV
         </button>
 
         {/* Photo Manager — visible to all users (actions gated by canTakePhotos inside) */}
@@ -552,8 +607,8 @@ export default function RecipeProjectPage() {
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border-gray-200 dark:border-gray-700'
             }`}
           >
-            {view === 'photo-manager' ? <FileText size={13} /> : <Camera size={13} />}
-            {view === 'photo-manager' ? 'Recipes' : 'Photo Manager'}
+            <Camera size={13} />
+            {view === 'photo-manager' ? '← Recipes' : 'Photo Manager'}
           </button>
         )}
 
@@ -637,13 +692,7 @@ export default function RecipeProjectPage() {
       {/* ── Main body: file list + detail panel ── */}
       {/* ── Photo Manager view ── */}
       {view === 'photo-manager' && project && (
-        <PhotoManagerView
-          project={project}
-          effectiveRootPath={effectiveRootPath}
-          pathNotFound={!pathLoading && pathNotFound}
-          onLocateFolder={handleLocateFolder}
-          onBack={() => setView('recipes')}
-        />
+        <PhotoManagerView project={project} onBack={() => setView('recipes')} />
       )}
 
       <div className={`flex flex-1 overflow-hidden ${view === 'photo-manager' ? 'hidden' : ''}`}>
@@ -746,7 +795,7 @@ export default function RecipeProjectPage() {
               </div>
             </div>
 
-            {/* Bulk action bar — only for checkbox multi-select */}
+            {/* Bulk action bar */}
             {selectedFileIds.size > 0 && (
               <div className="flex items-center gap-2 mb-3 p-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
                 <CheckSquare size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />
@@ -754,6 +803,26 @@ export default function RecipeProjectPage() {
                   {selectedFileIds.size} selected
                 </span>
                 <div className="flex items-center gap-1.5 ml-auto">
+                  {/* Bulk Reopen */}
+                  <button
+                    disabled={bulkBusy}
+                    onClick={handleBulkReopen}
+                    className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-amber-300 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-40 transition-colors"
+                  >
+                    {bulkBusy ? <Loader2 size={12} className="animate-spin" /> : null}
+                    Reopen
+                  </button>
+                  {/* Bulk Done */}
+                  {canEdit && (
+                    <button
+                      disabled={bulkBusy}
+                      onClick={handleBulkDone}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-green-300 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-40 transition-colors"
+                    >
+                      {bulkBusy ? <Loader2 size={12} className="animate-spin" /> : null}
+                      Mark Done
+                    </button>
+                  )}
                   {/* Bulk Assign */}
                   {canEdit && (
                     <div className="relative">
@@ -792,9 +861,10 @@ export default function RecipeProjectPage() {
                   {/* Deselect */}
                   <button
                     onClick={() => setSelectedFileIds(new Set())}
-                    className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-1"
+                    title="Clear selection"
                   >
-                    <X size={12} /> Deselect
+                    <X size={14} />
                   </button>
                 </div>
               </div>
@@ -825,60 +895,26 @@ export default function RecipeProjectPage() {
               </div>
             )}
 
-            {/* Path resolving skeleton — shown while useProjectRootPath is working */}
-            {pathLoading && (
-              <div className="mb-4 flex items-center gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
-                <Loader2 size={14} className="animate-spin text-gray-400 shrink-0" />
-                <span className="text-xs text-gray-500 dark:text-gray-400">Locating project folder…</span>
-              </div>
-            )}
-
-            {/* Error banner — only shown once resolution is complete and path was not found */}
-            {!pathLoading && pathNotFound && (
+            {/* Error banner when project folder not found */}
+            {scanError && (
               <div className="mb-4">
-                <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20
-                                border border-amber-200 dark:border-amber-700 rounded-lg">
-                  <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20
+                                border border-red-200 dark:border-red-800 rounded-lg">
+                  <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                      Project folder not found on this machine.
+                    <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                      Project folder not found
                     </p>
-                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-                      Click "Locate Folder" to point to the correct folder once — it will be remembered.
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-0.5 truncate">
+                      {scanError}
                     </p>
-                    {project?.relativeRootPath && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 font-mono">
-                        Expected: {formatProjectLocation(project.relativeRootPath, sharePointPath)}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={handleUpdateFolderPath}
-                    className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-medium transition-colors"
-                  >
-                    Locate Folder
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* scanError shown only when path resolved but folder disappeared (e.g. OneDrive not synced) */}
-            {!pathLoading && !pathNotFound && scanError && (
-              <div className="mb-4">
-                <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20
-                                border border-amber-200 dark:border-amber-700 rounded-lg">
-                  <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                      Couldn't access the project folder.
-                    </p>
-                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-                      {formatProjectLocation(project?.relativeRootPath, sharePointPath)}
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                      Make sure your SharePoint folder is mounted and the path is correct.
                     </p>
                   </div>
                   <button
                     onClick={handleUpdateFolderPath}
-                    className="text-xs text-amber-700 dark:text-amber-300 underline shrink-0"
+                    className="text-xs text-red-700 dark:text-red-300 underline shrink-0"
                   >
                     Update folder path
                   </button>
@@ -886,10 +922,10 @@ export default function RecipeProjectPage() {
               </div>
             )}
 
-            {(pathLoading || filesLoading) ? (
+            {filesLoading ? (
               <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
                 <Loader2 size={16} className="animate-spin" />
-                <span className="text-sm">{pathLoading ? 'Locating project folder…' : 'Scanning files…'}</span>
+                <span className="text-sm">Scanning files…</span>
               </div>
             ) : Object.keys(filesByFolder).length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -915,12 +951,8 @@ export default function RecipeProjectPage() {
                       currentUserUid={user?.uid}
                       userRole={user?.role}
                       selectedFileIds={selectedFileIds}
-                      onSelectFile={(file) => {
-                        if (selectedFile?.id === file.id) setSelectedFile(null)
-                        else setSelectedFile(file)
-                      }}
+                      onSelectFile={setSelectedFile}
                       onOpenInExcel={handleOpenInExcelForFile}
-                      onClaim={handleClaimForFile}
                       onCheckToggle={toggleCheck}
                     />
                   ))
@@ -958,12 +990,8 @@ export default function RecipeProjectPage() {
                 currentUserUid={user?.uid}
                 userRole={user?.role}
                 selectedFileIds={selectedFileIds}
-                onSelectFile={(file) => {
-                  if (selectedFile?.id === file.id) setSelectedFile(null)
-                  else setSelectedFile(file)
-                }}
+                onSelectFile={setSelectedFile}
                 onOpenInExcel={handleOpenInExcelForFile}
-                onClaim={handleClaimForFile}
                 onCheckToggle={toggleCheck}
               />
             ) : (
@@ -981,16 +1009,9 @@ export default function RecipeProjectPage() {
                     checked={selectedFileIds.has(file.id)}
                     currentUserUid={user?.uid}
                     userRole={user?.role}
-                    onSelect={() => {
-                      if (selectedFile?.id === file.id) {
-                        // Second click on the same card → deselect
-                        if (file.status === 'pending') setNudgeClaimAt(Date.now())
-                        setSelectedFile(null)
-                      } else {
-                        setSelectedFile(file)
-                      }
-                    }}
+                    onSelect={() => setSelectedFile(file)}
                     onCheckToggle={() => toggleCheck(file.id)}
+                    onDoubleClick={() => handleOpenInExcelForFile(file)}
                   />
                 ))}
               </div>
@@ -1013,7 +1034,6 @@ export default function RecipeProjectPage() {
           <RecipeDetailPanel
             file={selectedFile}
             project={project}
-            effectiveRootPath={effectiveRootPath}
             settings={settings}
             currentUserName={user?.name ?? ''}
             users={users}
@@ -1027,7 +1047,6 @@ export default function RecipeProjectPage() {
             onForceUnlock={handleForceUnlock}
             onRename={handleRename}
             ssdBase={ssdBase}
-            nudgeClaimAt={nudgeClaimAt}
           />
         </div>
       </div>
@@ -1063,15 +1082,6 @@ export default function RecipeProjectPage() {
         onFileRenamed={handleFileRenamed}
         onRefresh={() => setScanKey((k) => k + 1)}
       />
-
-      {/* Instructions modal */}
-      {instructionsOpen && project && (
-        <RecipeInstructionsModal
-          projectId={project.id}
-          projectName={project.name}
-          onClose={() => setInstructionsOpen(false)}
-        />
-      )}
     </div>
     </AppLayout>
   )
@@ -1154,7 +1164,7 @@ function FolderExplorerCard({
 
 // ── FileExplorerCard ─────────────────────────────────────────────────────────
 function FileExplorerCard({
-  file, size, selected, checked, onSelect, onCheckToggle,
+  file, size, selected, checked, onSelect, onCheckToggle, onDoubleClick,
 }: {
   file: import('../../types').RecipeFile
   size: 'sm' | 'md' | 'lg'
@@ -1164,6 +1174,7 @@ function FileExplorerCard({
   userRole?: string
   onSelect: () => void
   onCheckToggle: () => void
+  onDoubleClick: () => void
 }) {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
@@ -1171,14 +1182,14 @@ function FileExplorerCard({
   const isSm = size === 'sm'
   const photoStatus = file.photoStatus ?? 'pending'
 
-  const { activeNotes } = useRecipeNotes(file.projectId, file.fileId, file.activeNotesCount ?? 0)
+  const { activeNotes } = useRecipeNotes(file.projectId, file.fileId)
 
   function handleCameraClick(e: React.MouseEvent) {
     e.stopPropagation()
     if (activeNotes.length > 0) {
       setShowWarning(true)
     } else {
-      navigate(`/capture/${encodeURIComponent(file.id)}`)
+      navigate(`/capture/${file.id}`)
     }
   }
 
@@ -1186,7 +1197,7 @@ function FileExplorerCard({
     if (!user) return
     await resolveAllRecipeNotes(file.projectId, file.fileId, user.uid, user.name)
     setShowWarning(false)
-    navigate(`/capture/${encodeURIComponent(file.id)}`)
+    navigate(`/capture/${file.id}`)
   }
 
   const cameraBtnConfig = (() => {
@@ -1222,6 +1233,7 @@ function FileExplorerCard({
   return (
     <div
       onClick={onSelect}
+      onDoubleClick={onDoubleClick}
       className={`group relative flex flex-col items-center rounded-xl p-2 cursor-pointer select-none transition-all
         ${selected
           ? 'bg-green-50 dark:bg-green-900/20 ring-2 ring-green-400'
@@ -1230,7 +1242,6 @@ function FileExplorerCard({
         ${file.status === 'done' ? 'opacity-60' : ''}
       `}
     >
-
       {/* Checkbox top-left */}
       <div
         className={`absolute top-1.5 left-1.5 transition-opacity z-10 ${checked ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
@@ -1255,11 +1266,11 @@ function FileExplorerCard({
             <rect x="14" y="8" width="4" height="8" rx="1" fill="white" opacity="0.2" />
           </svg>
         </div>
-        {activeNotes.length > 0 && (
+        {(file.activeNotesCount ?? 0) > 0 && (
           <div
             className="absolute -bottom-1 -right-1 rounded-full bg-amber-400 dark:bg-amber-500 flex items-center justify-center"
             style={{ width: 14, height: 14 }}
-            title={`${activeNotes.length} active note${activeNotes.length !== 1 ? 's' : ''}`}
+            title={`${file.activeNotesCount} active note${file.activeNotesCount !== 1 ? 's' : ''}`}
           >
             <AlertTriangle size={8} className="text-white" />
           </div>
@@ -1320,7 +1331,7 @@ function FileExplorerCard({
         <CaptureWarningModal
           recipeName={file.displayName}
           activeNotes={activeNotes}
-          onFixLater={() => { setShowWarning(false); navigate(`/capture/${encodeURIComponent(file.id)}`) }}
+          onFixLater={() => { setShowWarning(false); navigate(`/capture/${file.id}`) }}
           onFixNow={handleFixNow}
         />
       )}

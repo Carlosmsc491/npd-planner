@@ -1,70 +1,75 @@
 import { useState, useEffect } from 'react'
 import {
-  X, Wrench,
-  Image, Lock, Eye, ArrowDownToLine,
+  X, Camera, Sparkles, Image, FileSpreadsheet, Shield, Mail,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.7.0'
+const CURRENT_VERSION = '1.4.0'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
-interface Fix {
+interface Feature {
   icon: LucideIcon
   color: string
   title: string
   description: string
 }
 
-const FIXES: Fix[] = [
+const FEATURES: Feature[] = [
   {
-    icon: Wrench,
-    color: '#1D9E75',
-    title: 'Capture no longer gets stuck',
-    description:
-      'The "Saving photo…" spinner used to freeze when Firestore quota was hit or the file was large. ' +
-      'File copy and Firestore writes are now non-blocking — the shutter is always ready for the next shot.',
-  },
-  {
-    icon: Image,
-    color: '#F59E0B',
-    title: 'READY tab: white background JPG',
-    description:
-      'Dropping a transparent PNG into the READY tab now produces a JPG with a white background. ' +
-      'Previously the transparent areas were filled with black.',
-  },
-  {
-    icon: Image,
-    color: '#1D9E75',
-    title: 'Photos are now portable',
-    description:
-      'Each project folder now contains a manifest per recipe under _project/photos/. ' +
-      'No more path mismatches: any team member on any machine sees the photos as long as the project folder syncs via OneDrive — ' +
-      'no SharePoint setup or manual re-linking needed.',
-  },
-  {
-    icon: ArrowDownToLine,
+    icon: Mail,
     color: '#378ADD',
-    title: 'Auto-migration of existing projects',
+    title: 'Email Attachments (.msg)',
     description:
-      'The first time you open the Photo Manager for an existing project, the app copies your captured-photo metadata ' +
-      'from Firestore into the new manifest format. One-time, automatic, and idempotent — nothing for you to do.',
+      'Drag an Outlook .msg file onto any task to attach the full email. ' +
+      'NPD Planner reads the email content, copies it and all its inner attachments to SharePoint, ' +
+      'and shows them as a collapsible card inside the task — with individual Open buttons per file. ' +
+      'No Outlook installation required.',
   },
   {
-    icon: Eye,
-    color: '#F59E0B',
-    title: 'Read-only access for non-photographers',
+    icon: Camera,
+    color: '#1D9E75',
+    title: 'Photo Manager — Selection & Cleaning',
     description:
-      'Only owners and photographers can capture, mark candidates, drop cleaned PNGs and promote to READY. ' +
-      'Other team members see CAMERA / SELECTED / CLEANED tabs read-only and use READY to download, ZIP or insert into Excel.',
+      'The Photo Manager now has 4 tabs: CAMERA (all captured photos), SELECTED (star candidates), ' +
+      'CLEANED (drop background-removed PNGs per recipe), and READY (processed final photos). ' +
+      'Select multiple photos, delete, Save As, or export as ZIP directly from the manager.',
   },
   {
-    icon: Lock,
+    icon: Image,
     color: '#8B5CF6',
-    title: 'Excel insert lock',
+    title: 'Photo Visibility for All Users',
     description:
-      'Inserting the JPG into an Excel workbook now acquires a cross-machine lock. ' +
-      'If a teammate is already running the insert on that recipe, you see "In progress (their name)" and the button stays disabled ' +
-      'so two users can no longer corrupt the same file at the same time.',
+      'Captured photos are now stored with portable paths so every team member ' +
+      'sees the same photos in the Photo Manager — no more "file not found" for users ' +
+      'other than the photographer. Photos sync automatically through SharePoint.',
+  },
+  {
+    icon: FileSpreadsheet,
+    color: '#1D9E75',
+    title: 'Insert Photo into Excel',
+    description:
+      'From the READY tab, click "Insert into Excel" on any recipe card to automatically ' +
+      'place the final JPG into cells G8:M35 of the Spec Sheet using Python. ' +
+      'Requires openpyxl + Pillow: pip3 install openpyxl pillow.',
+  },
+  {
+    icon: Sparkles,
+    color: '#F59E0B',
+    title: 'Default Quote Template',
+    description:
+      'The "ELITE QUOTE BOUQUET 2026.xlsx" template is now bundled with the app. ' +
+      'New recipe projects automatically use it — no manual setup needed. ' +
+      'The Browse button remains available if you need to switch templates.',
+  },
+  {
+    icon: Shield,
+    color: '#EF4444',
+    title: 'Security & Stability',
+    description:
+      'Fixed a path traversal vulnerability in SharePoint file resolution. ' +
+      'Fixed PowerShell command injection in ZIP export. ' +
+      'Added crash reporting with local save and owner notification. ' +
+      'Fixed photo deletion button in capture sessions.',
   },
 ]
 
@@ -99,21 +104,21 @@ export default function WhatsNewModal() {
 
         {/* Header */}
         <div className="px-8 pt-8 pb-4 text-center shrink-0">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg">
-            <Wrench size={26} className="text-white" />
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg">
+            <Sparkles size={28} className="text-white" />
           </div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-            What&apos;s New in {CURRENT_VERSION}
+            What's New in {CURRENT_VERSION}
           </h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Portable photos, role-based access & cross-machine insert lock
+            NPD Planner just got a major update
           </p>
         </div>
 
-        {/* Fix list */}
+        {/* Feature list */}
         <div className="flex-1 overflow-y-auto px-8 pb-2">
           <div className="space-y-4">
-            {FIXES.map((f, i) => {
+            {FEATURES.map((f, i) => {
               const Icon = f.icon
               return (
                 <div
@@ -144,9 +149,9 @@ export default function WhatsNewModal() {
         <div className="shrink-0 px-8 py-5">
           <button
             onClick={dismiss}
-            className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:from-blue-700 hover:to-indigo-700 transition-all"
+            className="w-full rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:from-green-700 hover:to-emerald-700 transition-all"
           >
-            Got it, let&apos;s go!
+            Got it, let's go!
           </button>
         </div>
       </div>

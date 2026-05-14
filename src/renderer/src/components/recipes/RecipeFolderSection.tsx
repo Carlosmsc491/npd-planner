@@ -17,7 +17,6 @@ interface Props {
   selectedFileIds?: Set<string>
   onSelectFile: (file: RecipeFile) => void
   onOpenInExcel: (file: RecipeFile) => void
-  onClaim?: (file: RecipeFile) => Promise<void>
   onCheckToggle?: (id: string) => void
 }
 
@@ -32,12 +31,9 @@ export default function RecipeFolderSection({
   selectedFileIds,
   onSelectFile,
   onOpenInExcel,
-  onClaim,
   onCheckToggle,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false)
-  const [claimConfirmFile, setClaimConfirmFile] = useState<RecipeFile | null>(null)
-  const [claiming, setClaiming] = useState(false)
 
   const doneCount = files.filter((f) => f.status === 'done').length
   const total = files.length
@@ -117,10 +113,12 @@ export default function RecipeFolderSection({
                 onClick={() => onSelectFile(file)}
                 onDoubleClick={() => {
                   onSelectFile(file)
-                  if (file.status === 'in_progress' && file.lockedBy === currentUserName) {
+                  // Double-click opens Excel only if the current user owns the lock
+                  if (
+                    file.status === 'in_progress' &&
+                    file.lockedBy === currentUserName
+                  ) {
                     onOpenInExcel(file)
-                  } else if ((file.status === 'pending' || file.status === 'lock_expired') && onClaim) {
-                    setClaimConfirmFile(file)
                   }
                 }}
                 onCheckToggle={onCheckToggle}
@@ -129,50 +127,6 @@ export default function RecipeFolderSection({
           </div>
         )}
       </div>
-
-      {/* Claim confirm dialog */}
-      {claimConfirmFile && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40">
-          <div className="w-80 rounded-xl bg-white dark:bg-gray-900 shadow-2xl p-5 flex flex-col gap-3">
-            <p className="text-sm font-semibold text-gray-900 dark:text-white">
-              Claim Recipe to Open?
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-              <span className="font-medium text-gray-700 dark:text-gray-300">{claimConfirmFile.displayName}</span>
-              {claimConfirmFile.status === 'lock_expired'
-                ? ` had an expired lock${claimConfirmFile.lockedBy ? ` by ${claimConfirmFile.lockedBy}` : ''}. `
-                : ' is unclaimed. '}
-              Claim it to open in Excel?
-            </p>
-            <div className="flex gap-2 justify-end mt-1">
-              <button
-                onClick={() => setClaimConfirmFile(null)}
-                disabled={claiming}
-                className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                disabled={claiming}
-                onClick={async () => {
-                  if (!onClaim) return
-                  setClaiming(true)
-                  try {
-                    await onClaim(claimConfirmFile)
-                    await onOpenInExcel(claimConfirmFile)
-                  } finally {
-                    setClaiming(false)
-                    setClaimConfirmFile(null)
-                  }
-                }}
-                className="px-3 py-1.5 text-xs rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
-              >
-                {claiming ? 'Claiming…' : 'Claim & Open'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

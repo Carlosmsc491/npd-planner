@@ -5,7 +5,7 @@ import {
   User, Users, Palette, Bell, Keyboard,
   LayoutDashboard, Building2, Tag, FolderOpen, Truck, Trash2, Archive,
   Grid2X2, CalendarDays, DollarSign, Settings2, History, Layers, CalendarClock,
-  CameraIcon, CheckCircle2, XCircle, Loader2, AlertCircle, Download,
+  CameraIcon, CheckCircle2, XCircle, Loader2, AlertCircle,
   type LucideIcon,
 } from 'lucide-react'
 import AppLayout from '../components/ui/AppLayout'
@@ -32,7 +32,7 @@ type SettingsTab =
   | 'profile' | 'members' | 'appearance' | 'notifications' | 'shortcuts'
   | 'boards' | 'clients' | 'divisions' | 'labels' | 'dateTypes' | 'files' | 'traze' | 'archive' | 'trash' | 'import-history'
   | 'recipe-cells' | 'recipe-holidays' | 'recipe-sleeve' | 'recipe-general'
-  | 'photography' | 'outlook'
+  | 'photography'
 
 interface TabDef {
   id: SettingsTab
@@ -203,7 +203,6 @@ export default function SettingsPage() {
             {activeTab === 'boards' && isAdmin && (
               editingBoard ? (
                 <BoardTemplateEditor
-                  key={editingBoard.id}
                   board={editingBoard}
                   onBack={() => setEditingBoard(null)}
                   onBoardUpdate={handleBoardUpdate}
@@ -299,8 +298,6 @@ export default function SettingsPage() {
             {activeTab === 'import-history' && isAdmin && (
               <ImportHistoryPanel />
             )}
-
-            {activeTab === 'outlook' && <OutlookAddinPanel />}
 
             {activeTab === 'traze' && <TrazeSettings />}
 
@@ -1239,73 +1236,3 @@ function PhotographyPanel() {
     </div>
   )
 }
-
-// ─── Outlook Add-in Panel ─────────────────────────────────────────────────────
-
-function OutlookAddinPanel() {
-  const [copying, setCopying] = useState(false)
-  const [result, setResult] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
-
-  async function handleCopyManifest() {
-    setCopying(true)
-    setResult(null)
-    try {
-      const res = await window.electronAPI.copyOutlookManifest()
-      if (res.success) {
-        setResult({ type: 'success', msg: `Manifest saved to Desktop: ${res.destPath}` })
-      } else {
-        setResult({ type: 'error', msg: res.error ?? 'Could not copy manifest.' })
-      }
-    } finally {
-      setCopying(false)
-    }
-  }
-
-  return (
-    <div className="max-w-lg space-y-5">
-      <div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-          The Outlook Add-in adds an <strong>"Assign to NPD Task"</strong> button in Outlook.
-          Click an email, select the task, and it saves the email + attachments directly — no dragging, no saving files manually.
-        </p>
-        <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-          NPD Planner must be open for the add-in to work.
-        </p>
-      </div>
-
-      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4 space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-          Installation (one time per computer)
-        </p>
-        <ol className="space-y-1.5 text-sm text-gray-700 dark:text-gray-300 list-decimal list-inside">
-          <li>Click <strong>"Save manifest to Desktop"</strong> below</li>
-          <li>Open Outlook → click <strong>Get Add-ins</strong> in the ribbon</li>
-          <li>Click <strong>My Add-ins</strong> → <strong>Add a custom add-in</strong> → <strong>Add from file…</strong></li>
-          <li>Select <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded text-xs">NPD_Planner_Manifest.xml</code> from your Desktop</li>
-          <li>Done — the button appears in every email you open</li>
-        </ol>
-      </div>
-
-      <button
-        onClick={handleCopyManifest}
-        disabled={copying}
-        className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60 transition-colors"
-      >
-        {copying ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-        {copying ? 'Saving…' : 'Save manifest to Desktop'}
-      </button>
-
-      {result && (
-        <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
-          result.type === 'success'
-            ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
-            : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
-        }`}>
-          {result.type === 'success' ? <CheckCircle2 size={13} className="mt-0.5 shrink-0" /> : <AlertCircle size={13} className="mt-0.5 shrink-0" />}
-          <span>{result.msg}</span>
-        </div>
-      )}
-    </div>
-  )
-}
-

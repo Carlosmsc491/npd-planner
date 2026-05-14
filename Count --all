@@ -1,0 +1,20 @@
+[33m14767d8[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;33mtag: [m[1;33mv1.7.0[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m chore: bump to v1.7.0 — WhatsNew modal updated
+[33m24c680e[m fix(ready-tab): white background on PNG→JPG + correct subfolder path after restart
+[33m93d968d[m feat(photo-manager): photo manifest system + cross-session persistence
+[33m9c0c954[m fix(capture): resolve stuck spinner, quota block, and Windows photo visibility
+[33m2eb0fea[m[33m ([m[1;33mtag: [m[1;33mv1.6.5[m[33m)[m fix: updater error visibility + manual check trigger
+[33m0d11ada[m[33m ([m[1;33mtag: [m[1;33mv1.6.4[m[33m)[m chore: bump to v1.6.4 — WhatsNew modal updated
+[33meff5f68[m fix: normalize relativePath to forward slashes in recipeScanProject
+[33m702ab4f[m fix: retry RPC_E_CALL_REJECTED on Excel COM writes
+[33ma3247f1[m feat(wizard): remove Parent Folder browse — show live computed project path
+[33m3155341[m feat: projects root setup prompt, wizard pre-fill, projectId-based folder discovery
+[33ma1156e8[m chore: bump to v1.6.3 + What's New modal
+[33mecac7b4[m fix: project path resolution and photo display via projectId-based folder lookup
+[33mbf9a3c6[m fix(recipes): warning badge uses live note count + auto-repairs stale counter
+[33ma2e86aa[m fix(recipes): remove gray circle from close button in instructions modal
+[33mcc2b7cc[m fix(recipes): remove step connector arrows from instructions modal
+[33m65d786c[m fix(recipes): spacious instructions modal + title 'How to Work in an NPD Project'
+[33mfaecb6a[m fix(recipes): Deselect button styled same as Assign to in bulk bar
+[33mdb3fa8d[m feat(photo): Compress All button in READY tab + deselect bar fix pushed
+[33m55b66b4[m fix(recipes): move deselect button to blue bar, remove X from card
+[33md835737[m[33m ([m[1;33mtag: [m[1;33mv1.6.2[m[33m)[m fix: remove unused lucide imports in WhatsNewModal

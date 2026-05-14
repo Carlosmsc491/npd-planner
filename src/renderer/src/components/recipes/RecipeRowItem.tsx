@@ -62,7 +62,7 @@ function getRowStyle(file: RecipeFile, currentUserName: string): RowStyle {
       return {
         row:        'bg-orange-50 dark:bg-orange-900/10',
         badge:      'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-        badgeLabel: file.lockedBy ? `Lock Expired — ${file.lockedBy}` : 'Lock Expired',
+        badgeLabel: 'Lock Expired',
         icon:       <AlertTriangle size={13} className="text-orange-500" />,
       }
     case 'done':
@@ -98,8 +98,7 @@ export default function RecipeRowItem({
   // Load active notes for warning interception (only when camera button exists)
   const { activeNotes } = useRecipeNotes(
     showCameraBtn ? file.projectId : '',
-    showCameraBtn ? file.fileId : '',
-    file.activeNotesCount ?? 0
+    showCameraBtn ? file.fileId : ''
   )
 
   function handleCameraClick(e: React.MouseEvent) {
@@ -108,7 +107,7 @@ export default function RecipeRowItem({
     if (activeNotes.length > 0) {
       setShowWarning(true)
     } else {
-      navigate(`/capture/${encodeURIComponent(file.id)}`)
+      navigate(`/capture/${file.id}`)
     }
   }
 
@@ -116,7 +115,7 @@ export default function RecipeRowItem({
     if (!user) return
     await resolveAllRecipeNotes(file.projectId, file.fileId, user.uid, user.name)
     setShowWarning(false)
-    navigate(`/capture/${encodeURIComponent(file.id)}`)
+    navigate(`/capture/${file.id}`)
   }
 
   const cameraBtnConfig: {
@@ -195,13 +194,13 @@ export default function RecipeRowItem({
         <span className="text-sm font-medium text-gray-900 dark:text-white truncate" title={file.displayName}>
           {file.displayName}
         </span>
-        {activeNotes.length > 0 && (
+        {(file.activeNotesCount ?? 0) > 0 && (
           <span
-            title={`${activeNotes.length} active note${activeNotes.length !== 1 ? 's' : ''}`}
+            title={`${file.activeNotesCount} active note${file.activeNotesCount !== 1 ? 's' : ''}`}
             className="shrink-0 flex items-center gap-0.5 rounded-full bg-amber-100 px-1 py-0.5 text-[9px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
           >
             <AlertTriangle size={8} />
-            {activeNotes.length}
+            {file.activeNotesCount}
           </span>
         )}
       </span>
@@ -278,7 +277,7 @@ export default function RecipeRowItem({
         <CaptureWarningModal
           recipeName={file.displayName}
           activeNotes={activeNotes}
-          onFixLater={() => { setShowWarning(false); navigate(`/capture/${encodeURIComponent(file.id)}`) }}
+          onFixLater={() => { setShowWarning(false); navigate(`/capture/${file.id}`) }}
           onFixNow={handleFixNow}
         />
       )}

@@ -7,7 +7,7 @@ import { DEFAULT_RECIPE_DISTRIBUTION } from '../types'
 import type { RecipeFile, RecipeScannedFile } from '../types'
 import { Timestamp } from 'firebase/firestore'
 
-export function useRecipeFiles(projectId: string, rootPath: string, scanKey = 0, rootFolderLabel = '(root)') {
+export function useRecipeFiles(projectId: string, rootPath: string, scanKey = 0) {
   const [fsFiles, setFsFiles] = useState<RecipeScannedFile[]>([])
   const [firestoreFiles, setFirestoreFiles] = useState<RecipeFile[]>([])
   const [isScanning, setIsScanning] = useState(false)
@@ -92,7 +92,7 @@ export function useRecipeFiles(projectId: string, rootPath: string, scanKey = 0,
     const grouped: Record<string, RecipeFile[]> = {}
     for (const file of files) {
       const parts = file.relativePath.split('/')
-      const folder = parts.length > 1 ? parts[0] : rootFolderLabel
+      const folder = parts.length > 1 ? parts[0] : '(root)'
       if (!grouped[folder]) grouped[folder] = []
       grouped[folder].push(file)
     }
