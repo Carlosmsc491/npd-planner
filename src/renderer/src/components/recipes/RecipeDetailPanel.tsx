@@ -31,6 +31,7 @@ interface Props {
   onReopen: () => Promise<void>
   onOpenInExcel: () => Promise<void>
   onAssign: (uid: string | null, name: string | null) => Promise<void>
+  effectiveRootPath: string
   onForceUnlock?: () => Promise<void>
   onRename?: (result: RenameWithPhotosResult, newDisplayName: string) => Promise<void>
   ssdBase?: string | null
@@ -69,6 +70,7 @@ export default function RecipeDetailPanel({
   onReopen,
   onOpenInExcel,
   onAssign,
+  effectiveRootPath,
   onForceUnlock,
   onRename,
   ssdBase,
@@ -126,7 +128,7 @@ export default function RecipeDetailPanel({
   const handleMarkDone = useCallback(async () => {
     if (!file || !settings) return
 
-    const fullPath = buildFullPath(project.rootPath, file.relativePath)
+    const fullPath = buildFullPath(effectiveRootPath, file.relativePath)
     setError(null)
 
     setActionState('checking')
@@ -186,7 +188,7 @@ export default function RecipeDetailPanel({
   const handleDialogApply = useCallback(async (acceptedChanges: ValidationChange[]) => {
     if (!file) return
     setDialogOpen(false)
-    const fullPath = buildFullPath(project.rootPath, file.relativePath)
+    const fullPath = buildFullPath(effectiveRootPath, file.relativePath)
     await applyAndFinalize(fullPath, acceptedChanges, file)
   }, [file, project]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -561,7 +563,7 @@ export default function RecipeDetailPanel({
                   <PhotoThumbnail
                     key={photo.filename}
                     photo={photo}
-                    projectRootPath={project.rootPath}
+                    projectRootPath={effectiveRootPath}
                     onDoubleClick={() => { setGalleryIndex(idx); setGalleryOpen(true) }}
                   />
                 ))}
@@ -577,7 +579,7 @@ export default function RecipeDetailPanel({
           photos={file.capturedPhotos}
           initialIndex={galleryIndex}
           recipeName={file.recipeName || file.displayName}
-          projectRootPath={project.rootPath}
+          projectRootPath={effectiveRootPath}
           onClose={() => setGalleryOpen(false)}
         />
       )}

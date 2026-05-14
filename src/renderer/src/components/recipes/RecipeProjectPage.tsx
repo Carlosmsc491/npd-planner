@@ -1055,6 +1055,7 @@ export default function RecipeProjectPage() {
             onReopen={handleReopen}
             onOpenInExcel={handleOpenInExcel}
             onAssign={handleAssign}
+            effectiveRootPath={effectiveRootPath}
             onForceUnlock={handleForceUnlock}
             onRename={handleRename}
             ssdBase={ssdBase}
