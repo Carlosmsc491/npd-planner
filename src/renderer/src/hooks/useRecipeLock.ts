@@ -1,11 +1,12 @@
 // src/renderer/src/hooks/useRecipeLock.ts
-// Manages collaborative file locking with heartbeat for Recipe Manager
+// Manages collaborative file locking for Recipe Manager
+// Heartbeat removed in v1.8.0 — locks are permanent until released or force-claimed
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   claimRecipeFile,
   unclaimRecipeFile,
-  updateRecipeHeartbeat,
+  forceClaimRecipeFile,
 } from '../lib/recipeFirestore'
 
 interface LockState {
@@ -16,26 +17,10 @@ interface LockState {
 
 export function useRecipeLock() {
   const [currentLock, setCurrentLock] = useState<LockState | null>(null)
-  // Keep a ref so cleanup effects always have the latest lock without stale closure
   const lockRef = useRef<LockState | null>(null)
   lockRef.current = currentLock
 
-  // ── Heartbeat: update every 15 s while a file is claimed ────────────────
-  useEffect(() => {
-    if (!currentLock) return
-
-    const interval = setInterval(() => {
-      updateRecipeHeartbeat(
-        currentLock.projectId,
-        currentLock.fileId,
-        currentLock.lockToken
-      ).catch(console.error)
-    }, 15_000)
-
-    return () => clearInterval(interval)
-  }, [currentLock])
-
-  // ── Release lock when the hook unmounts ──────────────────────────────────
+  // Release lock when the hook unmounts (user closes project)
   useEffect(() => {
     return () => {
       const lock = lockRef.current
@@ -47,15 +32,20 @@ export function useRecipeLock() {
     }
   }, [])
 
-  // ── Actions ──────────────────────────────────────────────────────────────
-
   const claimFile = useCallback(
     async (projectId: string, fileId: string, userName: string): Promise<string> => {
-      const lockToken = await claimRecipeFile(projectId, fileId, userName)
-      const lock = { projectId, fileId, lockToken }
-      setCurrentLock(lock)
-      lockRef.current = lock
-      return lockToken
+      console.log('[NPD] useRecipeLock.claimFile called', { projectId, fileId, userName })
+      try {
+        const lockToken = await claimRecipeFile(projectId, fileId, userName)
+        console.log('[NPD] useRecipeLock.claimFile SUCCESS — lockToken:', lockToken)
+        const lock = { projectId, fileId, lockToken }
+        setCurrentLock(lock)
+        lockRef.current = lock
+        return lockToken
+      } catch (err) {
+        console.error('[NPD] useRecipeLock.claimFile ERROR:', err)
+        throw err
+      }
     },
     []
   )
@@ -68,5 +58,16 @@ export function useRecipeLock() {
     lockRef.current = null
   }, [])
 
-  return { currentLock, claimFile, unclaimFile }
+  const forceClaimFile = useCallback(
+    async (projectId: string, fileId: string, userName: string): Promise<string> => {
+      const lockToken = await forceClaimRecipeFile(projectId, fileId, userName)
+      const lock = { projectId, fileId, lockToken }
+      setCurrentLock(lock)
+      lockRef.current = lock
+      return lockToken
+    },
+    []
+  )
+
+  return { currentLock, claimFile, unclaimFile, forceClaimFile }
 }

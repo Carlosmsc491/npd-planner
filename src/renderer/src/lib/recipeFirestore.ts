@@ -6,6 +6,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromCache,
   getDocs,
   addDoc,
   updateDoc,
@@ -21,6 +22,7 @@ import {
   orderBy,
   limit,
   increment,
+  type DocumentReference,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type {
@@ -62,6 +64,22 @@ export const SLEEVE_BY_PRICE_DEFAULTS: Record<string, string> = {
 }
 import { nanoid } from 'nanoid'
 
+/**
+ * Read a document from local IndexedDB cache first.
+ * Falls back to server only if the document isn't cached yet.
+ * Used for lock operations to avoid slow server round-trips.
+ */
+async function getDocCacheFirst(ref: DocumentReference) {
+  try {
+    const snap = await getDocFromCache(ref)
+    console.log('[NPD] getDocCacheFirst — from cache')
+    return snap
+  } catch {
+    console.log('[NPD] getDocCacheFirst — cache miss, going to server')
+    return getDoc(ref)
+  }
+}
+
 // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 // COLLECTION NAMES
 // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -92,11 +110,15 @@ export async function createRecipeProject(
   data: Omit<RecipeProject, 'id' | 'createdAt'>
 ): Promise<string> {
   try {
-    const ref = await addDoc(collection(db, RECIPE_PROJECTS), {
+    // Generate ID client-side — no server round-trip needed for the ID
+    const projectRef = doc(collection(db, RECIPE_PROJECTS))
+    await setDoc(projectRef, {
       ...data,
+      id: projectRef.id,
       createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     })
-    return ref.id
+    return projectRef.id
   } catch (err) {
     throw new Error(`Failed to create recipe project: ${err}`)
   }
@@ -213,8 +235,10 @@ export async function migrateRecipeFile(
 }
 
 /**
- * Atomically claim a recipe file lock.
- * Throws Error("Locked by {name}") if already locked by someone else.
+ * Claim a recipe file lock.
+ * Reads from local cache first (instant), falls back to server on cache miss.
+ * Write is fire-and-forget — returns lockToken immediately; onSnapshot propagates to all users.
+ * Throws Error("Locked by {name}") if another user currently holds the lock.
  */
 export async function claimRecipeFile(
   projectId: string,
@@ -224,43 +248,63 @@ export async function claimRecipeFile(
   const lockToken = nanoid()
   const fileRef = doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, fileId)
 
-  try {
-    await runTransaction(db, async (tx) => {
-      const snap = await tx.get(fileRef)
-      if (!snap.exists()) throw new Error('Recipe file not found')
+  console.log('[NPD] claimRecipeFile START', { projectId, fileId, userName })
+  const snap = await getDocCacheFirst(fileRef)
+  console.log('[NPD] claimRecipeFile getDoc done —',
+    'exists:', snap.exists(),
+    'fromCache:', (snap as { metadata?: { fromCache?: boolean } }).metadata?.fromCache)
 
-      const data = snap.data() as RecipeFile
-      const isLocked =
-        data.status === 'in_progress' &&
-        data.lockHeartbeatAt !== null &&
-        data.lockToken !== null
+  if (!snap.exists()) throw new Error('Recipe file not found')
 
-      if (isLocked) {
-        // Check if the lock is actually expired before blocking
-        const heartbeat = data.lockHeartbeatAt as Timestamp
-        const elapsed = Date.now() - heartbeat.toMillis()
-        const timeout = 300_000 // 300 seconds
-        if (elapsed < timeout) {
-          throw new Error(`Locked by ${data.lockedBy}`)
-        }
-        // Lock has expired ΓÇö allow reclaim to proceed
-      }
+  const data = snap.data() as RecipeFile
+  console.log('[NPD] claimRecipeFile current status:', data.status, 'lockedBy:', data.lockedBy)
 
-      tx.update(fileRef, {
-        status:           'in_progress' as RecipeFileStatus,
-        lockedBy:         userName,
-        lockClaimedAt:    serverTimestamp(),
-        lockHeartbeatAt:  serverTimestamp(),
-        lockToken,
-        version:          (data.version ?? 0) + 1,
-        updatedAt:        serverTimestamp(),
-      })
-    })
-    return lockToken
-  } catch (err) {
-    // Re-throw so the caller can show the message to the user
-    throw err
+  // Block only if another user currently holds the lock
+  if (
+    data.status === 'in_progress' &&
+    data.lockedBy !== null &&
+    data.lockedBy !== userName
+  ) {
+    throw new Error(`Locked by ${data.lockedBy}`)
   }
+
+  console.log('[NPD] claimRecipeFile firing updateDoc (no await)...')
+  updateDoc(fileRef, {
+    status:          'in_progress' as RecipeFileStatus,
+    lockedBy:        userName,
+    lockClaimedAt:   serverTimestamp(),
+    lockHeartbeatAt: serverTimestamp(),
+    lockToken,
+    version:         (data.version ?? 0) + 1,
+    updatedAt:       serverTimestamp(),
+  }).catch(err => console.error('[NPD] claimRecipeFile updateDoc error:', err))
+
+  console.log('[NPD] claimRecipeFile returning lockToken immediately:', lockToken)
+  return lockToken
+}
+
+/**
+ * Force-claim a recipe file regardless of who currently holds the lock.
+ * Only called after the user confirms the override modal.
+ */
+export async function forceClaimRecipeFile(
+  projectId: string,
+  fileId: string,
+  userName: string
+): Promise<string> {
+  const lockToken = nanoid()
+  const fileRef = doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, fileId)
+
+  updateDoc(fileRef, {
+    status:          'in_progress' as RecipeFileStatus,
+    lockedBy:        userName,
+    lockClaimedAt:   serverTimestamp(),
+    lockHeartbeatAt: serverTimestamp(),
+    lockToken,
+    updatedAt:       serverTimestamp(),
+  }).catch(err => console.error('[NPD] forceClaimRecipeFile updateDoc error:', err))
+
+  return lockToken
 }
 
 export async function unclaimRecipeFile(
@@ -375,6 +419,11 @@ export async function forceUnlockRecipeFile(
   }
 }
 
+/**
+ * @deprecated Lock heartbeat removed in v1.8.0. Locks are now permanent until
+ * explicitly released or force-claimed via override modal.
+ * Kept for schema compatibility only.
+ */
 export async function updateRecipeHeartbeat(
   projectId: string,
   fileId: string,
@@ -396,6 +445,11 @@ export async function updateRecipeHeartbeat(
   }
 }
 
+/**
+ * @deprecated Lock expiry by timeout removed in v1.8.0.
+ * Locks are released only by explicit release or force-claim override.
+ * Kept for schema compatibility only.
+ */
 /**
  * Check all files in a project and mark expired locks as lock_expired.
  * A lock is expired if lockHeartbeatAt is older than 300 seconds.

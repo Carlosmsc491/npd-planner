@@ -440,7 +440,7 @@ export default function RecipeDetailPanel({
                 className="w-full flex items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
               >
                 {actionState === 'unclaiming' && <Loader2 size={14} className="animate-spin" />}
-                Unclaim
+                Release
               </button>
             </>
           )}
@@ -466,27 +466,6 @@ export default function RecipeDetailPanel({
                   Locked by {file.lockedBy}
                 </span>
               </div>
-              {isAdmin && (
-                <button
-                  onClick={async () => {
-                    if (!onForceUnlock) return
-                    const confirmed = window.confirm(
-                      `Force unlock "${file.displayName}"?\n` +
-                      `This will release the lock held by ${file.lockedBy}.`
-                    )
-                    if (!confirmed) return
-                    try {
-                      await onForceUnlock()
-                    } catch (err) {
-                      console.error('Force unlock failed:', err)
-                    }
-                  }}
-                  disabled={busy}
-                  className="text-xs text-red-600 dark:text-red-400 underline mt-1 hover:text-red-800 dark:hover:text-red-300 disabled:opacity-50 text-left"
-                >
-                  Force unlock
-                </button>
-              )}
             </div>
           )}
 

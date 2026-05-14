@@ -8,7 +8,6 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import {
-  checkAndExpireLocks,
   markRecipeDone,
   reopenRecipeFile,
   forceUnlockRecipeFile,
@@ -37,7 +36,7 @@ import RecipeFileManagerDialog from './RecipeFileManagerDialog'
 import RecipeSettingsTab from './settings/RecipeSettingsTab'
 import { PhotoManagerView } from './PhotoManagerView'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification, RenameWithPhotosResult } from '../../types'
-import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera, BookOpen } from 'lucide-react'
+import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera, BookOpen, Lock } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
 import { useProjectRootPath } from '../../hooks/useProjectRootPath'
 import RecipeInstructionsModal, { shouldShowInstructions } from './RecipeInstructionsModal'
@@ -98,7 +97,12 @@ export default function RecipeProjectPage() {
   // Pass empty string while resolving so useRecipeFiles doesn't scan prematurely
   const rootFolderLabel = effectiveRootPath.split(/[/\\]/).filter(Boolean).pop() ?? project?.name ?? '(root)'
 
-  const { currentLock, claimFile, unclaimFile } = useRecipeLock()
+  const { currentLock, claimFile, unclaimFile, forceClaimFile } = useRecipeLock()
+
+  const [overrideClaimModal, setOverrideClaimModal] = useState<{
+    file: RecipeFile
+    lockedBy: string
+  } | null>(null)
   const { files, filesByFolder, isLoading: filesLoading, scanError } = useRecipeFiles(
     projectId ?? '',
     effectiveRootPath,
@@ -138,7 +142,7 @@ export default function RecipeProjectPage() {
     updatePresence(projectId, user.uid, user.name).catch(console.error)
     const interval = setInterval(() => {
       updatePresence(projectId, user.uid, user.name).catch(console.error)
-    }, 15_000)
+    }, 60_000)
 
     return () => {
       clearInterval(interval)
@@ -182,12 +186,6 @@ export default function RecipeProjectPage() {
     }).catch(console.error)
   }, [])
 
-  // ── Check and expire stale locks on mount ────────────────────────────────
-  useEffect(() => {
-    if (!projectId) return
-    checkAndExpireLocks(projectId).catch(console.error)
-  }, [projectId])
-
   // ── Keep selectedFile in sync with live file list ─────────────────────────
   useEffect(() => {
     if (!selectedFile) return
@@ -199,12 +197,34 @@ export default function RecipeProjectPage() {
 
   const handleClaim = useCallback(async () => {
     if (!projectId || !selectedFile || !user) return
-    await claimFile(projectId, selectedFile.id, user.name)
+    try {
+      await claimFile(projectId, selectedFile.id, user.name)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.startsWith('Locked by ')) {
+        const lockedBy = msg.replace('Locked by ', '')
+        setOverrideClaimModal({ file: selectedFile, lockedBy })
+        return
+      }
+      console.error('claimFile error:', err)
+    }
   }, [projectId, selectedFile, user, claimFile])
 
   const handleUnclaim = useCallback(async () => {
     await unclaimFile()
   }, [unclaimFile])
+
+  const handleForceClaimOverride = useCallback(async () => {
+    if (!overrideClaimModal || !projectId || !user) return
+    const { file } = overrideClaimModal
+    setOverrideClaimModal(null)
+    try {
+      await forceClaimFile(projectId, file.id, user.name)
+      setSelectedFile(file)
+    } catch (err) {
+      console.error('forceClaimFile error:', err)
+    }
+  }, [overrideClaimModal, projectId, user, forceClaimFile])
 
   const handleMarkDone = useCallback(async () => {
     if (!projectId || !selectedFile || !user) return
@@ -1082,6 +1102,48 @@ export default function RecipeProjectPage() {
           projectName={project.name}
           onClose={() => setInstructionsOpen(false)}
         />
+      )}
+
+      {/* Override claim modal */}
+      {overrideClaimModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="w-[400px] rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-2xl p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                <Lock size={16} className="text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Recipe in use
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">
+                    {overrideClaimModal.lockedBy}
+                  </span>{' '}
+                  is currently working on{' '}
+                  <span className="font-medium text-gray-700 dark:text-gray-300">
+                    {overrideClaimModal.file.displayName}
+                  </span>
+                  . Do you want to claim it anyway?
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setOverrideClaimModal(null)}
+                className="px-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleForceClaimOverride}
+                className="px-4 py-2 text-sm rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-colors"
+              >
+                Claim Anyway
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
     </AppLayout>
