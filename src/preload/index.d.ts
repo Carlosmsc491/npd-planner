@@ -67,6 +67,7 @@ export interface IElectronAPI {
     clientName: string
     taskTitle: string
   }) => Promise<{ success: boolean; emailAttachment?: unknown; error?: string }>
+  clearFirebaseCache: () => Promise<{ success: boolean; error?: string }>
   // Generic Traze / AWB IPC channels
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, listener: (...args: unknown[]) => void) => void
