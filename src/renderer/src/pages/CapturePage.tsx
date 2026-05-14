@@ -2,7 +2,7 @@
 // Photo capture page — Fase 2: tethering (CAPTURE mode) + candidate selection (GALLERY mode)
 
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { doc, getDoc, Timestamp } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { ChevronLeft, Camera, Loader2, AlertTriangle, CheckCircle, Star, Trash2 } from 'lucide-react'
@@ -52,6 +52,8 @@ type PageMode = 'capture' | 'gallery'
 export default function CapturePage() {
   const { recipeId } = useParams<{ recipeId: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const returnFolder = searchParams.get('returnFolder')
   const { user } = useAuthStore()
   // Mirror RecipeProjectPage: prefer localStorage over Firestore preferences so the
   // same path is used whether or not the Firestore user doc has been synced yet.
@@ -650,8 +652,9 @@ export default function CapturePage() {
         const newStatus = updatedPhotos.some(p => p.isSelected) ? 'selected' : 'complete'
         await updateRecipePhotoSelections(recipeId, updatedPhotos, newStatus)
       }
-      // Navigate back to the project page (not browser history, which could go to /recipes list)
-      navigate(project?.id ? `/recipes/${project.id}` : '/recipes')
+      // Navigate back to the project page, restoring the folder the user was in
+      const folderParam = returnFolder ? `?folder=${encodeURIComponent(returnFolder)}` : ''
+      navigate(project?.id ? `/recipes/${project.id}${folderParam}` : '/recipes')
     } catch (err) {
       console.error('[Capture] Finish session error:', err)
       setFinishLoading(false)
@@ -674,7 +677,7 @@ export default function CapturePage() {
       <div className="flex flex-col items-center justify-center h-screen bg-gray-950 text-white gap-4">
         <p className="text-sm text-gray-400">Recipe not found.</p>
         <button
-          onClick={() => navigate(project?.id ? `/recipes/${project.id}` : '/recipes')}
+          onClick={() => navigate(project?.id ? `/recipes/${project.id}${returnFolder ? `?folder=${encodeURIComponent(returnFolder)}` : ''}` : '/recipes')}
           className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-colors"
         >
           <ChevronLeft size={14} /> Go back
@@ -705,7 +708,7 @@ export default function CapturePage() {
           </button>
         ) : (
           <button
-            onClick={() => navigate(project?.id ? `/recipes/${project.id}` : '/recipes')}
+            onClick={() => navigate(project?.id ? `/recipes/${project.id}${returnFolder ? `?folder=${encodeURIComponent(returnFolder)}` : ''}` : '/recipes')}
             className="flex items-center gap-1 text-sm text-gray-400 hover:text-white transition-colors"
           >
             <ChevronLeft size={16} /> Back

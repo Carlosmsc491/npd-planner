@@ -214,6 +214,25 @@ app.whenReady().then(() => {
   // ── App utility handlers ───────────────────────────────────────────────────
   ipcMain.handle('app:get-user-data-path', () => app.getPath('userData'))
 
+  ipcMain.handle('app:clear-firebase-cache', async () => {
+    try {
+      const userData = app.getPath('userData')
+      const targets = [
+        path.join(userData, 'IndexedDB'),
+        path.join(userData, 'Local Storage'),
+        path.join(userData, 'Session Storage'),
+      ]
+      for (const target of targets) {
+        if (fs.existsSync(target)) {
+          fs.rmSync(target, { recursive: true, force: true })
+        }
+      }
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
   ipcMain.handle('app:get-default-template-path', () => {
     if (app.isPackaged) {
       return path.join(process.resourcesPath, 'templates', 'ELITE QUOTE BOUQUET 2026.xlsx')

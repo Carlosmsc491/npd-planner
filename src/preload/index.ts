@@ -343,6 +343,9 @@ const electronAPI = {
   getUserDataPath: (): Promise<string> =>
     ipcRenderer.invoke('app:get-user-data-path'),
 
+  clearFirebaseCache: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('app:clear-firebase-cache'),
+
   getDefaultTemplatePath: (): Promise<string> =>
     ipcRenderer.invoke('app:get-default-template-path'),
 

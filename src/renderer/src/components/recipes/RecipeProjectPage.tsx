@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRecipeNotes } from '../../hooks/useRecipeNotes'
 import CaptureWarningModal from './CaptureWarningModal'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import {
@@ -36,7 +36,7 @@ import RecipeFileManagerDialog from './RecipeFileManagerDialog'
 import RecipeSettingsTab from './settings/RecipeSettingsTab'
 import { PhotoManagerView } from './PhotoManagerView'
 import type { RecipeProject, RecipeFile, RecipePresence, RecipeSettings, AppUser, AppNotification, RenameWithPhotosResult } from '../../types'
-import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, Camera, BookOpen, Lock } from 'lucide-react'
+import { FolderOpen, Loader2, Users, RefreshCw, AlertTriangle, Search, Settings, Archive, CheckSquare, X, LayoutGrid, List, ChevronLeft, ChevronDown, Camera, BookOpen, Lock } from 'lucide-react'
 import AppLayout from '../ui/AppLayout'
 import { useProjectRootPath } from '../../hooks/useProjectRootPath'
 import RecipeInstructionsModal, { shouldShowInstructions } from './RecipeInstructionsModal'
@@ -44,6 +44,7 @@ import RecipeInstructionsModal, { shouldShowInstructions } from './RecipeInstruc
 export default function RecipeProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const user = useAuthStore((s) => s.user)
 
   const [project, setProject] = useState<RecipeProject | null>(null)
@@ -59,6 +60,7 @@ export default function RecipeProjectPage() {
   const [users, setUsers] = useState<AppUser[]>([])
   const [ssdBase, setSsdBase] = useState<string | null>(null)
   const [view, setView] = useState<'recipes' | 'photo-manager'>('recipes')
+  const [activityOpen, setActivityOpen] = useState(false)
 
   // Bulk selection
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set())
@@ -66,7 +68,7 @@ export default function RecipeProjectPage() {
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false)
 
   // Explorer navigation & view
-  const [currentFolder, setCurrentFolder] = useState<string | null>(null)
+  const [currentFolder, setCurrentFolder] = useState<string | null>(() => searchParams.get('folder'))
   const [fileViewMode, setFileViewModeState] = useState<'grid' | 'list'>(() =>
     (localStorage.getItem('recipe-project-view') as 'grid' | 'list') ?? 'grid'
   )
@@ -1015,6 +1017,7 @@ export default function RecipeProjectPage() {
                     checked={selectedFileIds.has(file.id)}
                     currentUserUid={user?.uid}
                     userRole={user?.role}
+                    currentFolder={currentFolder}
                     onSelect={() => {
                       if (selectedFile?.id === file.id && file.status === 'pending') {
                         setNudgeClaimAt(Date.now())
@@ -1029,14 +1032,25 @@ export default function RecipeProjectPage() {
             )}
           </div>
 
-          {/* Activity feed */}
-          <div className="shrink-0 border-t border-gray-200 dark:border-gray-700 max-h-48 overflow-y-auto">
-            <div className="px-3 pt-2 pb-1">
+          {/* Activity feed — collapsible */}
+          <div className="shrink-0 border-t border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => setActivityOpen((o) => !o)}
+              className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+            >
               <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
                 Activity
               </p>
-            </div>
-            <RecipeActivityFeed files={files} />
+              <ChevronDown
+                size={12}
+                className={`text-gray-400 dark:text-gray-500 transition-transform duration-200 ${activityOpen ? '' : '-rotate-90'}`}
+              />
+            </button>
+            {activityOpen && (
+              <div className="max-h-48 overflow-y-auto">
+                <RecipeActivityFeed files={files} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -1228,7 +1242,7 @@ function FolderExplorerCard({
 
 // ── FileExplorerCard ─────────────────────────────────────────────────────────
 function FileExplorerCard({
-  file, size, selected, checked, onSelect, onCheckToggle, onDoubleClick,
+  file, size, selected, checked, currentFolder, onSelect, onCheckToggle, onDoubleClick,
 }: {
   file: import('../../types').RecipeFile
   size: 'sm' | 'md' | 'lg'
@@ -1236,6 +1250,7 @@ function FileExplorerCard({
   checked: boolean
   currentUserUid: string | undefined
   userRole?: string
+  currentFolder?: string | null
   onSelect: () => void
   onCheckToggle: () => void
   onDoubleClick: () => void
@@ -1253,7 +1268,8 @@ function FileExplorerCard({
     if (activeNotes.length > 0) {
       setShowWarning(true)
     } else {
-      navigate(`/capture/${encodeURIComponent(file.id)}`)
+      const folderParam = currentFolder ? `?returnFolder=${encodeURIComponent(currentFolder)}` : ''
+      navigate(`/capture/${encodeURIComponent(file.id)}${folderParam}`)
     }
   }
 
@@ -1261,7 +1277,8 @@ function FileExplorerCard({
     if (!user) return
     await resolveAllRecipeNotes(file.projectId, file.fileId, user.uid, user.name)
     setShowWarning(false)
-    navigate(`/capture/${encodeURIComponent(file.id)}`)
+    const folderParam = currentFolder ? `?returnFolder=${encodeURIComponent(currentFolder)}` : ''
+    navigate(`/capture/${encodeURIComponent(file.id)}${folderParam}`)
   }
 
   const cameraBtnConfig = (() => {
@@ -1395,7 +1412,7 @@ function FileExplorerCard({
         <CaptureWarningModal
           recipeName={file.displayName}
           activeNotes={activeNotes}
-          onFixLater={() => { setShowWarning(false); navigate(`/capture/${encodeURIComponent(file.id)}`) }}
+          onFixLater={() => { setShowWarning(false); navigate(`/capture/${encodeURIComponent(file.id)}${currentFolder ? `?returnFolder=${encodeURIComponent(currentFolder)}` : ''}`) }}
           onFixNow={handleFixNow}
         />
       )}

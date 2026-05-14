@@ -259,6 +259,9 @@ export default function SettingsPage() {
                   Files attached to tasks are copied to your local SharePoint sync folder and automatically uploaded to the cloud by OneDrive.
                 </p>
                 <SharePointSetup />
+                <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+                  <FirebaseCacheResetButton />
+                </div>
               </div>
             )}
 
@@ -1232,6 +1235,78 @@ function PhotographyPanel() {
             <span className="text-xs text-gray-400 dark:text-gray-500">Saved</span>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function FirebaseCacheResetButton() {
+  const [state, setState] = useState<'idle' | 'confirming' | 'clearing' | 'done' | 'error'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+
+  async function handleClear() {
+    if (state === 'idle') { setState('confirming'); return }
+    setState('clearing')
+    try {
+      const result = await window.electronAPI.clearFirebaseCache()
+      if (result.success) {
+        setState('done')
+        setTimeout(() => window.location.reload(), 1500)
+      } else {
+        setErrorMsg(result.error ?? 'Unknown error')
+        setState('error')
+      }
+    } catch (err) {
+      setErrorMsg(String(err))
+      setState('error')
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Firebase Local Cache</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          If buttons are stuck or the app is not responding, clearing the local cache usually fixes it. The app will reload automatically.
+        </p>
+      </div>
+      {state === 'confirming' && (
+        <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+          This will reload the app and re-download all data. Continue?
+        </p>
+      )}
+      {state === 'done' && (
+        <p className="text-xs text-green-600 dark:text-green-400 font-medium">Cache cleared. Reloading...</p>
+      )}
+      {state === 'error' && (
+        <p className="text-xs text-red-600 dark:text-red-400 font-medium">Error: {errorMsg}</p>
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleClear}
+          disabled={state === 'clearing' || state === 'done'}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60 ${
+            state === 'confirming'
+              ? 'bg-red-500 hover:bg-red-600 text-white'
+              : 'border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+          }`}
+        >
+          {state === 'clearing' ? (
+            <><Loader2 size={14} className="animate-spin" />Clearing...</>
+          ) : state === 'confirming' ? (
+            'Yes, Clear Cache & Reload'
+          ) : (
+            <><Trash2 size={14} />Clear Firebase Cache</>
+          )}
+        </button>
+        {state === 'confirming' && (
+          <button
+            onClick={() => setState('idle')}
+            className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+          >
+            Cancel
+          </button>
+        )}
       </div>
     </div>
   )

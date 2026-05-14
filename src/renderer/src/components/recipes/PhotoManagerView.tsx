@@ -1593,7 +1593,7 @@ function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, on
             <div className="flex items-center justify-center gap-1 text-[9px] font-semibold rounded-md px-1.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 cursor-not-allowed">
               <Loader2 size={9} className="animate-spin" />
               <span className="truncate" title={`${lock?.userName} is inserting now`}>
-                En progreso ({lock?.userName})
+                In progress ({lock?.userName})
               </span>
             </div>
           ) : insertedAt ? (

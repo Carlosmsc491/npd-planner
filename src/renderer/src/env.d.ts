@@ -119,6 +119,7 @@ interface IElectronAPI {
   getCrashReportsDir: () => Promise<string>
   // App utilities
   getUserDataPath: () => Promise<string>
+  clearFirebaseCache: () => Promise<{ success: boolean; error?: string }>
   getDefaultTemplatePath: () => Promise<string>
   readFileAsDataUrl: (filePath: string) => Promise<string>
   testWriteAccess: (dirPath: string) => Promise<{ success: boolean; error?: string }>

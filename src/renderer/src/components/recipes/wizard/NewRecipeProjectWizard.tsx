@@ -162,23 +162,39 @@ export default function NewRecipeProjectWizard() {
     setProgress(steps)
     setCreating(true)
 
+    console.log('[WIZARD] ── handleCreate START ────────────────────────────')
+    console.log('[WIZARD] Project name   :', data.name.trim())
+    console.log('[WIZARD] Root path      :', data.rootPath)
+    console.log('[WIZARD] Template       :', data.templatePath)
+    console.log('[WIZARD] Source mode    :', data.sourceMode)
+    console.log('[WIZARD] Folders        :', data.folders.length)
+    console.log('[WIZARD] Total recipes  :', totalFiles)
+
     try {
       const projectRoot = `${data.rootPath}/${sanitizeWindowsName(data.name.trim())}`
+      console.log('[WIZARD] Project root   :', projectRoot)
 
       // ── Step 1: Create folders ─────────────────────────────────────────────
+      console.log('[WIZARD] ── STEP 1: Create folders ──')
       steps = markStep(steps, 'folders', 'running', 'Creating project directory…')
       setProgress([...steps])
 
+      console.log('[WIZARD]   mkdir:', projectRoot)
       await window.electronAPI.recipeCreateFolder(projectRoot)
+      console.log('[WIZARD]   mkdir:', `${projectRoot}/_project`)
       await window.electronAPI.recipeCreateFolder(`${projectRoot}/_project`)
       for (const folder of data.folders) {
-        await window.electronAPI.recipeCreateFolder(`${projectRoot}/${sanitizeWindowsName(folder.name)}`)
+        const safeName = sanitizeWindowsName(folder.name)
+        console.log('[WIZARD]   mkdir:', `${projectRoot}/${safeName}`)
+        await window.electronAPI.recipeCreateFolder(`${projectRoot}/${safeName}`)
       }
 
       steps = markStep(steps, 'folders', 'done')
       setProgress([...steps])
+      console.log('[WIZARD]   STEP 1 done')
 
       // ── Step 2: Copy template files ────────────────────────────────────────
+      console.log('[WIZARD] ── STEP 2: Copy templates ──')
       steps = markStep(steps, 'copy', 'running')
       setProgress([...steps])
 
@@ -190,14 +206,21 @@ export default function NewRecipeProjectWizard() {
       for (const folder of data.folders) {
         const safeFolderName = sanitizeWindowsName(folder.name)
         const folderPath = `${projectRoot}/${safeFolderName}`
+        console.log('[WIZARD]   folder:', folder.name, `(${folder.recipes.length} recipes)`)
         for (const recipe of folder.recipes) {
           const normalizedName = sanitizeWindowsName(normalizeRecipeName(recipe.price, recipe.option, recipe.name))
-          if (!normalizedName) continue
+          if (!normalizedName) {
+            console.warn('[WIZARD]   SKIP (empty normalizedName):', recipe)
+            continue
+          }
 
           const outputPath = `${folderPath}/${normalizedName}.xlsx`
           const priceKey = recipe.price.startsWith('$') ? recipe.price : `$${recipe.price}`
           const sleevePrice = SLEEVE_PRICE_MAP[priceKey] ?? ''
           const requiresManualUpdate = !sleevePrice
+
+          console.log(`[WIZARD]   copy [${copied + 1}/${totalFiles}]: ${normalizedName}`)
+          console.log('[WIZARD]     → output:', outputPath)
 
           const recipeSpec = {
             recipeId: recipe.id,
@@ -218,6 +241,7 @@ export default function NewRecipeProjectWizard() {
 
           await window.electronAPI.recipeGenerateFromTemplate(data.templatePath, outputPath, recipeSpec)
           copied++
+          console.log(`[WIZARD]     ✓ copied ${copied}/${totalFiles}`)
 
           steps = markStep(steps, 'copy', 'running', `Copying file ${copied} of ${totalFiles}… ${normalizedName}`)
           setProgress([...steps])
@@ -254,22 +278,31 @@ export default function NewRecipeProjectWizard() {
 
       steps = markStep(steps, 'copy', 'done')
       setProgress([...steps])
+      console.log('[WIZARD]   STEP 2 done — files copied:', copied)
 
       // ── Step 3: Write Excel cells via COM (one session) ────────────────────
+      console.log('[WIZARD] ── STEP 3: Excel batch write ──')
+      console.log('[WIZARD]   batchUpdates count:', batchUpdates.length)
       if (batchUpdates.length > 0) {
         steps = markStep(steps, 'excel', 'running', 'Opening Excel — this may take a moment…')
         setProgress([...steps])
 
+        console.log('[WIZARD]   calling recipeBatchWriteCells…')
+        const t0 = performance.now()
         await window.electronAPI.recipeBatchWriteCells(batchUpdates)
+        console.log(`[WIZARD]   recipeBatchWriteCells done in ${Math.round(performance.now() - t0)} ms`)
 
         steps = markStep(steps, 'excel', 'done')
         setProgress([...steps])
       } else {
+        console.log('[WIZARD]   no batch updates — skipping Excel step')
         steps = markStep(steps, 'excel', 'done')
         setProgress([...steps])
       }
+      console.log('[WIZARD]   STEP 3 done')
 
       // ── Step 4: Save to Firestore ──────────────────────────────────────────
+      console.log('[WIZARD] ── STEP 4: Firestore save ──')
       steps = markStep(steps, 'database', 'running', 'Creating project record…')
       setProgress([...steps])
 
@@ -277,7 +310,9 @@ export default function NewRecipeProjectWizard() {
       // Stored relative to the library root (not the SP subfolder) so projects
       // anywhere in the shared library are portable across users and OS.
       const spPath = user.preferences?.sharePointPath ?? ''
+      console.log('[WIZARD]   sharePointPath:', spPath || '(not set)')
       const relativeRootPath = spPath ? toLibraryRelativePath(projectRoot, spPath) : undefined
+      console.log('[WIZARD]   relativeRootPath:', relativeRootPath ?? '(null — will abort)')
 
       if (!relativeRootPath) {
         alert('The project folder must be inside your OneDrive library. Please select a folder within your shared OneDrive drive.')
@@ -285,6 +320,8 @@ export default function NewRecipeProjectWizard() {
         return
       }
 
+      console.log('[WIZARD]   calling createRecipeProject…')
+      const t1 = performance.now()
       const projectId = await createRecipeProject({
         name: data.name.trim(),
         relativeRootPath,
@@ -302,6 +339,7 @@ export default function NewRecipeProjectWizard() {
           dueDate: data.dueDate,
         },
       })
+      console.log(`[WIZARD]   createRecipeProject done in ${Math.round(performance.now() - t1)} ms — projectId: ${projectId}`)
 
       let saved = 0
       for (const folder of data.folders) {
@@ -316,6 +354,9 @@ export default function NewRecipeProjectWizard() {
           const outputPath2 = `${projectRoot}/${sanitizeWindowsName(folder.name)}/${normalizedName}.xlsx`
           const storedUid = recipeUidByPath.get(outputPath2) ?? nanoid()
 
+          console.log(`[WIZARD]   upsertRecipeFile [${saved + 1}/${totalFiles}]: ${normalizedName}`)
+
+          const t2 = performance.now()
           await upsertRecipeFile(projectId, fileId, {
             id: fileId,
             projectId,
@@ -357,6 +398,7 @@ export default function NewRecipeProjectWizard() {
             excelInsertedAt: null,
             excelInsertedBy: null,
           })
+          console.log(`[WIZARD]     ✓ saved in ${Math.round(performance.now() - t2)} ms`)
 
           saved++
           steps = markStep(steps, 'database', 'running', `Saving recipe ${saved} of ${totalFiles}…`)
@@ -367,8 +409,10 @@ export default function NewRecipeProjectWizard() {
       steps = markStep(steps, 'database', 'done')
       steps = markStep(steps, 'done', 'done', 'Navigating to project…')
       setProgress([...steps])
+      console.log('[WIZARD]   STEP 4 done — recipes saved:', saved)
 
       // Write project.json so any user on any machine can find this project by ID
+      console.log('[WIZARD] ── Writing project.json and caching path…')
       window.electronAPI.recipeWriteProjectJson({ folderPath: projectRoot, projectId }).catch(() => {})
       // Cache the absolute path locally so this machine resolves instantly next time
       localStorage.setItem(`npd:project_path_${projectId}`, projectRoot)
@@ -379,14 +423,17 @@ export default function NewRecipeProjectWizard() {
         if (parts.length > 1) {
           const parent = (projectRoot.startsWith('/') ? '/' : '') + parts.slice(0, -1).join(sep)
           localStorage.setItem('npd:projects_root', parent)
+          console.log('[WIZARD]   seeded npd:projects_root →', parent)
         }
       }
+
+      console.log('[WIZARD] ── ALL DONE — navigating to /recipes/' + projectId)
 
       // Brief pause so user sees "done" before navigation
       await new Promise((r) => setTimeout(r, 600))
       navigate(`/recipes/${projectId}`)
     } catch (err) {
-      console.error('Create project error:', err)
+      console.error('[WIZARD] ── ERROR ──', err)
       // Mark the currently-running step as error
       steps = steps.map((s) => s.status === 'running' ? { ...s, status: 'error' } : s)
       setProgress([...steps])
