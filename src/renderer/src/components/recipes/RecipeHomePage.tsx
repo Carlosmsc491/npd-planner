@@ -85,7 +85,7 @@ export default function RecipeHomePage() {
       const newId = await createRecipeProject({
         name: cfg.projectName,
         rootPath: folderPath,
-        ...(relativeRootPath !== undefined ? { relativeRootPath } : {}),
+        relativeRootPath: relativeRootPath ?? '',
         status: 'active',
         createdBy: user?.uid ?? '',
         config: {

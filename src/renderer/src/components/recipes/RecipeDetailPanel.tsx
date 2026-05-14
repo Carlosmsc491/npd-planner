@@ -71,7 +71,7 @@ export default function RecipeDetailPanel({
   onOpenInExcel,
   onAssign,
   effectiveRootPath,
-  onForceUnlock,
+  onForceUnlock: _onForceUnlock,
   onRename,
   ssdBase,
   nudgeClaimAt,
@@ -597,6 +597,7 @@ export default function RecipeDetailPanel({
         <RenameRecipeModal
           file={file}
           project={project}
+          effectiveRootPath={effectiveRootPath}
           ssdBase={ssdBase ?? null}
           onClose={() => setRenameOpen(false)}
           onSuccess={async (result, newDisplayName) => {

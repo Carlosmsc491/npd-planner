@@ -97,8 +97,6 @@ export default function RecipeProjectPage() {
   const sharePointPath = localStorage.getItem('npd_sharepoint_path') || user?.preferences?.sharePointPath || ''
 
   // Pass empty string while resolving so useRecipeFiles doesn't scan prematurely
-  const rootFolderLabel = effectiveRootPath.split(/[/\\]/).filter(Boolean).pop() ?? project?.name ?? '(root)'
-
   const { currentLock, claimFile, unclaimFile, forceClaimFile } = useRecipeLock()
 
   const [overrideClaimModal, setOverrideClaimModal] = useState<{
