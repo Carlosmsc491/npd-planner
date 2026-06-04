@@ -5,8 +5,12 @@ import Underline from '@tiptap/extension-underline'
 import { TextStyle } from '@tiptap/extension-text-style'
 import { Color } from '@tiptap/extension-color'
 import Highlight from '@tiptap/extension-highlight'
+import { Table } from '@tiptap/extension-table'
+import { TableRow } from '@tiptap/extension-table-row'
+import { TableHeader } from '@tiptap/extension-table-header'
+import { TableCell } from '@tiptap/extension-table-cell'
 import type { Editor } from '@tiptap/react'
-import { Bold, Italic, Underline as UnderlineIcon, Strikethrough, List, ListOrdered, Maximize2, X } from 'lucide-react'
+import { Bold, Italic, Underline as UnderlineIcon, Strikethrough, List, ListOrdered, Maximize2, X, Table as TableIcon, Plus, Trash2 } from 'lucide-react'
 
 // ─── Error Boundary ───────────────────────────────────────────────────────────
 
@@ -98,6 +102,43 @@ function EditorToolbar({ editor, onExpand }: { editor: Editor; onExpand: () => v
       <ToolbarButton onClick={() => editor.chain().focus().toggleOrderedList().run()} active={editor.isActive('orderedList')} title="Ordered list">
         <ListOrdered size={13} />
       </ToolbarButton>
+
+      <span className="mx-1 h-4 w-px bg-gray-200 dark:bg-gray-700" />
+
+      {/* Table */}
+      <div className="relative group/table">
+        <ToolbarButton
+          onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+          active={editor.isActive('table')}
+          title="Insert table"
+        >
+          <TableIcon size={13} />
+        </ToolbarButton>
+        {editor.isActive('table') && (
+          <div className="absolute left-0 top-full z-20 mt-1 flex gap-1 p-1.5 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 whitespace-nowrap">
+            <button type="button" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().addColumnAfter().run() }}
+              className="flex items-center gap-1 px-2 py-1 text-[10px] rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+              <Plus size={9} /> Col
+            </button>
+            <button type="button" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().addRowAfter().run() }}
+              className="flex items-center gap-1 px-2 py-1 text-[10px] rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+              <Plus size={9} /> Row
+            </button>
+            <button type="button" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().deleteColumn().run() }}
+              className="flex items-center gap-1 px-2 py-1 text-[10px] rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500">
+              <Trash2 size={9} /> Col
+            </button>
+            <button type="button" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().deleteRow().run() }}
+              className="flex items-center gap-1 px-2 py-1 text-[10px] rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500">
+              <Trash2 size={9} /> Row
+            </button>
+            <button type="button" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().deleteTable().run() }}
+              className="flex items-center gap-1 px-2 py-1 text-[10px] rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 font-medium">
+              <Trash2 size={9} /> Table
+            </button>
+          </div>
+        )}
+      </div>
 
       <span className="mx-1 h-4 w-px bg-gray-200 dark:bg-gray-700" />
 
@@ -204,6 +245,10 @@ function RichTextEditorInner({ content, onBlur, placeholder = 'Add a description
       TextStyle,
       Color,
       Highlight.configure({ multicolor: true }),
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableHeader,
+      TableCell,
     ],
     content: normalizeContent(content),
     onBlur: ({ editor: e }) => {
@@ -211,7 +256,7 @@ function RichTextEditorInner({ content, onBlur, placeholder = 'Add a description
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm focus:outline-none min-h-[120px] p-3 dark:prose-invert prose-gray text-gray-900 dark:text-gray-100',
+        class: 'prose prose-sm focus:outline-none min-h-[120px] p-3 dark:prose-invert prose-gray text-gray-900 dark:text-gray-100 prose-table:border-collapse prose-td:border prose-td:border-gray-300 prose-td:p-2 prose-th:border prose-th:border-gray-300 prose-th:p-2 prose-th:bg-gray-100 dark:prose-td:border-gray-600 dark:prose-th:border-gray-600 dark:prose-th:bg-gray-700',
       },
       handleDOMEvents: {
         contextmenu: () => {

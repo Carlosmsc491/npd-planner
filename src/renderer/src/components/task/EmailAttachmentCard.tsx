@@ -2,7 +2,7 @@
 // Collapsible card showing an Outlook .msg attachment and its inner files
 
 import { useState, useEffect, useRef } from 'react'
-import { Mail, ChevronDown, Trash2, ExternalLink, Paperclip, Loader2, X, Eye } from 'lucide-react'
+import { Mail, ChevronDown, Trash2, ExternalLink, Paperclip, Loader2, X, Eye, FolderOpen, Printer } from 'lucide-react'
 import type { EmailAttachment, EmailInnerAttachment } from '../../types'
 import EmailViewerModal from './EmailViewerModal'
 import FilePreviewModal from './FilePreviewModal'
@@ -65,10 +65,21 @@ function InnerAttRow({
       .catch(() => setDataUrl(null))
   }, [img, sharePointRoot, att.sharePointRelativePath])
 
+  const absPath = sharePointRoot ? `${sharePointRoot}/${att.sharePointRelativePath}` : ''
+
   function handleOpen() {
-    if (!sharePointRoot) return
-    const absPath = `${sharePointRoot}/${att.sharePointRelativePath}`
+    if (!absPath) return
     window.electronAPI.openFile(absPath)
+  }
+
+  function handleShowInFolder() {
+    if (!absPath) return
+    window.electronAPI.showInFolder(absPath)
+  }
+
+  function handlePrint() {
+    if (!absPath) return
+    window.electronAPI.printFile(absPath)
   }
 
   if (img) {
@@ -132,7 +143,8 @@ function InnerAttRow({
     )
   }
 
-  const absPath = sharePointRoot ? `${sharePointRoot}/${att.sharePointRelativePath}` : ''
+  // isFinderLabel: Mac shows "Finder", Windows shows "Explorer"
+  const finderLabel = window.process?.platform === 'win32' ? 'Explorer' : 'Finder'
 
   return (
     <>
@@ -154,11 +166,27 @@ function InnerAttRow({
           )}
           <button
             onClick={handleOpen}
-            title="Open in app"
+            title="Open with default app"
             className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900/30"
           >
             <ExternalLink size={10} />
             Open
+          </button>
+          <button
+            onClick={handleShowInFolder}
+            title={`Show in ${finderLabel}`}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            <FolderOpen size={10} />
+            {finderLabel}
+          </button>
+          <button
+            onClick={handlePrint}
+            title="Print"
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            <Printer size={10} />
+            Print
           </button>
           <button
             onClick={() => onRemove(att.id)}

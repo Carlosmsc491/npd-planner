@@ -277,6 +277,13 @@ const electronAPI = {
   fileExists: (filePath: string): Promise<boolean> =>
     ipcRenderer.invoke('file:exists', filePath),
 
+  showInFolder: (filePath: string): void => {
+    ipcRenderer.invoke('file:show-in-folder', filePath)
+  },
+
+  printFile: (filePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('file:print', filePath),
+
   readMsgFile: (filePath: string): Promise<{
     success: boolean
     subject?: string

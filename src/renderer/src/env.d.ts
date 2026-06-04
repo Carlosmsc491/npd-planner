@@ -162,6 +162,8 @@ interface IElectronAPI {
     taskTitle: string
   }) => Promise<{ success: boolean; emailAttachment?: unknown; error?: string }>
   selectEmailFile: () => Promise<string | null>
+  showInFolder: (filePath: string) => void
+  printFile: (filePath: string) => Promise<{ success: boolean; error?: string }>
   // Generic Traze / AWB IPC channels
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, listener: (...args: unknown[]) => void) => void

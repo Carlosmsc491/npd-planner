@@ -170,6 +170,23 @@ export function registerFileHandlers(ipcMain: IpcMain): void {
     await shell.openPath(filePath)
   })
 
+  // Reveal file in Finder (Mac) or Explorer (Windows)
+  ipcMain.handle('file:show-in-folder', (_event, filePath: string): void => {
+    shell.showItemInFolder(filePath)
+  })
+
+  // Print a file — opens it in the default app which handles printing.
+  // For PDFs and images the OS print dialog appears automatically.
+  ipcMain.handle('file:print', async (_event, filePath: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const result = await shell.openPath(filePath)
+      if (result) return { success: false, error: result }
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
   // Open native folder picker — returns selected folder path or null
   ipcMain.handle('dialog:open-folder', async (event): Promise<string | null> => {
     const win = BrowserWindow.fromWebContents(event.sender)
