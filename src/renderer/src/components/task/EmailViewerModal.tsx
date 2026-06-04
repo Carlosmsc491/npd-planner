@@ -2,7 +2,7 @@
 // In-app email viewer — renders .msg as a threaded conversation
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Mail, Loader2, AlertTriangle, ChevronDown, ChevronUp, Maximize2, Reply, Forward } from 'lucide-react'
+import { X, Mail, Loader2, AlertTriangle, ChevronDown, ChevronUp, Maximize2, Reply, Forward, ExternalLink, FolderOpen, Printer } from 'lucide-react'
 import { splitEmailThread, type ThreadSegment } from '../../utils/emailThread'
 
 interface Props {
@@ -309,6 +309,21 @@ export default function EmailViewerModal({ msgAbsPath, subject, onClose }: Props
               {segments.length} messages
             </span>
           )}
+          {/* Open / Finder / Print for the .msg/.eml file itself */}
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button onClick={() => window.electronAPI.openFile(msgAbsPath)} title="Open file"
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
+              <ExternalLink size={11} /> Open
+            </button>
+            <button onClick={() => window.electronAPI.showInFolder(msgAbsPath)} title={`Show in ${window.process?.platform === 'win32' ? 'Explorer' : 'Finder'}`}
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+              <FolderOpen size={11} /> {window.process?.platform === 'win32' ? 'Explorer' : 'Finder'}
+            </button>
+            <button onClick={() => window.electronAPI.printFile(msgAbsPath)} title="Print"
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+              <Printer size={11} /> Print
+            </button>
+          </div>
           {content && (
             <button
               onClick={handleExpandWindow}

@@ -89,19 +89,21 @@ function InnerAttRow({
           {/* Name + actions row — above the image */}
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] text-gray-400 truncate">{att.name}</span>
-            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <button
-                onClick={handleOpen}
-                title="Open in app"
-                className="flex items-center gap-1 text-[10px] text-blue-500 hover:text-blue-600"
-              >
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <button onClick={handleOpen} title="Open"
+                className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30">
                 <ExternalLink size={9} /> Open
               </button>
-              <button
-                onClick={() => onRemove(att.id)}
-                title="Remove"
-                className="flex items-center justify-center text-gray-400 hover:text-red-500"
-              >
+              <button onClick={handleShowInFolder} title={`Show in ${window.process?.platform === 'win32' ? 'Explorer' : 'Finder'}`}
+                className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700">
+                <FolderOpen size={9} /> {window.process?.platform === 'win32' ? 'Explorer' : 'Finder'}
+              </button>
+              <button onClick={handlePrint} title="Print"
+                className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700">
+                <Printer size={9} /> Print
+              </button>
+              <button onClick={() => onRemove(att.id)} title="Remove"
+                className="rounded p-0.5 text-gray-400 hover:text-red-500">
                 <X size={12} />
               </button>
             </div>
@@ -131,12 +133,35 @@ function InnerAttRow({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
             onClick={() => setLightbox(false)}
           >
-            <img
-              src={dataUrl}
-              alt={att.name}
-              className="max-w-[90vw] max-h-[90vh] rounded-lg shadow-2xl object-contain"
-              onClick={e => e.stopPropagation()}
-            />
+            <div className="relative" onClick={e => e.stopPropagation()}>
+              {/* Action bar */}
+              <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 py-2 bg-black/60 rounded-t-lg z-10">
+                <span className="text-xs text-white/80 truncate max-w-xs">{att.name}</span>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={handleOpen} title="Open"
+                    className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-white/80 hover:bg-white/20">
+                    <ExternalLink size={11} /> Open
+                  </button>
+                  <button onClick={handleShowInFolder} title={`Show in ${window.process?.platform === 'win32' ? 'Explorer' : 'Finder'}`}
+                    className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-white/80 hover:bg-white/20">
+                    <FolderOpen size={11} /> {window.process?.platform === 'win32' ? 'Explorer' : 'Finder'}
+                  </button>
+                  <button onClick={handlePrint} title="Print"
+                    className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-white/80 hover:bg-white/20">
+                    <Printer size={11} /> Print
+                  </button>
+                  <button onClick={() => setLightbox(false)} title="Close"
+                    className="rounded p-1 text-white/60 hover:text-white hover:bg-white/20 ml-1">
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+              <img
+                src={dataUrl}
+                alt={att.name}
+                className="max-w-[90vw] max-h-[90vh] rounded-lg shadow-2xl object-contain pt-10"
+              />
+            </div>
           </div>
         )}
       </>
