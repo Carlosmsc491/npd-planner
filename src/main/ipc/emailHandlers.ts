@@ -5,7 +5,78 @@ import { ipcMain } from 'electron'
 import { join } from 'path'
 import { mkdirSync, writeFileSync, readFileSync, copyFileSync } from 'fs'
 import MsgReader from '@kenjiuno/msgreader'
+import { decompressRTF } from '@kenjiuno/decompressrtf'
 import { simpleParser } from 'mailparser'
+
+// ── RTF \fromhtml1 → HTML extractor ──────────────────────────────────────────
+// Outlook stores HTML emails as RTF with the original HTML embedded as
+// {\*\htmltag<n>} blocks and plain text in \htmlrtf0 sections.
+// This parser reconstructs the original HTML from those markers.
+function extractHtmlFromRtf(rtfStr: string): string {
+  const BS = '\\'
+  const htmltagMark = '{' + BS + '*' + BS + 'htmltag'
+  const output: string[] = []
+  let i = 0
+  let htmlMode = true  // \fromhtml1 starts in HTML mode
+
+  while (i < rtfStr.length) {
+    const ch = rtfStr[i]
+
+    if (ch === '{') {
+      if (rtfStr.startsWith(htmltagMark, i)) {
+        // Skip {\\*\\htmltag<digits> and collect tag content up to }
+        let j = i + htmltagMark.length
+        while (j < rtfStr.length && /[\d]/.test(rtfStr[j])) j++
+        if (rtfStr[j] === ' ') j++
+        let content = ''
+        while (j < rtfStr.length && rtfStr[j] !== '}') { content += rtfStr[j]; j++ }
+        output.push(content)
+        i = j + 1
+        continue
+      }
+      i++; continue
+    }
+    if (ch === '}') { i++; continue }
+
+    if (ch === BS) {
+      i++
+      if (i >= rtfStr.length) break
+      const next = rtfStr[i]
+      if (next === '*') { i++; continue }
+      if (next === BS) { if (htmlMode) output.push(BS); i++; continue }
+      if (next === '{') { if (htmlMode) output.push('{'); i++; continue }
+      if (next === '}') { if (htmlMode) output.push('}'); i++; continue }
+      if (next === '-' || next === '|') { i++; continue }
+      if (next === '~') { if (htmlMode) output.push('&nbsp;'); i++; continue }
+      if (next === "'") {
+        const hex = rtfStr.substring(i + 1, i + 3)
+        const code = parseInt(hex, 16)
+        if (!isNaN(code) && htmlMode) {
+          if (code === 0xa0) output.push('&nbsp;')
+          else if (code >= 0xa0) output.push(`&#${code};`)
+          else output.push(String.fromCharCode(code))
+        }
+        i += 3; continue
+      }
+      let word = ''
+      while (i < rtfStr.length && /[a-zA-Z]/.test(rtfStr[i])) { word += rtfStr[i]; i++ }
+      let param = ''
+      if (i < rtfStr.length && (rtfStr[i] === '-' || /[\d]/.test(rtfStr[i]))) {
+        while (i < rtfStr.length && /[\d]/.test(rtfStr[i])) { param += rtfStr[i]; i++ }
+      }
+      if (i < rtfStr.length && rtfStr[i] === ' ') i++
+
+      if (word === 'htmlrtf') htmlMode = (param === '0')
+      else if ((word === 'par' || word === 'line') && htmlMode) output.push('<br>')
+      else if (word === 'tab' && htmlMode) output.push('&nbsp;&nbsp;&nbsp;')
+      continue
+    }
+
+    if (htmlMode && ch !== '\r') output.push(ch)
+    i++
+  }
+  return output.join('')
+}
 
 // ── Sanitize folder/file names ───────────────────────────────────────────────
 function sanitizeName(name: string): string {
@@ -158,15 +229,23 @@ export function registerEmailHandlers(): void {
         .filter(Boolean)
         .join(', ')
 
-      // msgreader may store HTML in bodyHtml (HTML messages) or not at all (RTF messages).
-      // Try every known field before falling back to null.
-      const rawHtml =
-        (fileData.bodyHtml as string | undefined) ||
-        (fileData.compressedRtf ? null : null) ||   // RTF → no JS conversion available; leave null
-        null
-
-      // If we have HTML, ensure it starts with a tag so the iframe renders it properly.
-      const bodyHtml = rawHtml && rawHtml.trim().length > 0 ? rawHtml : null
+      // msgreader returns bodyHtml for HTML-body messages.
+      // For RTF-body messages (Outlook default for formatted emails), bodyHtml is null
+      // but compressedRtf contains the original HTML embedded as \htmltag markers.
+      let bodyHtml: string | null = (fileData.bodyHtml as string | undefined) ?? null
+      if (!bodyHtml && fileData.compressedRtf) {
+        try {
+          const rtfBytes = decompressRTF(Array.from(fileData.compressedRtf as Uint8Array))
+          const rtfStr = Buffer.from(rtfBytes).toString('latin1')
+          // Only attempt extraction on \fromhtml1 RTF (has embedded HTML)
+          if (rtfStr.includes('\\fromhtml1')) {
+            const extracted = extractHtmlFromRtf(rtfStr)
+            if (extracted.trim().length > 0) bodyHtml = extracted
+          }
+        } catch (rtfErr) {
+          console.warn('[EmailHandler] RTF extraction failed:', rtfErr)
+        }
+      }
       const bodyText = (fileData.body as string | undefined) ?? ''
 
       return {
