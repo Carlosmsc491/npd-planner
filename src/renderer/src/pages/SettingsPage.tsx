@@ -5,7 +5,7 @@ import {
   User, Users, Palette, Bell, Keyboard,
   LayoutDashboard, Building2, Tag, FolderOpen, Truck, Trash2, Archive,
   Grid2X2, CalendarDays, DollarSign, Settings2, History, Layers, CalendarClock,
-  CameraIcon, CheckCircle2, XCircle, Loader2, AlertCircle,
+  CameraIcon, CheckCircle2, XCircle, Loader2, AlertCircle, RefreshCw, Info, Download,
   type LucideIcon,
 } from 'lucide-react'
 import AppLayout from '../components/ui/AppLayout'
@@ -32,7 +32,7 @@ type SettingsTab =
   | 'profile' | 'members' | 'appearance' | 'notifications' | 'shortcuts'
   | 'boards' | 'clients' | 'divisions' | 'labels' | 'dateTypes' | 'files' | 'traze' | 'archive' | 'trash' | 'import-history'
   | 'recipe-cells' | 'recipe-holidays' | 'recipe-sleeve' | 'recipe-general'
-  | 'photography'
+  | 'photography' | 'about'
 
 interface TabDef {
   id: SettingsTab
@@ -86,6 +86,12 @@ const SETTINGS_SECTIONS: SectionDef[] = [
     label: 'Photography',
     tabs: [
       { id: 'photography', label: 'SSD Storage', icon: CameraIcon, adminOnly: true },
+    ],
+  },
+  {
+    label: 'App',
+    tabs: [
+      { id: 'about', label: 'About & Updates', icon: Info },
     ],
   },
 ]
@@ -319,6 +325,10 @@ export default function SettingsPage() {
 
             {activeTab === 'photography' && isAdmin && (
               <PhotographyPanel />
+            )}
+
+            {activeTab === 'about' && (
+              <AboutPanel />
             )}
 
           </div>
@@ -1306,6 +1316,103 @@ function FirebaseCacheResetButton() {
           >
             Cancel
           </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── About & Updates Panel ──────────────────────────────────────────────────
+
+function AboutPanel() {
+  const [checking, setChecking] = useState(false)
+  const [status, setStatus] = useState<'idle' | 'available' | 'downloading' | 'ready' | 'latest' | 'error'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+  const [appVersion, setAppVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.electronAPI?.getAppVersion?.().then((v) => setAppVersion(v)).catch(() => {})
+
+    // Listen for update events while panel is open
+    const offAvailable = window.electronAPI?.onUpdateAvailable?.(() => { setStatus('available'); setChecking(false) })
+    const offReady     = window.electronAPI?.onUpdateDownloaded?.(() => { setStatus('ready') })
+    const offError     = window.electronAPI?.onUpdaterError?.((msg) => { setStatus('error'); setErrorMsg(msg); setChecking(false) })
+    return () => { offAvailable?.(); offReady?.(); offError?.() }
+  }, [])
+
+  function handleCheckNow() {
+    setChecking(true)
+    setStatus('idle')
+    setErrorMsg('')
+    // Give the updater 8 seconds to respond before showing "up to date"
+    window.electronAPI?.checkForUpdatesNow?.()
+    const t = setTimeout(() => {
+      setChecking(false)
+      setStatus((prev) => prev === 'idle' ? 'latest' : prev)
+    }, 8_000)
+    return () => clearTimeout(t)
+  }
+
+  function handleInstallNow() {
+    window.electronAPI?.send?.('app:restart-to-update')
+  }
+
+  return (
+    <div className="space-y-6 max-w-lg">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">NPD Planner</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Version {appVersion ?? '—'} · Elite Flower
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200">App Updates</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Updates download automatically and install on next launch.
+            </p>
+          </div>
+          {status === 'ready' ? (
+            <button
+              onClick={handleInstallNow}
+              className="flex items-center gap-1.5 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-600 transition-colors"
+            >
+              <Download size={13} /> Install now
+            </button>
+          ) : (
+            <button
+              onClick={handleCheckNow}
+              disabled={checking}
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            >
+              {checking ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+              {checking ? 'Checking…' : 'Check for updates'}
+            </button>
+          )}
+        </div>
+
+        {status === 'latest' && (
+          <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
+            <CheckCircle2 size={13} /> You're on the latest version.
+          </div>
+        )}
+        {status === 'available' && (
+          <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400">
+            <Download size={13} /> New version found — downloading in background…
+          </div>
+        )}
+        {status === 'ready' && (
+          <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
+            <CheckCircle2 size={13} /> Update downloaded — click "Install now" to restart.
+          </div>
+        )}
+        {status === 'error' && (
+          <div className="flex items-start gap-2 text-xs text-red-500 dark:text-red-400">
+            <AlertCircle size={13} className="mt-0.5 shrink-0" />
+            <span>Update check failed: {errorMsg || 'unknown error'}</span>
+          </div>
         )}
       </div>
     </div>

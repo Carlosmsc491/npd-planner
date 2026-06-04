@@ -90,3 +90,5 @@ coverage/
 .eslintcache
 .vite/
 .chromium-bundle
+graphify-out/
+graphify/
