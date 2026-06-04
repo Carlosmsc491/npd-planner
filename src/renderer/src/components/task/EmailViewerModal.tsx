@@ -276,16 +276,57 @@ export default function EmailViewerModal({ msgAbsPath, subject, onClose }: Props
 
   function handleReply() {
     if (!content) return
-    const replyTo = content.from.match(/<([^>]+)>/)?.[1] ?? content.from
-    const mailto = `mailto:${replyTo}?subject=${encodeURIComponent('Re: ' + content.subject)}`
+
+    // Extract bare email address from "Name <email>" or plain "email" format
+    const fromRaw = content.from.trim()
+    const replyTo = fromRaw.match(/<([^>]+)>/)?.[1] ?? fromRaw
+
+    // Don't add Re: if subject already starts with it (case-insensitive)
+    const reSubject = /^re:/i.test(content.subject)
+      ? content.subject
+      : `Re: ${content.subject}`
+
+    // Build quoted body: attribution line + original plain text
+    const dateStr = formatDate(content.date)
+    const quotedBody = [
+      '',
+      '',
+      `On ${dateStr}, ${content.from} wrote:`,
+      '',
+      // Indent each line of the original with >
+      ...(content.bodyText ?? '')
+        .split('\n')
+        .map(line => `> ${line}`),
+    ].join('\n')
+
+    const mailto = `mailto:${encodeURIComponent(replyTo)}?subject=${encodeURIComponent(reSubject)}&body=${encodeURIComponent(quotedBody)}`
     window.electronAPI.openExternal(mailto)
   }
 
   function handleForward() {
     if (!content) return
-    const bodySnippet = (content.bodyText ?? '').slice(0, 500)
-    const fwdBody = `\n\n-------- Forwarded Message --------\nFrom: ${content.from}\nDate: ${formatDate(content.date)}\nSubject: ${content.subject}\n\n${bodySnippet}`
-    const mailto = `mailto:?subject=${encodeURIComponent('Fwd: ' + content.subject)}&body=${encodeURIComponent(fwdBody)}`
+
+    // Don't add Fwd: if already present
+    const fwdSubject = /^fwd?:/i.test(content.subject)
+      ? content.subject
+      : `Fwd: ${content.subject}`
+
+    // Reconstruct the To: line for the forwarded header
+    const toLine = content.to ? `To: ${content.to}\n` : ''
+
+    const fwdBody = [
+      '',
+      '',
+      '-------- Forwarded Message --------',
+      `From: ${content.from}`,
+      `Date: ${formatDate(content.date)}`,
+      `Subject: ${content.subject}`,
+      toLine.trimEnd(),
+      '',
+      content.bodyText ?? '',
+    ].join('\n')
+
+    const mailto = `mailto:?subject=${encodeURIComponent(fwdSubject)}&body=${encodeURIComponent(fwdBody)}`
     window.electronAPI.openExternal(mailto)
   }
 
