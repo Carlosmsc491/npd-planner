@@ -1,7 +1,7 @@
 # DOCUMENTACIÓN TÉCNICA DE PRODUCTO — NPD PLANNER
 
-> **Versión del documento:** 1.3.0  
-> **Última actualización:** 2026-04-24  
+> **Versión del documento:** 1.7.2  
+> **Última actualización:** 2026-06-04  
 > **Mantenida por:** Equipo de desarrollo Elite Flower  
 > **Audiencia:** Desarrolladores que trabajan en NPD Planner o lo retoman desde cero
 
@@ -79,7 +79,7 @@ Si alguna vez hay que cambiar el dominio, buscar `eliteflower.com` en: `firestor
 | Git | 2.x | — |
 | Python 3 | 3.8+ | Para Excel insertion (`pip3 install openpyxl pillow`) |
 | gPhoto2 | cualquiera | **Solo Mac** — `brew install gphoto2` |
-| Microsoft Excel | cualquiera | **Solo Windows** — para escritura COM de recetas |
+| Microsoft Excel | cualquiera | **Windows y Mac** — para escritura COM/AppleScript de recetas. En Mac requerido para Recipe Manager (escritura de celdas vía AppleScript) |
 
 ### 2.2 Instalación
 
@@ -1359,6 +1359,8 @@ if (process.platform === 'win32') {
 | Path separador | `\` (pero `path.join()` lo maneja) | `/` |
 | Python | Puede llamarse `python` en vez de `python3` | `python3` |
 | Menú aplicación | Sin menú (null) | Menú macOS nativo |
+| Auto-updater install | `autoInstallOnAppQuit=true` + `quitAndInstall()` | `autoDownload=false`, confirmación manual, `quitAndInstall(false, true)` |
+| SharePoint path sync | Escrito y leído desde Firestore | Solo `localStorage` (ADR-006) — el path absoluto es machine-local |
 
 ### 13.3 Detección de Dependencias por Plataforma
 
@@ -1810,6 +1812,24 @@ firebase firestore:rules:get
 
 ---
 
+### ADR-006: sharePointPath vive en localStorage, no en Firestore (Mac)
+
+**Fecha:** 2026-06-04 (v1.7.2)
+
+**Contexto:** `sharePointPath` es un path absoluto al disco local de cada usuario (e.g. `/Users/carlos/Library/CloudStorage/OneDrive-SharedLibraries-EliteFlower/...`). Este path es machine-local y OS-specific. Sincronizarlo a Firestore causa que una máquina sobreescriba el path de otra: si el mismo usuario trabaja en Mac y Windows, el path de Windows sobreescribe el path de Mac en Firestore, y al abrir el Mac el hook leerá un path inválido desde Firestore hacia localStorage.
+
+**Decisión:**
+- En **Mac**: la escritura a Firestore está deshabilitada. `localStorage` es la única fuente de verdad. El seed desde Firestore en startup también está deshabilitado en Mac.
+- En **Windows**: se mantiene el comportamiento existente (write + read desde Firestore) para compatibilidad con flujos ya en uso.
+
+**Implementación:** Guards `process.platform === 'win32'` en `useSharePoint.ts` — tanto en `savePath()`, `clearPath()`, como en el `useEffect` de seed desde Firestore.
+
+**Consecuencias:** Un usuario Mac que configura su SharePoint path en Máquina A no verá ese path si inicia sesión desde Máquina B (Mac) — debe reconfigurarlo. Esto es correcto: los paths absolutos no son portables entre máquinas del mismo OS.
+
+**Alternativas consideradas:** Guardar solo el path relativo a la library root de OneDrive (portable). Descartado por complejidad — requeriría migración de datos existentes.
+
+---
+
 ### ADR-005: No usar React Query / SWR
 
 **Contexto:** Toda la data viene de Firestore con listeners en tiempo real (`onSnapshot`). React Query y SWR están diseñados para fetch-based APIs (request/response).
@@ -1860,4 +1880,4 @@ Este documento sigue la versión de la app. Cuando se publique v1.4.0, la primer
 
 > **"La documentación no es lo que dices que hace el código — es lo que el próximo programador necesita saber para no romper lo que ya funciona."**
 
-*Documento generado en v1.3.0 — 2026-04-24*
+*Documento generado en v1.3.0 — 2026-04-24. Actualizado en v1.7.2 — 2026-06-04*
