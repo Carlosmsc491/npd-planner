@@ -1367,8 +1367,8 @@ function AboutPanel() {
       </div>
 
       <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200">App Updates</p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               Updates download automatically and install on next launch.
@@ -1377,17 +1377,17 @@ function AboutPanel() {
           {status === 'ready' ? (
             <button
               onClick={handleInstallNow}
-              className="flex items-center gap-1.5 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-600 transition-colors"
+              className="shrink-0 flex items-center gap-1.5 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-600 transition-colors"
             >
-              <Download size={13} /> Install now
+              <Download size={12} /> Install now
             </button>
           ) : (
             <button
               onClick={handleCheckNow}
               disabled={checking}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+              className="shrink-0 flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors whitespace-nowrap"
             >
-              {checking ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+              {checking ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
               {checking ? 'Checking…' : 'Check for updates'}
             </button>
           )}
