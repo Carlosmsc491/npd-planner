@@ -6,7 +6,7 @@ import {
   Paperclip, Upload, FileText, Image, FileSpreadsheet,
   File, Trash2, ExternalLink, AlertTriangle, RefreshCw,
   CheckCircle, Clock, X, ZoomIn, ChevronLeft, ChevronRight,
-  Mail, Loader2,
+  Mail, Loader2, FolderOpen, Printer,
 } from 'lucide-react'
 import { useSharePoint } from '../../hooks/useSharePoint'
 import { useSettingsStore } from '../../store/settingsStore'
@@ -266,9 +266,12 @@ interface RowProps {
   onRemove: (id: string) => void
   onOpen: (att: TaskAttachment) => void
   onPreview: (att: TaskAttachment) => void
+  onShowInFolder: (att: TaskAttachment) => void
+  onPrint: (att: TaskAttachment) => void
 }
 
-function AttachmentRow({ attachment, sharePointPath, onRemove, onOpen, onPreview }: RowProps) {
+function AttachmentRow({ attachment, sharePointPath, onRemove, onOpen, onPreview, onShowInFolder, onPrint }: RowProps) {
+  const finderLabel = window.process?.platform === 'win32' ? 'Explorer' : 'Finder'
   const previewExt = attachment.name.split('.').pop()?.toLowerCase() ?? ''
   const canPreview = isImage(attachment.mimeType, attachment.name)
     || isPDF(attachment.mimeType, attachment.name)
@@ -356,10 +359,26 @@ function AttachmentRow({ attachment, sharePointPath, onRemove, onOpen, onPreview
         <button
           onClick={() => onOpen(attachment)}
           disabled={isUnavailable}
-          title={isUnavailable ? 'File not yet synced to this computer' : 'Open in app'}
+          title={isUnavailable ? 'File not yet synced to this computer' : 'Open'}
           className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
         >
           <ExternalLink size={13} />
+        </button>
+        <button
+          onClick={() => onShowInFolder(attachment)}
+          disabled={isUnavailable}
+          title={`Show in ${finderLabel}`}
+          className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <FolderOpen size={13} />
+        </button>
+        <button
+          onClick={() => onPrint(attachment)}
+          disabled={isUnavailable}
+          title="Print"
+          className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <Printer size={13} />
         </button>
         <button
           onClick={() => onRemove(attachment.id)}
@@ -420,6 +439,18 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
       return
     }
     await openAttachment(att)
+  }
+
+  function handleShowInFolder(att: TaskAttachment) {
+    if (!isElectron || !sharePointPath) return
+    const absPath = `${sharePointPath}/${att.sharePointRelativePath}`
+    window.electronAPI.showInFolder(absPath)
+  }
+
+  async function handlePrint(att: TaskAttachment) {
+    if (!isElectron || !sharePointPath) return
+    const absPath = `${sharePointPath}/${att.sharePointRelativePath}`
+    await window.electronAPI.printFile(absPath)
   }
 
   const handlePreview = useCallback(
@@ -564,6 +595,8 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
               onRemove={handleRemove}
               onOpen={handleOpen}
               onPreview={handlePreview}
+              onShowInFolder={handleShowInFolder}
+              onPrint={handlePrint}
             />
           ))}
         </div>
