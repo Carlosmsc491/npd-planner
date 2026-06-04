@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import {
-  X, Camera, Sparkles, Image, FileSpreadsheet, Shield, Mail, Cog,
+  X, Mail, FileText, Table2, FolderOpen, Printer, Wrench, Sparkles,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.7.2'
+const CURRENT_VERSION = '1.7.3'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Feature {
@@ -18,74 +18,64 @@ const FEATURES: Feature[] = [
   {
     icon: Mail,
     color: '#378ADD',
-    title: 'Email Attachments (.msg)',
+    title: 'Email Viewer — Renders Tables & Rich Text',
     description:
-      'Drag an Outlook .msg file onto any task to attach the full email. ' +
-      'NPD Planner reads the email content, copies it and all its inner attachments to SharePoint, ' +
-      'and shows them as a collapsible card inside the task — with individual Open buttons per file. ' +
-      'No Outlook installation required.',
+      'Outlook emails with tables now display exactly as they appear in Outlook. ' +
+      'The viewer reads the original HTML embedded in .msg RTF files, so order grids, ' +
+      'sample requests, and formatted content render correctly — not as plain text.',
   },
   {
-    icon: Camera,
+    icon: Table2,
     color: '#1D9E75',
-    title: 'Photo Manager — Selection & Cleaning',
+    title: 'Tables in Task Description',
     description:
-      'The Photo Manager now has 4 tabs: CAMERA (all captured photos), SELECTED (star candidates), ' +
-      'CLEANED (drop background-removed PNGs per recipe), and READY (processed final photos). ' +
-      'Select multiple photos, delete, Save As, or export as ZIP directly from the manager.',
+      'The description editor now supports tables. Click the table icon in the toolbar ' +
+      'to insert a 3×3 table, then add/remove rows and columns from the inline menu. ' +
+      'Pasting HTML tables from emails also works.',
   },
   {
-    icon: Cog,
-    color: '#1D9E75',
-    title: 'Capture no longer gets stuck',
-    description:
-      'The "Saving photo…" spinner used to freeze when Firestore quota was hit or the file was large. ' +
-      'File copy and Firestore writes are now non-blocking — the shutter is always ready for the next shot.',
-  },
-  {
-    icon: Image,
+    icon: FolderOpen,
     color: '#F59E0B',
-    title: 'READY tab: white background JPG',
+    title: 'Open / Finder / Print on Every Attachment',
     description:
-      'Dropping a transparent PNG into the READY tab now produces a JPG with a white background. ' +
-      'Previously the transparent areas were filled with black.',
+      'All file attachments — PDFs, images, Excel, Word — now show three action buttons: ' +
+      'Open (default app), Finder/Explorer (reveal in folder), and Print. ' +
+      'Buttons also appear inside the image lightbox, PDF preview, and email viewer.',
   },
   {
-    icon: Image,
+    icon: Mail,
     color: '#8B5CF6',
-    title: 'Photo Visibility for All Users',
+    title: 'Reply & Forward with Full Context',
     description:
-      'Captured photos are now stored with portable paths so every team member ' +
-      'sees the same photos in the Photo Manager — no more "file not found" for users ' +
-      'other than the photographer. Photos sync automatically through SharePoint.',
+      'Reply now opens your email client with the correct To: address and the full quoted ' +
+      'original below your cursor. Forward includes a complete header block (From/Date/Subject/To) ' +
+      'with the entire message — no more 500-character truncation.',
   },
   {
-    icon: FileSpreadsheet,
-    color: '#1D9E75',
-    title: 'Insert Photo into Excel',
-    description:
-      'From the READY tab, click "Insert into Excel" on any recipe card to automatically ' +
-      'place the final JPG into cells G8:M35 of the Spec Sheet using Python. ' +
-      'Requires openpyxl + Pillow: pip3 install openpyxl pillow.',
-  },
-  {
-    icon: Sparkles,
-    color: '#F59E0B',
-    title: 'Default Quote Template',
-    description:
-      'The "ELITE QUOTE BOUQUET 2026.xlsx" template is now bundled with the app. ' +
-      'New recipe projects automatically use it — no manual setup needed. ' +
-      'The Browse button remains available if you need to switch templates.',
-  },
-  {
-    icon: Shield,
+    icon: FileText,
     color: '#EF4444',
-    title: 'Security & Stability',
+    title: 'Mac Compatibility Fixes',
     description:
-      'Fixed a path traversal vulnerability in SharePoint file resolution. ' +
-      'Fixed PowerShell command injection in ZIP export. ' +
-      'Added crash reporting with local save and owner notification. ' +
-      'Fixed photo deletion button in capture sessions.',
+      'Fixed a startup crash caused by the Outlook Add-in certificate generator on Mac. ' +
+      'Fixed "process is not defined" error in SharePoint path handling. ' +
+      'Auto-updater now works correctly on Mac (.dmg flow).',
+  },
+  {
+    icon: Printer,
+    color: '#1D9E75',
+    title: 'Print Support',
+    description:
+      'Print any attached file directly from the task — PDFs, images, and Office documents ' +
+      'open in their native print dialog with a single click.',
+  },
+  {
+    icon: Wrench,
+    color: '#6B7280',
+    title: 'Bug Fixes',
+    description:
+      'Fixed app crash on first Mac launch (Outlook Add-in removed — was Windows-only). ' +
+      'Fixed tasks not loading after app restart on Mac. ' +
+      'Fixed SharePoint path sync overwriting Mac paths from Windows machines.',
   },
 ]
 
