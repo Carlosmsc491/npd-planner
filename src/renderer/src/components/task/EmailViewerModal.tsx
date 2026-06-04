@@ -33,13 +33,24 @@ function formatDate(raw: string | null | undefined): string {
 function wrapHtml(body: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
     <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Calibri, Arial, sans-serif;
              font-size: 13px; color: #1e293b; margin: 14px 16px; line-height: 1.6; }
       img  { max-width: 100%; height: auto; }
       a    { color: #3b82f6; }
       blockquote { border-left: 3px solid #cbd5e1; margin: 6px 0;
                    padding-left: 10px; color: #64748b; }
-      p { margin: 4px 0; }
+      p    { margin: 4px 0; }
+      /* ── Table support — Outlook emails use <table> for layout and data ── */
+      table { border-collapse: collapse; width: auto; max-width: 100%;
+              margin: 8px 0; font-size: 13px; }
+      th    { background: #1e293b; color: #fff; font-weight: 600;
+              padding: 6px 12px; text-align: left; white-space: nowrap; }
+      td    { padding: 5px 12px; border-bottom: 1px solid #e2e8f0;
+              vertical-align: top; }
+      tr:nth-child(even) td { background: #f8fafc; }
+      tr:hover td           { background: #eff6ff; }
+      /* Preserve Outlook's inline table borders */
+      table[border] td, table[border] th { border: 1px solid #cbd5e1; }
     </style></head><body>${body}</body></html>`
 }
 
@@ -131,16 +142,55 @@ function MessageBubble({ segment, index, total, defaultExpanded }: BubbleProps) 
               title={`Message ${index + 1}`}
             />
           ) : (
-            <div className="px-4 py-3">
-              <pre className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">
-                {segment.bodyText || '(No message body)'}
-              </pre>
-            </div>
+            // No HTML body — render plain text as structured HTML so headers and
+            // content are readable instead of a raw monospace block.
+            <iframe
+              sandbox="allow-same-origin"
+              srcDoc={wrapHtml(plainTextToHtml(segment.bodyText || '(No message body)'))}
+              onLoad={(e) => {
+                const doc = (e.target as HTMLIFrameElement).contentDocument
+                if (doc?.body) {
+                  const h = doc.documentElement.scrollHeight || doc.body.scrollHeight
+                  setIframeHeight(Math.max(80, h))
+                }
+              }}
+              style={{ width: '100%', height: iframeHeight, border: 'none', display: 'block', overflow: 'hidden' }}
+              title={`Message ${index + 1}`}
+            />
           )}
         </div>
       )}
     </div>
   )
+}
+
+/**
+ * Last-resort: convert plain text to readable HTML.
+ * Preserves Outlook-style headers (From/Sent/To/Subject) and renders
+ * tab-separated or fixed-width columns as a simple <table>.
+ */
+function plainTextToHtml(text: string): string {
+  const lines = text.split(/\r?\n/)
+  const htmlLines: string[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) { htmlLines.push('<br>'); continue }
+
+    // Outlook header lines: "From:", "Sent:", "To:", "Cc:", "Subject:"
+    const headerMatch = trimmed.match(/^(From|Sent|To|Cc|Subject|Date):\s*(.*)$/i)
+    if (headerMatch) {
+      htmlLines.push(
+        `<div style="margin:1px 0"><span style="font-weight:600;color:#374151">${headerMatch[1]}:</span> ` +
+        `<span style="color:#1e293b">${headerMatch[2]}</span></div>`
+      )
+      continue
+    }
+
+    htmlLines.push(`<div style="margin:1px 0">${trimmed}</div>`)
+  }
+
+  return htmlLines.join('\n')
 }
 
 // ── Main modal ───────────────────────────────────────────────────────────────

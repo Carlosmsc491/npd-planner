@@ -158,14 +158,25 @@ export function registerEmailHandlers(): void {
         .filter(Boolean)
         .join(', ')
 
+      // msgreader may store HTML in bodyHtml (HTML messages) or not at all (RTF messages).
+      // Try every known field before falling back to null.
+      const rawHtml =
+        (fileData.bodyHtml as string | undefined) ||
+        (fileData.compressedRtf ? null : null) ||   // RTF → no JS conversion available; leave null
+        null
+
+      // If we have HTML, ensure it starts with a tag so the iframe renders it properly.
+      const bodyHtml = rawHtml && rawHtml.trim().length > 0 ? rawHtml : null
+      const bodyText = (fileData.body as string | undefined) ?? ''
+
       return {
         success: true,
         subject: (fileData.subject as string | undefined) ?? '(No subject)',
         from,
         to,
         date: fileData.messageDeliveryTime ?? null,
-        bodyHtml: (fileData.bodyHtml as string | undefined) ?? null,
-        bodyText: (fileData.body as string | undefined) ?? '',
+        bodyHtml,
+        bodyText,
       }
     } catch (err) {
       return { success: false, error: String(err) }
