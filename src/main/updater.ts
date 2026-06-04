@@ -16,8 +16,19 @@ export function setupAutoUpdater(mainWindow: BrowserWindow): void {
   // Log update events to console (electron-log can be added if needed)
   autoUpdater.logger = console
 
-  autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
+  // On Mac, autoDownload=false so the user can confirm before downloading the DMG.
+  // On Windows, autoDownload=true keeps the existing silent background download.
+  if (process.platform !== 'win32') {
+    autoUpdater.autoDownload = false
+  } else {
+    autoUpdater.autoDownload = true
+  }
+
+  // autoInstallOnAppQuit only works on Windows (NSIS installer).
+  // On Mac, electron-updater cannot auto-install a DMG on quit — omit the flag.
+  if (process.platform === 'win32') {
+    autoUpdater.autoInstallOnAppQuit = true
+  }
 
   autoUpdater.on('update-available', (info) => {
     console.log(`[Updater] New version available: ${info.version}`)
@@ -34,9 +45,15 @@ export function setupAutoUpdater(mainWindow: BrowserWindow): void {
     try { mainWindow.webContents.send('app:updater-error', err.message) } catch { /* ignore */ }
   })
 
-  // Renderer can request immediate restart to apply update
+  // Renderer can request immediate restart to apply update.
+  // On Mac, quitAndInstall(false, true) relaunches the app after the DMG is applied.
+  // On Windows, quitAndInstall() triggers the NSIS silent install.
   ipcMain.on('app:restart-to-update', () => {
-    autoUpdater.quitAndInstall()
+    if (process.platform === 'win32') {
+      autoUpdater.quitAndInstall()
+    } else {
+      autoUpdater.quitAndInstall(false, true)
+    }
   })
 
   // Renderer can manually trigger a check
@@ -63,7 +80,7 @@ export function setupAutoUpdater(mainWindow: BrowserWindow): void {
   console.log(`[Updater] Configured. Current version: ${app.getVersion()}`)
 }
 
-// ── RELEASE CHECKLIST (run before every release) ──────────────────────────
+// ── WINDOWS RELEASE CHECKLIST (run before every release) ─────────────────
 // 1. Bump version in package.json
 // 2. Run: npm run build:win
 // 3. Check dist-electron/ contains: latest.yml + npd-planner-X.Y.Z-setup.exe
@@ -71,4 +88,12 @@ export function setupAutoUpdater(mainWindow: BrowserWindow): void {
 // 5. Upload BOTH files: latest.yml AND the .exe installer
 // 6. Set release as "Latest release" (not draft, not pre-release)
 // 7. Publish — installed apps will detect update within 10 seconds of next launch
+// ─────────────────────────────────────────────────────────────────────────
+
+// ── MAC RELEASE CHECKLIST ─────────────────────────────────────────────────
+// 1. Bump version in package.json
+// 2. Run: npm run build:mac
+// 3. Check dist-electron/ contains: latest-mac.yml + npd-planner-X.Y.Z.dmg
+// 4. Upload BOTH files to GitHub Release: latest-mac.yml AND the .dmg
+// 5. Users will see an "Update available" notification — they click to install
 // ─────────────────────────────────────────────────────────────────────────

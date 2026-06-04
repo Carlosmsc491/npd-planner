@@ -29,7 +29,17 @@ export function getLibraryRoot(spPath: string): string {
   // Find the segment that contains "OneDrive" (matches both Windows and Mac variants)
   const oneDriveIdx = parts.findIndex(p => /onedrive/i.test(p))
   if (oneDriveIdx === -1) {
-    // No OneDrive segment found — fall back to parent of SP path
+    // No OneDrive segment found — fall back to parent of SP path.
+    // On Mac, this likely means the SharePoint path is not under a standard
+    // CloudStorage/OneDrive-* mount. relativeRootPath resolution may be incorrect.
+    if (process.platform !== 'win32') {
+      console.warn(
+        '[photoUtils] getLibraryRoot: no OneDrive segment found in SP path. ' +
+        'Using parent folder as fallback. relativeRootPath resolution may be incorrect. ' +
+        'Expected path format: /Users/{user}/Library/CloudStorage/OneDrive-*/...',
+        spPath
+      )
+    }
     return parts.slice(0, -1).join('/') || normalized
   }
 

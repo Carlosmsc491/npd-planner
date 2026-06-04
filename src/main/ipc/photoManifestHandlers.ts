@@ -41,6 +41,15 @@ const PICTURES_FOLDERS: Record<ManifestLocation, string> = {
   'ready-jpg': path.join('PICTURES', '4. READY', 'JPG'),
 }
 
+// Normalize all PICTURES_FOLDERS values to forward slashes.
+// path.join() on Windows produces backslash paths which would break cross-platform
+// manifest JSON comparisons (manifests travel between Mac and Windows via OneDrive).
+// np() is used for actual fs calls (it normalizes per-platform), so replacing the
+// raw path.join() values here is safe on all platforms.
+const PICTURES_FOLDERS_NORMALIZED: Record<ManifestLocation, string> = Object.fromEntries(
+  Object.entries(PICTURES_FOLDERS).map(([k, v]) => [k, v.replace(/\\/g, '/')])
+) as Record<ManifestLocation, string>
+
 // ── conflict-copy detection ──────────────────────────────────────────────────
 
 /**
@@ -134,7 +143,7 @@ async function readAndHealManifest(
 function scanPicturesFolders(projectRoot: string): OrphanFile[] {
   const found: OrphanFile[] = []
 
-  for (const [location, relRoot] of Object.entries(PICTURES_FOLDERS) as [ManifestLocation, string][]) {
+  for (const [location, relRoot] of Object.entries(PICTURES_FOLDERS_NORMALIZED) as [ManifestLocation, string][]) {
     const absRoot = np(path.join(projectRoot, relRoot))
     if (!fs.existsSync(absRoot)) continue
 

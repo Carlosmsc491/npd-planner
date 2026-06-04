@@ -77,8 +77,12 @@ export function useSharePoint() {
     localStorage.getItem(LS_KEY)
   )
 
-  // Sync from Firestore user preferences on mount
+  // Sync from Firestore user preferences on mount.
+  // Only on Windows — on Mac, sharePointPath is always machine-local (ADR-006).
+  // Mac paths are absolute and OS-specific; syncing via Firestore would overwrite
+  // the correct local path if the user also uses Windows.
   useEffect(() => {
+    if (process.platform !== 'win32') return
     const prefPath = user?.preferences?.sharePointPath
     if (prefPath && !sharePointPath) {
       localStorage.setItem(LS_KEY, prefPath)
@@ -96,7 +100,9 @@ export function useSharePoint() {
   async function savePath(newPath: string): Promise<void> {
     localStorage.setItem(LS_KEY, newPath)
     setSharePointPathState(newPath)
-    if (user) {
+    // sharePointPath is machine-local — only sync to Firestore on Windows (ADR-006).
+    // On Mac, localStorage is the single source of truth.
+    if (user && process.platform === 'win32') {
       await updateUserPreferences(user.uid, { sharePointPath: newPath })
     }
   }
@@ -114,7 +120,7 @@ export function useSharePoint() {
   async function clearPath(): Promise<void> {
     localStorage.removeItem(LS_KEY)
     setSharePointPathState(null)
-    if (user) await updateUserPreferences(user.uid, { sharePointPath: '' })
+    if (user && process.platform === 'win32') await updateUserPreferences(user.uid, { sharePointPath: '' })
   }
 
   async function attachFile(
