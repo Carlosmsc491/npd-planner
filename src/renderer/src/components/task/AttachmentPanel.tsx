@@ -99,10 +99,13 @@ interface PreviewModalProps {
   name: string
   base64: string
   mimeType: string
+  absPath?: string
   onClose: () => void
 }
 
-function ImagePreviewModal({ name, base64, mimeType, onClose }: PreviewModalProps) {
+function ImagePreviewModal({ name, base64, mimeType, absPath, onClose }: PreviewModalProps) {
+  const finderLabel = window.process?.platform === 'win32' ? 'Explorer' : 'Finder'
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
@@ -116,9 +119,35 @@ function ImagePreviewModal({ name, base64, mimeType, onClose }: PreviewModalProp
           <span className="truncate text-sm font-medium text-gray-700 dark:text-gray-300 max-w-xs">
             {name}
           </span>
+          {/* Action buttons */}
+          {absPath && (
+            <div className="flex items-center gap-1 mx-3">
+              <button
+                onClick={() => window.electronAPI.openFile(absPath)}
+                title="Open"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+              >
+                <ExternalLink size={11} /> Open
+              </button>
+              <button
+                onClick={() => window.electronAPI.showInFolder(absPath)}
+                title={`Show in ${finderLabel}`}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <FolderOpen size={11} /> {finderLabel}
+              </button>
+              <button
+                onClick={() => window.electronAPI.printFile(absPath)}
+                title="Print"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <Printer size={11} /> Print
+              </button>
+            </div>
+          )}
           <button
             onClick={onClose}
-            className="ml-4 shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+            className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
           >
             <X size={14} />
           </button>
@@ -139,10 +168,12 @@ function ImagePreviewModal({ name, base64, mimeType, onClose }: PreviewModalProp
 interface PDFPreviewModalProps {
   name: string
   base64: string
+  absPath?: string
   onClose: () => void
 }
 
-function PDFPreviewModal({ name, base64, onClose }: PDFPreviewModalProps) {
+function PDFPreviewModal({ name, base64, absPath, onClose }: PDFPreviewModalProps) {
+  const finderLabel = window.process?.platform === 'win32' ? 'Explorer' : 'Finder'
   const [pages, setPages] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -226,9 +257,25 @@ function PDFPreviewModal({ name, base64, onClose }: PDFPreviewModalProps) {
                 </button>
               </div>
             )}
+            {absPath && (
+              <div className="flex items-center gap-1">
+                <button onClick={() => window.electronAPI.openFile(absPath)} title="Open"
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30">
+                  <ExternalLink size={11} /> Open
+                </button>
+                <button onClick={() => window.electronAPI.showInFolder(absPath)} title={`Show in ${finderLabel}`}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700">
+                  <FolderOpen size={11} /> {finderLabel}
+                </button>
+                <button onClick={() => window.electronAPI.printFile(absPath)} title="Print"
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700">
+                  <Printer size={11} /> Print
+                </button>
+              </div>
+            )}
             <button
               onClick={onClose}
-              className="ml-4 shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="ml-1 shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
             >
               <X size={14} />
             </button>
@@ -408,7 +455,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
 
   const [attaching, setAttaching] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'error' | 'info'; message: string } | null>(null)
-  const [preview, setPreview] = useState<{ name: string; base64: string; mimeType: string; type: 'image' | 'pdf' } | null>(null)
+  const [preview, setPreview] = useState<{ name: string; base64: string; mimeType: string; type: 'image' | 'pdf'; absPath?: string } | null>(null)
   const [filePreview, setFilePreview] = useState<{ name: string; absPath: string } | null>(null)
   const [settingUp, setSettingUp] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -470,7 +517,8 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
         return
       }
       const type = isPDF(att.mimeType, att.name) ? 'pdf' : 'image'
-      setPreview({ name: att.name, base64, mimeType: att.mimeType ?? 'image/png', type })
+      const absPath = sharePointPath ? `${sharePointPath}/${att.sharePointRelativePath}` : undefined
+      setPreview({ name: att.name, base64, mimeType: att.mimeType ?? 'image/png', type, absPath })
     },
     [isElectron, readAttachmentBase64, sharePointPath]
   )
@@ -673,6 +721,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
         <PDFPreviewModal
           name={preview.name}
           base64={preview.base64}
+          absPath={preview.absPath}
           onClose={() => setPreview(null)}
         />
       )}
@@ -681,6 +730,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
           name={preview.name}
           base64={preview.base64}
           mimeType={preview.mimeType}
+          absPath={preview.absPath}
           onClose={() => setPreview(null)}
         />
       )}
