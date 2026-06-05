@@ -1,6 +1,6 @@
 # DOCUMENTACIÓN TÉCNICA DE PRODUCTO — NPD PLANNER
 
-> **Versión del documento:** 1.7.2  
+> **Versión del documento:** 1.7.4  
 > **Última actualización:** 2026-06-04  
 > **Mantenida por:** Equipo de desarrollo Elite Flower  
 > **Audiencia:** Desarrolladores que trabajan en NPD Planner o lo retoman desde cero
@@ -1361,6 +1361,8 @@ if (process.platform === 'win32') {
 | Menú aplicación | Sin menú (null) | Menú macOS nativo |
 | Auto-updater install | `autoInstallOnAppQuit=true` + `quitAndInstall()` | `autoDownload=false`, confirmación manual, `quitAndInstall(false, true)` |
 | SharePoint path sync | Escrito y leído desde Firestore | Solo `localStorage` (ADR-006) — el path absoluto es machine-local |
+| Build arch Windows | x64 (forzado con `arch: [x64]` en electron-builder) | arm64 (nativo Apple Silicon) |
+| Outlook Add-in | N/A (removido — crasheaba Mac) | N/A (removido) |
 
 ### 13.3 Detección de Dependencias por Plataforma
 
@@ -1608,12 +1610,20 @@ import.meta.env.VITE_FIREBASE_API_KEY
 ### 18.1 Crear Release
 
 ```bash
-npm run build
-# Genera dist-electron/
+# 1. Bump version en package.json y WhatsNewModal.tsx
+# 2. Commit todos los cambios
+# 3. Windows (publica automáticamente a GitHub Releases):
+GH_TOKEN=ghp_... npm run release:win
 
-# Para publicar en GitHub Releases:
-GH_TOKEN=ghp_... npm run release
+# 4. Mac (build + subida manual):
+npm run build:mac
+gh release upload vX.Y.Z dist-electron/npd-planner-X.Y.Z.dmg dist-electron/latest-mac.yml --clobber
+
+# 5. Push a main:
+git push origin main
 ```
+
+> **IMPORTANTE:** Siempre subir `latest-mac.yml` junto al `.dmg` o los usuarios Mac no reciben el auto-update.
 
 ### 18.2 electron-builder.yml — Puntos Clave
 
@@ -1621,7 +1631,6 @@ GH_TOKEN=ghp_... npm run release
 appId: com.eliteflower.npdplanner
 productName: NPD Planner
 
-# Archivos extra que se copian a resources/ en producción
 extraResources:
   - from: resources/scripts
     to: scripts
@@ -1629,27 +1638,39 @@ extraResources:
     to: templates
 
 win:
-  target: nsis
+  target:
+    - target: nsis
+      arch: [x64]     # CRÍTICO: forzar x64 — sin esto Mac ARM64 produce exe ARM64
   icon: resources/icon.ico
 
 mac:
   target: dmg
+  notarize: false
+  identity: null      # Sin firma — usuarios necesitan xattr -cr para instalar
   icon: resources/icon.icns
-  category: public.app-category.productivity
 
 publish:
   provider: github
-  owner: eliteflower
+  owner: Carlosmsc491
   repo: npd-planner
 ```
 
 Los archivos en `extraResources` se acceden en producción con `process.resourcesPath`.
 
-### 18.3 Verificar Build
+### 18.3 Primer install en Mac (sin firma de código)
+
+Después de instalar el `.dmg`, si aparece "damaged and can't be opened":
 
 ```bash
-npm run build && npm run typecheck
-# Si hay errores TypeScript: NO publicar
+xattr -cr "/Applications/NPD Planner.app"
+```
+
+O usar el script `install-mac.sh` que viene dentro del DMG.
+
+### 18.4 Verificar Build
+
+```bash
+npm run typecheck   # Debe pasar con 0 errores antes de hacer release
 ```
 
 ---

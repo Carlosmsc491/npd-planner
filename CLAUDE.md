@@ -6,6 +6,43 @@
 
 ---
 
+## Knowledge Graph (graphify)
+
+A pre-built knowledge graph of this codebase lives in `graphify-out/`.
+**Before exploring files or grepping, query the graph first.**
+
+- `graphify-out/GRAPH_REPORT.md` — god nodes, community map, suggested questions
+- `graphify-out/graph.json` — full queryable graph
+- `graphify-out/graph.html` — interactive visual (open in browser)
+
+**God nodes (highest connectivity — touch carefully):**
+- `useAuthStore` — 98 edges, touches the entire app
+- `Task` — 51 edges, bridge between 23 communities
+- `useBoardStore` — 37 edges
+- `RecipeFile` — 31 edges
+- `useTaskStore` — 28 edges
+- `useSettingsStore` — 21 edges
+
+**Surprising cross-cutting connections:**
+- `insert_photo.py` → `ReadyEntry` — Python Excel script is coupled to the TypeScript photo manifest
+- `npd-workflow Skill` → `NPD Planner App` — CLAUDE.md skill is documentally tied to the product
+
+Run `/graphify .` to regenerate the graph after significant changes.
+
+---
+
+## Critical Rules (NEVER violate)
+
+- `createRecipeProject` and `upsertRecipeFile` must **always be awaited** — skipping await breaks app state silently
+- Never delete or modify `lottie.min.js` — it's a bundled vendor file
+- Firebase reads belong in **stores**, never directly in components
+- Free-tier Firebase quota is active — avoid unbounded `onSnapshot` listeners; scope queries tightly
+- `path.join()` always — never concatenate paths with `/` or `\`
+- No `any` in TypeScript — define interfaces for everything
+- **Mac platform guards required** — all platform-specific code must use `process.platform === 'win32'` guards (see §13 of DOCUMENTACION_TECNICA)
+
+---
+
 ## App Identity
 
 - **Name:** NPD Planner
@@ -31,9 +68,11 @@
 | Charts | Recharts | Analytics dashboard + annual reports |
 | PDF Export | jsPDF + html2canvas | Annual summary with charts |
 | Search | Fuse.js | Global fuzzy search Ctrl+K |
-| Auto-update | electron-updater | Silent background updates |
+| Auto-update | electron-updater | Manual confirm on Mac, silent on Windows |
 | Path handling | Node path.join() | ALWAYS use path.join — never hardcode / or \ |
 | Photo tethering | gPhoto2 + chokidar | Mac only (Fase 1). gPhoto2 via Homebrew |
+| AWB tracking | Traze (Playwright) | Background service, credentials in OS keychain |
+| Recipe Excel | PowerShell COM (Win) / AppleScript (Mac) | Requires Microsoft Excel installed |
 
 ---
 
@@ -47,27 +86,56 @@ npd-planner/
 ├── .gitignore                   ← Must include .env
 ├── package.json
 ├── electron.vite.config.ts
+├── graphify-out/                ← Pre-built knowledge graph (query before grepping)
+│   ├── graph.html
+│   ├── graph.json
+│   └── GRAPH_REPORT.md
 ├── src/
 │   ├── main/                    ← Electron main process
-│   │   ├── index.ts             ← App entry, window creation
-│   │   ├── ipc/                 ← IPC handlers (files, notifications, SharePoint)
-│   │   │   ├── fileHandlers.ts
-│   │   │   ├── notificationHandlers.ts
-│   │   │   └── sharepointHandlers.ts
-│   │   └── updater.ts           ← electron-updater config
+│   │   ├── index.ts             ← App entry, window creation, IPC registration
+│   │   ├── updater.ts           ← electron-updater (autoDownload=false on Mac)
+│   │   ├── splash.ts            ← Splash screen
+│   │   ├── camera/
+│   │   │   └── CameraManager.ts ← gPhoto2 + chokidar (Mac only)
+│   │   ├── ipc/
+│   │   │   ├── fileHandlers.ts          ← File copy, SharePoint verify, open
+│   │   │   ├── notificationHandlers.ts  ← Desktop notifications
+│   │   │   ├── cameraHandlers.ts        ← Camera tethering IPC + photo export
+│   │   │   ├── excelHandlers.ts         ← Python insert_photo.py wrapper
+│   │   │   ├── recipeIpcHandlers.ts     ← Recipe XLSX + project discovery
+│   │   │   ├── photoManifestHandlers.ts ← Per-recipe JSON manifest read/write
+│   │   │   ├── emailHandlers.ts         ← .msg / .eml parsing
+│   │   │   ├── awbIpcHandlers.ts        ← AWB CSV lookup
+│   │   │   ├── crashReportHandlers.ts   ← Error reporting
+│   │   │   └── outlookServer.ts         ← Outlook Add-in HTTP bridge
+│   │   └── services/
+│   │       ├── trazeIntegrationService.ts  ← Traze scheduler
+│   │       ├── trazePlaywrightService.ts   ← Playwright browser automation
+│   │       ├── trazeCredentialsService.ts  ← OS keychain credentials
+│   │       ├── trazeStatusService.ts
+│   │       ├── trazePreferencesService.ts
+│   │       ├── trazeWindowManager.ts
+│   │       ├── awbLookupService.ts
+│   │       ├── errorReporter.ts
+│   │       └── trashCleanupService.ts
+│   ├── preload/
+│   │   ├── index.ts             ← contextBridge — all IPC exposed here
+│   │   └── index.d.ts
 │   ├── renderer/                ← React app (runs in Electron window)
 │   │   ├── index.html
-│   │   ├── main.tsx             ← React entry
+│   │   ├── main.tsx             ← React entry (no StrictMode — Firebase 12 incompatible)
 │   │   ├── App.tsx              ← Router setup
 │   │   ├── components/
-│   │   │   ├── ui/              ← Reusable: Button, Modal, Badge, Avatar, Toast
-│   │   │   ├── board/           ← BoardView, TaskCard, BoardColumn, GroupBySelector
-│   │   │   ├── task/            ← TaskPage, SubtaskList, ActivityLog, CommentSection
-│   │   │   ├── calendar/        ← MasterCalendar, BoardCalendar, CalendarFilters
+│   │   │   ├── ui/              ← AppLayout, NewTaskModal, ConflictDialog, WhatsNewModal...
+│   │   │   ├── board/           ← BoardView, TaskCard, BoardColumn, GanttView, ListView
+│   │   │   ├── task/            ← TaskPage, SubtaskList, ActivityLog, CommentSection, AttachmentPanel
+│   │   │   ├── calendar/        ← MasterCalendar, BoardCalendar
 │   │   │   ├── notifications/   ← NotificationBell, NotificationCenter
-│   │   │   ├── search/          ← GlobalSearch (Ctrl+K)
-│   │   │   ├── analytics/       ← AnalyticsDashboard, AnnualSummary, Charts
-│   │   │   └── settings/        ← MembersPanel, LabelManager, ClientManager, SharePointSetup
+│   │   │   ├── search/          ← GlobalSearch (Ctrl+K / Cmd+K)
+│   │   │   ├── analytics/       ← AnalyticsDashboard, HistoricalAnalytics
+│   │   │   ├── auth/            ← ApprovalModal
+│   │   │   ├── recipes/         ← RecipeHomePage, RecipeProjectPage, PhotoManagerView, CapturePage...
+│   │   │   └── settings/        ← MembersPanel, LabelManager, ClientManager, SharePointSetup...
 │   │   ├── pages/
 │   │   │   ├── LoginPage.tsx
 │   │   │   ├── AwaitingApprovalPage.tsx
@@ -76,7 +144,10 @@ npd-planner/
 │   │   │   ├── CalendarPage.tsx
 │   │   │   ├── AnalyticsPage.tsx
 │   │   │   ├── SettingsPage.tsx
-│   │   │   └── EmergencyPage.tsx    ← Hidden route /emergency
+│   │   │   ├── CapturePage.tsx          ← /capture/:recipeId
+│   │   │   ├── MyTasksPage.tsx
+│   │   │   ├── MySpacePage.tsx
+│   │   │   └── EmergencyPage.tsx        ← Hidden route /emergency
 │   │   ├── hooks/
 │   │   │   ├── useAuth.ts
 │   │   │   ├── useBoard.ts
@@ -84,30 +155,59 @@ npd-planner/
 │   │   │   ├── useClients.ts
 │   │   │   ├── useLabels.ts
 │   │   │   ├── useNotifications.ts
-│   │   │   ├── useSharePoint.ts
-│   │   │   ├── useOfflineSync.ts
-│   │   │   └── useKeyboardShortcuts.ts
+│   │   │   ├── useSharePoint.ts         ← sharePointPath localStorage-only on Mac (ADR-006)
+│   │   │   ├── useKeyboardShortcuts.ts
+│   │   │   ├── useCameraStatus.ts
+│   │   │   ├── useProjectRootPath.ts    ← 4-step cross-machine path resolution
+│   │   │   ├── useRecipeFiles.ts
+│   │   │   ├── useRecipeLock.ts
+│   │   │   ├── useRecipeNotes.ts
+│   │   │   ├── usePendingApprovals.ts
+│   │   │   ├── useMyTasks.ts
+│   │   │   ├── useMySpace.ts
+│   │   │   ├── useSearch.ts
+│   │   │   ├── useAwbLookup.ts
+│   │   │   ├── useTrazeSettings.ts
+│   │   │   └── useTrazeRefresh.ts
 │   │   ├── store/
 │   │   │   ├── authStore.ts         ← Zustand auth state
 │   │   │   ├── boardStore.ts
 │   │   │   ├── taskStore.ts
+│   │   │   ├── notificationStore.ts
 │   │   │   └── settingsStore.ts
 │   │   ├── lib/
-│   │   │   ├── firebase.ts          ← Firebase init (reads from .env)
-│   │   │   ├── firestore.ts         ← All Firestore operations
-│   │   │   ├── firestoreRules.ts    ← Rules documentation
-│   │   │   └── sharepointLocal.ts   ← Local SharePoint file operations
+│   │   │   ├── firebase.ts              ← Firebase init (reads from .env)
+│   │   │   ├── firestore.ts             ← All Firestore operations
+│   │   │   ├── recipeFirestore.ts       ← Recipe-specific Firestore ops
+│   │   │   ├── recipeExcel.ts           ← Excel read/write via IPC
+│   │   │   ├── permissions.ts           ← Role/area permission helpers
+│   │   │   ├── photoManifestApi.ts      ← Manifest IPC wrappers
+│   │   │   ├── photoManifestProjection.ts
+│   │   │   ├── sharepointLocal.ts       ← Local SharePoint file operations
+│   │   │   ├── sharepointTemplates.ts
+│   │   │   ├── emailAttachments.ts
+│   │   │   ├── plannerImporter.ts
+│   │   │   └── repositories/            ← Repository pattern (IRecipeRepository etc.)
 │   │   ├── types/
-│   │   │   └── index.ts             ← All TypeScript interfaces
+│   │   │   └── index.ts                 ← All TypeScript interfaces
 │   │   └── utils/
 │   │       ├── dateUtils.ts
 │   │       ├── colorUtils.ts
-│   │       ├── exportUtils.ts       ← PDF + CSV export
-│   │       └── hashUtils.ts         ← SHA-256 for emergency key
-│   └── shared/
-│       └── constants.ts             ← Shared between main and renderer
-├── firestore.rules                  ← Firebase security rules
-└── electron-builder.yml             ← Build config for .exe and .dmg
+│   │       ├── exportUtils.ts           ← PDF + CSV export
+│   │       ├── hashUtils.ts             ← SHA-256 for emergency key
+│   │       └── photoUtils.ts            ← Path resolution for photos (getLibraryRoot etc.)
+│   ├── shared/
+│   │   ├── constants.ts                 ← Shared between main and renderer
+│   │   └── photoManifest.ts             ← PhotoManifest types + mergeManifests
+│   └── types/
+│       └── index.ts                     ← Global types (shared)
+├── resources/
+│   ├── scripts/
+│   │   └── insert_photo.py              ← Python: insert JPG into Excel Spec Sheet
+│   └── templates/
+│       └── ELITE QUOTE BOUQUET 2026.xlsx ← Default recipe template (bundled)
+├── firestore.rules                      ← Firebase security rules
+└── electron-builder.yml                 ← Build config for .exe and .dmg
 ```
 
 ---
@@ -129,7 +229,7 @@ npd-planner/
     dndStart: string    // "22:00" — do not disturb start
     dndEnd: string      // "08:00" — do not disturb end
     shortcuts: Record<string, string>  // action → key binding
-    sharePointPath: string  // local path to SharePoint folder
+    sharePointPath: string  // local path — Windows only writes to Firestore (ADR-006)
   }
 }
 ```
@@ -406,7 +506,7 @@ The app does NOT upload to SharePoint via API. Instead:
 1. On first launch, ask user: "Select your local SharePoint sync folder"
 2. Verify the selected folder contains a subfolder named exactly: `REPORTS (NPD-SECURE)`
 3. If not found: show error "Folder not recognized. Please select the correct SharePoint folder."
-4. Save the verified path in user preferences (Firestore + localStorage)
+4. Save the verified path in localStorage (Mac) or localStorage + Firestore (Windows)
 5. When user attaches a file to a task:
    - Compute destination: `path.join(sharePointRoot, year, clientName, taskTitle, fileName)`
    - Create folders if they don't exist: `fs.mkdirSync(dest, { recursive: true })`
@@ -416,10 +516,17 @@ The app does NOT upload to SharePoint via API. Instead:
 6. If copy fails: mark attachment as 'error', add to retry queue
 7. Retry queue checks every 30 seconds
 
-**Path example:**
+**Mac path example:**
 ```
-/Users/carlos/OneDrive - Elite Flower/REPORTS (NPD-SECURE)/2026/Publix/PUBLIX - MAMA MIA/spec.xlsx
+/Users/carlos/Library/CloudStorage/OneDrive-SharedLibraries-EliteFlower/NPD-SECURE - Documents/REPORTS/NPD-PLANNER
 ```
+
+**Windows path example:**
+```
+C:\Users\carlos\OneDrive - Elite Flower\Documents - NPD-SECURE\REPORTS\NPD-PLANNER
+```
+
+**ADR-006:** `sharePointPath` is machine-local. On Mac, it lives in `localStorage` only — never written to Firestore. On Windows, it also syncs to Firestore for compatibility.
 
 ---
 
@@ -504,20 +611,32 @@ const PRIORITY_COLORS = {
 
 ## Release Process
 
-To publish a new version to all users:
-
+### Windows release
 1. Bump version in `package.json`
 2. Update WhatsNewModal version constant
 3. Commit all changes
 4. Run: `npm run release:win`
-   - This builds the app and publishes directly to GitHub Releases
-   - Requires GH_TOKEN environment variable (already configured)
-   - Creates the release with latest.yml so auto-updater works
-5. Users with older versions will receive the update automatically
-   within 1 hour (autoUpdater checks on app start and every hour)
+   - Builds the app and publishes directly to GitHub Releases
+   - Requires `GH_TOKEN` environment variable (already configured)
+   - Creates the release with `latest.yml` so auto-updater works
+5. Windows users receive the update automatically within 1 hour
 
-IMPORTANT: Never manually upload .exe files to GitHub Releases.
-Always use `npm run release:win` to keep latest.yml in sync.
+**IMPORTANT:** Never manually upload `.exe` files to GitHub Releases.
+Always use `npm run release:win` to keep `latest.yml` in sync.
+
+### Mac release
+1. Bump version in `package.json`
+2. Update WhatsNewModal version constant
+3. Commit all changes
+4. Run: `npm run build:mac`
+   - Generates `dist-electron/npd-planner-X.Y.Z.dmg` and `dist-electron/latest-mac.yml`
+5. Upload **both files** to the GitHub Release manually:
+   ```bash
+   gh release upload vX.Y.Z dist-electron/npd-planner-X.Y.Z.dmg dist-electron/latest-mac.yml --clobber
+   ```
+6. Mac users see an "Update available" notification — they confirm to install
+
+**IMPORTANT:** Always upload `latest-mac.yml` alongside the `.dmg` or the Mac auto-updater won't find the new version.
 
 ---
 
@@ -721,6 +840,12 @@ Update these as you complete each feature. Add [x] when done.
 - `npd:projects_root` → absolute path to root folder (set once per machine)
 - `npd:project_path_{projectId}` → absolute path to specific project on this machine
 
+### Phase 9 — Mac Compatibility Fixes (v1.7.2)
+- [x] `updater.ts`: `autoDownload=false` on Mac; `autoInstallOnAppQuit` Windows-only; `quitAndInstall` guarded per platform
+- [x] `useSharePoint.ts`: Firestore write and seed guarded to `win32` only (ADR-006)
+- [x] `photoUtils.ts`: `console.warn` when `getLibraryRoot` fallback triggers on Mac
+- [x] `photoManifestHandlers.ts`: `PICTURES_FOLDERS` values normalized to forward slashes
+
 ### Phase 8 — Analytics & Build
 - [ ] Analytics dashboard (admin only): tasks/week, load by person, top clients
 - [x] Annual archive: auto-detect tasks > 12 months old on startup
@@ -748,3 +873,6 @@ Update these as you complete each feature. Add [x] when done.
 8. **No console.log in production** — use a proper logger utility
 9. **All user-facing strings** should be in a constants file (for future i18n)
 10. **Run `npm run build` and fix all errors** before starting next phase
+11. **`createRecipeProject` and `upsertRecipeFile` must always be awaited** — missing await causes silent broken state
+12. **Firebase reads in stores only** — never fire Firestore queries directly from components
+13. **Scope all Firestore listeners tightly** — free-tier quota is active; unbounded `onSnapshot` calls will exhaust quota
