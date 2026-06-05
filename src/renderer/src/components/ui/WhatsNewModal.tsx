@@ -4,7 +4,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.7.4'
+const CURRENT_VERSION = '1.7.5'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Feature {
@@ -18,11 +18,20 @@ const FEATURES: Feature[] = [
   {
     icon: Mail,
     color: '#378ADD',
-    title: 'Email Viewer — Renders Tables & Rich Text',
+    title: 'Email Viewer — No More \\par Tokens',
     description:
-      'Outlook emails with tables now display exactly as they appear in Outlook. ' +
-      'The viewer reads the original HTML embedded in .msg RTF files, so order grids, ' +
-      'sample requests, and formatted content render correctly — not as plain text.',
+      'Emails without embedded HTML (plain RTF body) now display as clean readable text. ' +
+      'The viewer strips RTF control words (\\par, \\pard, font tables) before rendering, ' +
+      'so every email shows its real content regardless of format.',
+  },
+  {
+    icon: Mail,
+    color: '#8B5CF6',
+    title: 'Reply & Forward — Choose Your Email App',
+    description:
+      'Reply and Forward now ask which Outlook you use: New Outlook, Classic Outlook, or ' +
+      'default email app. Your choice is remembered. You can change it anytime from the ' +
+      'bottom bar of any email. Body is trimmed to avoid Windows URL length limits.',
   },
   {
     icon: Table2,

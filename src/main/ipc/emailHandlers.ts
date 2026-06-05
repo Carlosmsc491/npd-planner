@@ -78,6 +78,32 @@ function extractHtmlFromRtf(rtfStr: string): string {
   return output.join('')
 }
 
+// ── Strip RTF control words from plain-text body ─────────────────────────────
+// msgreader sometimes returns fileData.body as raw RTF (PR_BODY_RTF fallback)
+// instead of clean plain text, resulting in \par \pard \fonttbl etc. appearing
+// in the viewer. This function strips them out while preserving paragraph breaks.
+function stripRtfControlWords(text: string): string {
+  // If no backslash-word sequences, nothing to do
+  if (!text.includes('\\par') && !text.includes('\\pard') && !text.includes('\\rtf')) {
+    return text
+  }
+  return text
+    // Turn \par / \line into line breaks (preserve paragraph structure)
+    .replace(/\\par\b[ \t]*/gi, '\n')
+    .replace(/\\line\b[ \t]*/gi, '\n')
+    .replace(/\\tab\b[ \t]*/gi, '\t')
+    // Strip remaining control words (\word or \word123)
+    .replace(/\\[a-zA-Z]+\d*[ \t]?/g, '')
+    // Strip literal \\ escapes and hex chars
+    .replace(/\\\\/g, '\\')
+    .replace(/\\'[0-9a-fA-F]{2}/g, '')
+    // Strip RTF group braces
+    .replace(/[{}]/g, '')
+    // Collapse runs of 3+ newlines
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 // ── Sanitize folder/file names ───────────────────────────────────────────────
 function sanitizeName(name: string): string {
   return name
@@ -246,7 +272,10 @@ export function registerEmailHandlers(): void {
           console.warn('[EmailHandler] RTF extraction failed:', rtfErr)
         }
       }
-      const bodyText = (fileData.body as string | undefined) ?? ''
+      // fileData.body may contain raw RTF control words when the message was
+      // stored as RTF internally — strip them so the viewer shows clean text.
+      const rawBodyText = (fileData.body as string | undefined) ?? ''
+      const bodyText = stripRtfControlWords(rawBodyText)
 
       return {
         success: true,

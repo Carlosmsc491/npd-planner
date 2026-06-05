@@ -2,8 +2,61 @@
 // In-app email viewer — renders .msg as a threaded conversation
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Mail, Loader2, AlertTriangle, ChevronDown, ChevronUp, Maximize2, Reply, Forward, ExternalLink, FolderOpen, Printer } from 'lucide-react'
+import { X, Mail, Loader2, AlertTriangle, ChevronDown, ChevronUp, Maximize2, Reply, Forward, ExternalLink, FolderOpen, Printer, Settings2, Check } from 'lucide-react'
 import { splitEmailThread, type ThreadSegment } from '../../utils/emailThread'
+
+// ── Email client preference ──────────────────────────────────────────────────
+type EmailClient = 'mailto' | 'outlook-new' | 'outlook-classic'
+const EMAIL_CLIENT_KEY = 'npd:email_client'
+
+function getEmailClient(): EmailClient | null {
+  try { return (localStorage.getItem(EMAIL_CLIENT_KEY) as EmailClient) || null } catch { return null }
+}
+function saveEmailClient(c: EmailClient) {
+  try { localStorage.setItem(EMAIL_CLIENT_KEY, c) } catch { /* ignore */ }
+}
+
+interface EmailClientPickerProps {
+  onSelect: (client: EmailClient) => void
+  onCancel: () => void
+}
+function EmailClientPicker({ onSelect, onCancel }: EmailClientPickerProps) {
+  const opts: { id: EmailClient; label: string; desc: string }[] = [
+    { id: 'outlook-new',     label: 'New Outlook',      desc: 'Outlook (Microsoft Store / Windows 11)' },
+    { id: 'outlook-classic', label: 'Classic Outlook',  desc: 'Outlook 2016 / 2019 / 2021 / 365 desktop' },
+    { id: 'mailto',          label: 'Default app',      desc: 'Whatever is set as default email in OS' },
+  ]
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40">
+      <div className="w-[360px] rounded-xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="px-5 pt-5 pb-3 border-b border-gray-100 dark:border-gray-800">
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">Which email app do you use?</p>
+          <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Your choice will be saved. You can change it in the email viewer.</p>
+        </div>
+        <div className="px-5 py-3 space-y-2">
+          {opts.map(o => (
+            <button
+              key={o.id}
+              onClick={() => onSelect(o.id)}
+              className="w-full flex items-center gap-3 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5 text-left hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">{o.label}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{o.desc}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+        <div className="px-5 pb-4 flex justify-end">
+          <button onClick={onCancel} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">Cancel</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// mailto: body has a ~2000-char limit on Windows shell.
+const MAILTO_BODY_LIMIT = 1800
 
 interface Props {
   msgAbsPath: string
@@ -200,6 +253,16 @@ export default function EmailViewerModal({ msgAbsPath, subject, onClose }: Props
   const [segments, setSegments] = useState<ThreadSegment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Email client preference
+  const [emailClient, setEmailClientState] = useState<EmailClient | null>(null)
+  const [showClientPicker, setShowClientPicker] = useState(false)
+  // pending action to run after picker is dismissed
+  const pendingAction = useRef<'reply' | 'forward' | null>(null)
+
+  // Load saved email client preference
+  useEffect(() => {
+    setEmailClientState(getEmailClient())
+  }, [])
 
   useEffect(() => {
     setLoading(true)
@@ -274,46 +337,43 @@ export default function EmailViewerModal({ msgAbsPath, subject, onClose }: Props
     win?.document.close()
   }
 
-  function handleReply() {
-    if (!content) return
-
-    // Extract bare email address from "Name <email>" or plain "email" format
-    const fromRaw = content.from.trim()
-    const replyTo = fromRaw.match(/<([^>]+)>/)?.[1] ?? fromRaw
-
-    // Don't add Re: if subject already starts with it (case-insensitive)
-    const reSubject = /^re:/i.test(content.subject)
-      ? content.subject
-      : `Re: ${content.subject}`
-
-    // Build quoted body: attribution line + original plain text
-    const dateStr = formatDate(content.date)
-    const quotedBody = [
-      '',
-      '',
-      `On ${dateStr}, ${content.from} wrote:`,
-      '',
-      // Indent each line of the original with >
-      ...(content.bodyText ?? '')
-        .split('\n')
-        .map(line => `> ${line}`),
-    ].join('\n')
-
-    const mailto = `mailto:${encodeURIComponent(replyTo)}?subject=${encodeURIComponent(reSubject)}&body=${encodeURIComponent(quotedBody)}`
-    window.electronAPI.openExternal(mailto)
+  function openWithClient(url: string, client: EmailClient) {
+    // New Outlook on Windows uses ms-outlook:// scheme for compose
+    // Convert: mailto:TO?subject=S&body=B → ms-outlook://compose?to=TO&subject=S&body=B
+    if (client === 'outlook-new') {
+      try {
+        const parsed = new URL(url)
+        // mailto: format: mailto:TO?subject=S&body=B
+        const to = parsed.pathname // everything before ?
+        const params = parsed.searchParams
+        const msUrl = `ms-outlook://compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(params.get('subject') ?? '')}&body=${encodeURIComponent(params.get('body') ?? '')}`
+        window.electronAPI.openExternal(msUrl)
+        return
+      } catch { /* fall through to mailto */ }
+    }
+    window.electronAPI.openExternal(url)
   }
 
-  function handleForward() {
+  function doReply(client: EmailClient) {
     if (!content) return
+    const fromRaw = content.from.trim()
+    const replyTo = fromRaw.match(/<([^>]+)>/)?.[1] ?? fromRaw
+    const reSubject = /^re:/i.test(content.subject) ? content.subject : `Re: ${content.subject}`
+    const dateStr = formatDate(content.date)
+    const originalLines = (content.bodyText ?? '').split('\n').map(l => `> ${l}`).join('\n')
+    const quotedBody = `\n\nOn ${dateStr}, ${content.from} wrote:\n\n${originalLines}`
+    // Truncate to stay within Windows shell mailto limit
+    const safeBody = quotedBody.length > MAILTO_BODY_LIMIT
+      ? quotedBody.slice(0, MAILTO_BODY_LIMIT) + '\n...[truncated]'
+      : quotedBody
+    const mailto = `mailto:${encodeURIComponent(replyTo)}?subject=${encodeURIComponent(reSubject)}&body=${encodeURIComponent(safeBody)}`
+    openWithClient(mailto, client)
+  }
 
-    // Don't add Fwd: if already present
-    const fwdSubject = /^fwd?:/i.test(content.subject)
-      ? content.subject
-      : `Fwd: ${content.subject}`
-
-    // Reconstruct the To: line for the forwarded header
+  function doForward(client: EmailClient) {
+    if (!content) return
+    const fwdSubject = /^fwd?:/i.test(content.subject) ? content.subject : `Fwd: ${content.subject}`
     const toLine = content.to ? `To: ${content.to}\n` : ''
-
     const fwdBody = [
       '',
       '',
@@ -325,14 +385,60 @@ export default function EmailViewerModal({ msgAbsPath, subject, onClose }: Props
       '',
       content.bodyText ?? '',
     ].join('\n')
+    const safeBody = fwdBody.length > MAILTO_BODY_LIMIT
+      ? fwdBody.slice(0, MAILTO_BODY_LIMIT) + '\n...[truncated]'
+      : fwdBody
+    const mailto = `mailto:?subject=${encodeURIComponent(fwdSubject)}&body=${encodeURIComponent(safeBody)}`
+    openWithClient(mailto, client)
+  }
 
-    const mailto = `mailto:?subject=${encodeURIComponent(fwdSubject)}&body=${encodeURIComponent(fwdBody)}`
-    window.electronAPI.openExternal(mailto)
+  function handleReply() {
+    if (!content) return
+    const client = getEmailClient()
+    if (!client) {
+      pendingAction.current = 'reply'
+      setShowClientPicker(true)
+    } else {
+      doReply(client)
+    }
+  }
+
+  function handleForward() {
+    if (!content) return
+    const client = getEmailClient()
+    if (!client) {
+      pendingAction.current = 'forward'
+      setShowClientPicker(true)
+    } else {
+      doForward(client)
+    }
+  }
+
+  function handleClientSelected(client: EmailClient) {
+    saveEmailClient(client)
+    setEmailClientState(client)
+    setShowClientPicker(false)
+    if (pendingAction.current === 'reply') doReply(client)
+    else if (pendingAction.current === 'forward') doForward(client)
+    pendingAction.current = null
+  }
+
+  const clientLabels: Record<EmailClient, string> = {
+    'mailto': 'Default app',
+    'outlook-new': 'New Outlook',
+    'outlook-classic': 'Classic Outlook',
   }
 
   const isThread = segments.length > 1
 
   return (
+    <>
+    {showClientPicker && (
+      <EmailClientPicker
+        onSelect={handleClientSelected}
+        onCancel={() => { setShowClientPicker(false); pendingAction.current = null }}
+      />
+    )}
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
@@ -433,9 +539,31 @@ export default function EmailViewerModal({ msgAbsPath, subject, onClose }: Props
               <Forward size={12} />
               Forward
             </button>
+            {/* Email client indicator + change button */}
+            <div className="flex-1" />
+            {emailClient ? (
+              <button
+                onClick={() => setShowClientPicker(true)}
+                title="Change email app"
+                className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+              >
+                <Check size={10} className="text-green-500" />
+                {clientLabels[emailClient]}
+                <Settings2 size={10} />
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowClientPicker(true)}
+                className="flex items-center gap-1 text-[10px] text-blue-500 hover:text-blue-700 transition-colors"
+              >
+                <Settings2 size={10} />
+                Set email app
+              </button>
+            )}
           </div>
         )}
       </div>
     </div>
+    </>
   )
 }

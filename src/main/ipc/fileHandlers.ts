@@ -248,7 +248,7 @@ export function registerFileHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(IPC.OPEN_EXTERNAL, async (_event, url: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const parsed = new URL(url)
-      const allowed = ['https:', 'http:', 'mailto:']
+      const allowed = ['https:', 'http:', 'mailto:', 'ms-outlook:']
       if (!allowed.includes(parsed.protocol)) {
         console.warn(`[openExternal] Blocked non-http(s) scheme: ${parsed.protocol}`)
         return { success: false, error: 'Only http(s) and mailto URLs are allowed.' }
