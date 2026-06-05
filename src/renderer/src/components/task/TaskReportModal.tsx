@@ -37,6 +37,8 @@ export default function TaskReportModal({ task, board, users, labels, client, on
   const [zipPath, setZipPath] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [progressMsg, setProgressMsg] = useState('')
+  const [progressPct, setProgressPct] = useState(0)
+  const [progressStep, setProgressStep] = useState('')
 
   // Derived attachment counts
   const attCount = (task.attachments ?? []).length
@@ -53,15 +55,27 @@ export default function TaskReportModal({ task, board, users, labels, client, on
     if (!isElectron || !sharePointPath) return
     setStep('generating')
     setErrorMsg(null)
+    setProgressPct(0)
+    setProgressStep('')
+    setProgressMsg('Starting…')
+
+    // Subscribe to real-time progress from main process
+    const unsubProgress = window.electronAPI.onReportProgress((p) => {
+      setProgressPct(p.percent)
+      setProgressMsg(p.message)
+      setProgressStep(p.step)
+    })
 
     try {
       setProgressMsg('Loading task history and comments…')
+      setProgressPct(2)
       const [comments, history] = await Promise.all([
         getComments(task.id),
         getTaskHistory(task.id),
       ])
 
       setProgressMsg('Building report…')
+      setProgressPct(5)
       const summaryHtml = generateTaskReportHTML({ task, client, board, labels, users, comments, history })
 
       // Resolve absolute paths for attachments
@@ -102,6 +116,7 @@ export default function TaskReportModal({ task, board, users, labels, client, on
       setProgressMsg(attachMode === 'embedded'
         ? `Embedding ${totalFiles} attachment${totalFiles !== 1 ? 's' : ''}…`
         : 'Generating summary PDF…')
+      setProgressPct(10)
 
       const reportResult = await window.electronAPI.generateTaskReport({
         summaryHtml,
@@ -111,11 +126,13 @@ export default function TaskReportModal({ task, board, users, labels, client, on
         outputPdfPath,
       })
 
+      unsubProgress()
       if (!reportResult.success) throw new Error(reportResult.error ?? 'PDF generation failed')
       setPdfPath(reportResult.pdfPath ?? outputPdfPath)
 
       // For separate mode, also create a ZIP right away in the same folder
       if (attachMode === 'separate') {
+        setProgressPct(92)
         setProgressMsg('Creating ZIP archive…')
         const zipName = `REPORT_${safeTitle}.zip`
         const zipDest = outputPdfPath.replace(/[^/\\]+$/, zipName)
@@ -131,8 +148,10 @@ export default function TaskReportModal({ task, board, users, labels, client, on
         }
       }
 
+      setProgressPct(100)
       setStep('done')
     } catch (err) {
+      unsubProgress()
       setErrorMsg(err instanceof Error ? err.message : String(err))
       setStep('error')
     }
@@ -296,14 +315,56 @@ export default function TaskReportModal({ task, board, users, labels, client, on
 
         {/* Step: generating */}
         {step === 'generating' && (
-          <div className="px-5 py-10 flex flex-col items-center gap-4 text-center">
-            <div className="relative">
-              <Loader2 size={36} className="animate-spin text-green-500" />
-            </div>
-            <div>
+          <div className="px-5 py-6 space-y-4">
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <Loader2 size={18} className="animate-spin text-green-500 shrink-0" />
               <p className="text-sm font-semibold text-gray-900 dark:text-white">Generating report…</p>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{progressMsg}</p>
+              <span className="ml-auto text-sm font-bold text-green-600 dark:text-green-400 tabular-nums">
+                {progressPct}%
+              </span>
             </div>
+
+            {/* Progress bar */}
+            <div className="relative h-2.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-green-500 to-emerald-400 transition-all duration-300 ease-out"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+
+            {/* Current step pill + message */}
+            <div className="flex items-start gap-2 min-h-[36px]">
+              {progressStep && (
+                <span className="shrink-0 rounded-md bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  {progressStep}
+                </span>
+              )}
+              <p className="text-xs text-gray-500 dark:text-gray-400 leading-snug">{progressMsg}</p>
+            </div>
+
+            {/* Attachment counter */}
+            {attachMode === 'embedded' && totalFiles > 0 && (
+              <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 px-3 py-2">
+                <div className="flex justify-between text-xs text-gray-400 mb-1">
+                  <span>Attachments</span>
+                  <span className="tabular-nums">
+                    {Math.min(
+                      Math.max(0, Math.round(((progressPct - 10) / 75) * totalFiles)),
+                      totalFiles
+                    )} / {totalFiles}
+                  </span>
+                </div>
+                <div className="h-1 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-blue-400 transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, ((progressPct - 10) / 75) * 100))}%`
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
 

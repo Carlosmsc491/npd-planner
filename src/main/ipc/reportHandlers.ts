@@ -135,6 +135,32 @@ async function wordToHtml(filePath: string): Promise<string> {
   }
 }
 
+// ── Strip RTF control words from plain-text body ─────────────────────────
+// Same logic as emailHandlers.ts — keeps paragraph structure, strips \par \pard etc.
+function stripRtf(text: string): string {
+  if (!text.includes('\\par') && !text.includes('\\pard') && !text.includes('\\rtf')) return text
+  return text
+    .replace(/\\par\b[ \t]*/gi, '\n')
+    .replace(/\\line\b[ \t]*/gi, '\n')
+    .replace(/\\tab\b[ \t]*/gi, '\t')
+    .replace(/\\[a-zA-Z]+\d*[ \t]?/g, '')
+    .replace(/\\\\/g, '\\')
+    .replace(/\\'[0-9a-fA-F]{2}/g, '')
+    .replace(/[{}]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+// Convert plain text to simple HTML — preserves paragraphs, escapes HTML
+function textToHtml(text: string): string {
+  const clean = stripRtf(text)
+  return clean
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .split(/\n\n+/)
+    .map(para => `<p style="margin:4px 0;font-size:13px;line-height:1.5;">${para.replace(/\n/g, '<br>')}</p>`)
+    .join('\n')
+}
+
 // ── Email (.msg / .eml) → HTML ─────────────────────────────────────────────
 async function emailToHtml(filePath: string): Promise<string> {
   try {
@@ -186,7 +212,15 @@ async function emailToHtml(filePath: string): Promise<string> {
           <div><strong>Subject:</strong> ${subject}</div>
         </div>`
 
-      return meta + (bodyHtml || `<p style="white-space:pre-wrap;font-size:13px;">${String(d.body ?? '').replace(/\\[a-zA-Z]+\d*\s?/g, '').replace(/[{}]/g, '')}</p>`)
+      // Strip broken CID/inline image tags from Outlook HTML — they won't render in PDF
+      const cleanBodyHtml = bodyHtml
+        ? bodyHtml
+            .replace(/<img[^>]+src=["']cid:[^"']*["'][^>]*>/gi, '') // remove cid: images
+            .replace(/<img[^>]+>/gi, '')  // remove any remaining broken img tags
+        : ''
+
+      const bodyContent = cleanBodyHtml || textToHtml(String(d.body ?? ''))
+      return meta + `<div style="font-family:sans-serif;">${bodyContent}</div>`
     } else {
       // .eml
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -209,8 +243,22 @@ async function emailToHtml(filePath: string): Promise<string> {
   }
 }
 
+// ── Progress event type ───────────────────────────────────────────────────
+export interface ReportProgress {
+  percent: number        // 0–100
+  step: string           // short label e.g. "Excel"
+  message: string        // full description shown to user
+  current: number        // attachment index (1-based)
+  total: number          // total attachments
+}
+
 // ── Build one attachment page ─────────────────────────────────────────────
-async function buildAttachmentPage(name: string, absPath: string, index: number): Promise<string> {
+async function buildAttachmentPage(
+  name: string,
+  absPath: string,
+  index: number,
+  onProgress?: (p: Omit<ReportProgress, 'current' | 'total'>) => void
+): Promise<string> {
   const fileExists = fs.existsSync(absPath)
   const pageBreak = index > 0 ? '<div style="page-break-before:always;"></div>' : ''
   const header = `
@@ -230,11 +278,13 @@ async function buildAttachmentPage(name: string, absPath: string, index: number)
   let content = ''
 
   if (isImage(absPath)) {
+    onProgress?.({ percent: 0, step: 'Image', message: `Embedding image: ${name}` })
     try {
       const dataUrl = imageToDataUrl(absPath)
       content = `<img src="${dataUrl}" style="max-width:100%;max-height:900px;height:auto;display:block;margin:0 auto;" />`
     } catch { content = '<p style="color:#ef4444;font-size:12px;">Could not load image.</p>' }
   } else if (isPdf(absPath)) {
+    onProgress?.({ percent: 0, step: 'PDF', message: `Rendering PDF: ${name}` })
     const pages = await pdfToImages(absPath)
     if (pages.length > 0) {
       content = pages.map(p => `<img src="${p}" style="max-width:100%;height:auto;display:block;margin:0 auto 8px;" />`).join('')
@@ -242,10 +292,13 @@ async function buildAttachmentPage(name: string, absPath: string, index: number)
       content = `<p style="color:#64748b;font-size:13px;">📄 PDF file — open in a PDF viewer to see content.<br><em>${absPath}</em></p>`
     }
   } else if (isExcel(absPath)) {
+    onProgress?.({ percent: 0, step: 'Excel', message: `Reading spreadsheet: ${name}` })
     content = await excelToHtml(absPath)
   } else if (isWord(absPath)) {
+    onProgress?.({ percent: 0, step: 'Word', message: `Reading document: ${name}` })
     content = await wordToHtml(absPath)
   } else if (isEmail(absPath)) {
+    onProgress?.({ percent: 0, step: 'Email', message: `Parsing email: ${name}` })
     content = await emailToHtml(absPath)
   } else {
     // generic — show file info
@@ -353,30 +406,69 @@ interface ZipRequest {
 export function registerReportHandlers(): void {
 
   // Generate the full PDF report
-  ipcMain.handle('task:generate-report', async (_event, req: ReportRequest): Promise<ReportResult> => {
+  ipcMain.handle('task:generate-report', async (event, req: ReportRequest): Promise<ReportResult> => {
+    // Helper: send progress to renderer
+    const emit = (p: ReportProgress) => {
+      try { event.sender.send('task:report-progress', p) } catch { /* window may have closed */ }
+    }
+
     try {
       let fullHtml = req.summaryHtml
+      const allAttachments = req.includeAttachments
+        ? [...req.attachments, ...req.emailAttachments]
+        : []
+      const total = allAttachments.length
 
-      if (req.includeAttachments) {
-        // Mode A: append one page per attachment
-        const allAttachments = [
-          ...req.attachments,
-          ...req.emailAttachments,
-        ]
-        let attachmentPages = ''
-        for (let i = 0; i < allAttachments.length; i++) {
+      emit({ percent: 5, step: 'Summary', message: 'Building cover page…', current: 0, total })
+
+      if (req.includeAttachments && total > 0) {
+        // Track completion count for live progress updates
+        let doneCount = 0
+
+        // Process attachments in parallel — up to 4 at a time (avoids too many
+        // hidden BrowserWindows for PDF screenshots while still saving time)
+        const CONCURRENCY = 4
+        const results: (string | null)[] = new Array(allAttachments.length).fill(null)
+
+        async function processOne(i: number) {
           const a = allAttachments[i]
-          if (!a.absPath || !fs.existsSync(a.absPath)) continue
-          const page = await buildAttachmentPage(a.name, a.absPath, i + 1)
-          attachmentPages += page
+          if (!a.absPath || !fs.existsSync(a.absPath)) {
+            results[i] = ''
+            return
+          }
+          const basePercent = 10 + Math.round((i / total) * 75)
+          emit({ percent: basePercent, step: 'Processing', message: `Processing: ${a.name}`, current: i + 1, total })
+
+          const page = await buildAttachmentPage(a.name, a.absPath, i + 1, ({ step, message }) => {
+            emit({ percent: basePercent, step, message, current: i + 1, total })
+          })
+          results[i] = page
+          doneCount++
+          emit({
+            percent: 10 + Math.round((doneCount / total) * 75),
+            step: 'Done',
+            message: `Processed ${doneCount} of ${total}: ${a.name}`,
+            current: doneCount,
+            total,
+          })
         }
+
+        // Run with limited concurrency
+        for (let start = 0; start < allAttachments.length; start += CONCURRENCY) {
+          const batch = allAttachments.slice(start, start + CONCURRENCY).map((_, j) => processOne(start + j))
+          await Promise.all(batch)
+        }
+
+        const attachmentPages = results.filter(Boolean).join('')
         if (attachmentPages) {
-          // Inject attachment pages before the closing </body>
           fullHtml = fullHtml.replace('</body>', `${attachmentPages}</body>`)
         }
       }
 
+      emit({ percent: 88, step: 'PDF', message: 'Rendering PDF…', current: total, total })
       await htmlToPdf(fullHtml, req.outputPdfPath)
+      emit({ percent: 100, step: 'Done', message: 'Report saved!', current: total, total })
+
       return { success: true, pdfPath: req.outputPdfPath }
     } catch (err) {
       console.error('[ReportHandlers] generate-report failed:', err)

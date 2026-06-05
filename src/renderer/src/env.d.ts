@@ -165,6 +165,7 @@ interface IElectronAPI {
   showInFolder: (filePath: string) => void
   printFile: (filePath: string) => Promise<{ success: boolean; error?: string }>
   // Task Report
+  onReportProgress: (cb: (p: { percent: number; step: string; message: string; current: number; total: number }) => void) => (() => void)
   generateTaskReport: (req: {
     summaryHtml: string
     includeAttachments: boolean

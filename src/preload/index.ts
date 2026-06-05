@@ -327,6 +327,12 @@ const electronAPI = {
     ipcRenderer.invoke('email:select-file'),
 
   // ── Task Report ───────────────────────────────────────────────────────────
+  onReportProgress: (cb: (p: { percent: number; step: string; message: string; current: number; total: number }) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, p: { percent: number; step: string; message: string; current: number; total: number }) => cb(p)
+    ipcRenderer.on('task:report-progress', listener)
+    return () => ipcRenderer.removeListener('task:report-progress', listener)
+  },
+
   generateTaskReport: (req: {
     summaryHtml: string
     includeAttachments: boolean
