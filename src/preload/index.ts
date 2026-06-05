@@ -326,6 +326,30 @@ const electronAPI = {
   selectEmailFile: (): Promise<string | null> =>
     ipcRenderer.invoke('email:select-file'),
 
+  // ── Task Report ───────────────────────────────────────────────────────────
+  generateTaskReport: (req: {
+    summaryHtml: string
+    includeAttachments: boolean
+    attachments: Array<{ name: string; absPath: string }>
+    emailAttachments: Array<{ name: string; absPath: string }>
+    outputPdfPath: string
+  }): Promise<{ success: boolean; pdfPath?: string; error?: string }> =>
+    ipcRenderer.invoke('task:generate-report', req),
+
+  createReportZip: (req: {
+    pdfPath: string
+    attachments: Array<{ name: string; absPath: string }>
+    emailAttachments: Array<{ name: string; absPath: string }>
+    destZipPath: string
+  }): Promise<{ success: boolean; zipPath?: string; error?: string }> =>
+    ipcRenderer.invoke('task:create-report-zip', req),
+
+  saveReportDialog: (opts: { defaultName: string; type: 'pdf' | 'zip' }): Promise<string | null> =>
+    ipcRenderer.invoke('task:save-report-dialog', opts),
+
+  openReport: (filePath: string): Promise<void> =>
+    ipcRenderer.invoke('task:open-report', filePath),
+
   // ── App utilities ─────────────────────────────────────────────────────────
   getUserDataPath: (): Promise<string> =>
     ipcRenderer.invoke('app:get-user-data-path'),

@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { formatDate, isOverdue } from '../../utils/dateUtils'
 import { getInitials, getInitialsColor, getBucketColor } from '../../utils/colorUtils'
-import { generateAndSaveTaskReport } from '../../utils/taskReportSaver'
 import { useTaskStore } from '../../store/taskStore'
 import { useAuthStore } from '../../store/authStore'
 import { DynamicIcon } from '../../utils/propertyUtils'
 import type { Task, Client, Label, AppUser, Board } from '../../types'
+import TaskReportModal from '../task/TaskReportModal'
 
 interface Props {
   task: Task
@@ -25,29 +25,16 @@ export default function TaskCard({
   onComplete, onOpen, onDuplicate, onRecurring, onDelete,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [showReportModal, setShowReportModal] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
-  const { setToast } = useTaskStore()
+  const { setToast: _setToast } = useTaskStore()
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
   const canDelete = isAdmin || task.createdBy === user?.uid
 
-  async function handleGenerateReport() {
+  function handleGenerateReport() {
     setMenuOpen(false)
-    const sharePointPath = localStorage.getItem('npd_sharepoint_path') ?? ''
-    if (!sharePointPath) {
-      setToast({ id: 'report-no-sp', message: 'SharePoint path not set. Configure it in Settings.', type: 'error', duration: 4000 })
-      return
-    }
-    const taskLabels = labels.filter(l => (task.labelIds ?? []).includes(l.id))
-    const client = clients.find(c => c.id === task.clientId) ?? null
-    const result = await generateAndSaveTaskReport(task, sharePointPath, client?.name ?? 'Unknown', {
-      client, board: board ?? null, labels: taskLabels, users,
-    })
-    if (result.success) {
-      setToast({ id: `report-ok-${task.id}`, message: 'Report saved to SharePoint ✓', type: 'success', duration: 3000 })
-    } else {
-      setToast({ id: `report-err-${task.id}`, message: `Report failed: ${result.error ?? 'unknown error'}`, type: 'error', duration: 5000 })
-    }
+    setShowReportModal(true)
   }
 
   const client = clients.find((c) => c.id === task.clientId)
@@ -67,6 +54,7 @@ export default function TaskCard({
   }, [menuOpen])
 
   return (
+    <>
     <div
       data-no-drag-scroll
       className={`group relative rounded-xl border bg-white px-3 py-2.5 shadow-sm hover:shadow-md transition-all cursor-pointer dark:bg-gray-800 dark:border-gray-700 ${
@@ -249,5 +237,17 @@ export default function TaskCard({
         </div>
       </div>
     </div>
+
+    {showReportModal && (
+      <TaskReportModal
+        task={task}
+        board={board ?? null}
+        users={users}
+        labels={labels.filter(l => (task.labelIds ?? []).includes(l.id))}
+        client={clients.find(c => c.id === task.clientId) ?? null}
+        onClose={() => setShowReportModal(false)}
+      />
+    )}
+    </>
   )
 }

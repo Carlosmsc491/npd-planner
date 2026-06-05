@@ -164,6 +164,22 @@ interface IElectronAPI {
   selectEmailFile: () => Promise<string | null>
   showInFolder: (filePath: string) => void
   printFile: (filePath: string) => Promise<{ success: boolean; error?: string }>
+  // Task Report
+  generateTaskReport: (req: {
+    summaryHtml: string
+    includeAttachments: boolean
+    attachments: Array<{ name: string; absPath: string }>
+    emailAttachments: Array<{ name: string; absPath: string }>
+    outputPdfPath: string
+  }) => Promise<{ success: boolean; pdfPath?: string; error?: string }>
+  createReportZip: (req: {
+    pdfPath: string
+    attachments: Array<{ name: string; absPath: string }>
+    emailAttachments: Array<{ name: string; absPath: string }>
+    destZipPath: string
+  }) => Promise<{ success: boolean; zipPath?: string; error?: string }>
+  saveReportDialog: (opts: { defaultName: string; type: 'pdf' | 'zip' }) => Promise<string | null>
+  openReport: (filePath: string) => Promise<void>
   // Generic Traze / AWB IPC channels
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, listener: (...args: unknown[]) => void) => void

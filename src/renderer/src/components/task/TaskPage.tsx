@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { onSnapshot, doc } from 'firebase/firestore'
 import {
   User, Calendar, CircleDot, Zap, Users, Tag,
-  Layers, Maximize2, ChevronDown, Plus, X, Hammer, Truck, Cog, Star, Edit2,
+  Layers, Maximize2, ChevronDown, Plus, X, Hammer, Truck, Cog, Star, Edit2, FileText,
   type LucideIcon,
 } from 'lucide-react'
 import { nanoid } from 'nanoid'
@@ -23,6 +23,7 @@ import { useDateTypeStore } from '../../store/dateTypeStore'
 import type { TaskDate } from '../../types'
 import SubtaskList from './SubtaskList'
 import AttachmentPanel from './AttachmentPanel'
+import TaskReportModal from './TaskReportModal'
 import RichTextEditor from './RichTextEditor'
 import DateInput from '../ui/DateInput'
 import { CustomFieldInput } from '../settings/BoardTemplateEditor'
@@ -69,6 +70,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   const [newDivisionName, setNewDivisionName] = useState('')
   const [showNewDivision, setShowNewDivision] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [showReportModal, setShowReportModal] = useState(false)
   const [bucketOpen, setBucketOpen] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
 
@@ -491,6 +493,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   }, [isElectron, sharePointPath, user, clientName, task])
 
   return (
+    <>
     <div
       className="flex h-full flex-col bg-white dark:bg-gray-900 relative"
       onDragOver={(e) => { e.preventDefault(); setPageDragOver(true) }}
@@ -577,6 +580,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                     {[
                       { label: 'Duplicate', action: () => { onDuplicate(task); setMenuOpen(false) } },
                       { label: 'Make Recurring', action: () => { onRecurring(task); setMenuOpen(false) } },
+                      { label: 'Generate Report', action: () => { setShowReportModal(true); setMenuOpen(false) } },
                       ...((user?.role === 'admin' || user?.role === 'owner' || task.createdBy === user?.uid)
                         ? [{ label: 'Delete', danger: true, action: () => { onDelete(task); setMenuOpen(false); setSelectedTask(null) } }]
                         : []),
@@ -589,6 +593,17 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                 </>
               )}
             </div>
+          )}
+          {/* Generate Report button */}
+          {isElectron && (
+            <button
+              onClick={() => setShowReportModal(true)}
+              title="Generate PDF Report"
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 border border-green-200 dark:border-green-800 transition-colors"
+            >
+              <FileText size={13} />
+              Report
+            </button>
           )}
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1229,6 +1244,19 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
 
       </div>
     </div>
+
+    {/* Task Report Modal */}
+    {showReportModal && (
+      <TaskReportModal
+        task={task}
+        board={board}
+        users={users}
+        labels={labels.filter(l => (task.labelIds ?? []).includes(l.id))}
+        client={clients.find(c => c.id === task.clientId) ?? null}
+        onClose={() => setShowReportModal(false)}
+      />
+    )}
+    </>
   )
 }
 
