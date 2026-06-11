@@ -147,9 +147,18 @@ export async function removeCameraEntries(
   filenamesToRemove: string[],
 ): Promise<PhotoManifest> {
   const toRemove = new Set(filenamesToRemove)
+  const now = new Date().toISOString()
   return writeManifestAndSummary(projectRoot, ref, m => ({
     ...m,
     camera: m.camera.filter(e => !toRemove.has(e.filename)),
+    // Tombstones make the deletion survive the union-style conflict merge —
+    // without them the removed entries come straight back from the disk copy.
+    deleted: [
+      ...(m.deleted ?? []),
+      ...filenamesToRemove.map(filename => ({
+        filename, location: 'camera' as const, deletedAt: now, deletedBy: ref.userId,
+      })),
+    ],
   }))
 }
 
@@ -205,7 +214,18 @@ export async function clearReady(
   projectRoot: string,
   ref: RecipeRef,
 ): Promise<PhotoManifest> {
-  return writeManifestAndSummary(projectRoot, ref, m => ({ ...m, ready: null }))
+  const now = new Date().toISOString()
+  return writeManifestAndSummary(projectRoot, ref, m => ({
+    ...m,
+    ready: null,
+    // Tombstone so the merge doesn't resurrect the cleared READY entry
+    deleted: m.ready
+      ? [...(m.deleted ?? []), {
+          filename: m.ready.pngFilename, location: 'ready' as const,
+          deletedAt: now, deletedBy: ref.userId,
+        }]
+      : (m.deleted ?? []),
+  }))
 }
 
 // ── Excel insert ────────────────────────────────────────────────────────────

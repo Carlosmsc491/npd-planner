@@ -45,6 +45,21 @@ export interface PhotoManifest {
   excelInsertedAt: string | null
   /** uid of the user who performed the last Excel insert */
   excelInsertedBy: string | null
+  /**
+   * Tombstones for deleted photos. Without them, the union-style conflict merge
+   * resurrects every deletion (the removed entry comes back from the other
+   * side). A tombstone survives merges and suppresses entries whose latest
+   * event predates the deletion; a NEWER re-capture/re-add overrides it.
+   * Optional for backward compatibility with manifests written before v1.8.
+   */
+  deleted?: DeletedEntry[]
+}
+
+export interface DeletedEntry {
+  filename: string
+  location: 'camera' | 'cleaned' | 'ready'
+  deletedAt: string
+  deletedBy: string
 }
 
 export interface CameraEntry {
@@ -115,6 +130,7 @@ export function emptyManifest(input: {
     ready: null,
     excelInsertedAt: null,
     excelInsertedBy: null,
+    deleted: [],
   }
 }
 
@@ -152,6 +168,27 @@ export function mergeManifests(a: PhotoManifest, b: PhotoManifest): PhotoManifes
   const newer = aNewer ? a : b
   const older = aNewer ? b : a
 
+  // ── tombstones: union by location:filename, newest deletedAt wins ────────
+  const tombMap = new Map<string, DeletedEntry>()
+  for (const d of [...(older.deleted ?? []), ...(newer.deleted ?? [])]) {
+    const key = `${d.location}:${d.filename}`
+    const prev = tombMap.get(key)
+    if (!prev || new Date(d.deletedAt).getTime() >= new Date(prev.deletedAt).getTime()) {
+      tombMap.set(key, d)
+    }
+  }
+  /** Entry survives its tombstone only when its latest event is NEWER (re-add). */
+  const survives = (location: DeletedEntry['location'], filename: string, entryTs: string): boolean => {
+    const t = tombMap.get(`${location}:${filename}`)
+    if (!t) return true
+    if (new Date(entryTs).getTime() > new Date(t.deletedAt).getTime()) {
+      // Re-added after deletion — the tombstone is obsolete, drop it
+      tombMap.delete(`${location}:${filename}`)
+      return true
+    }
+    return false
+  }
+
   // ── camera: union by filename ────────────────────────────────────────────
   const cameraMap = new Map<string, CameraEntry>()
   for (const e of older.camera) cameraMap.set(e.filename, e)
@@ -163,7 +200,9 @@ export function mergeManifests(a: PhotoManifest, b: PhotoManifest): PhotoManifes
     const prevTs = new Date(prev.selectedAt ?? prev.capturedAt).getTime()
     cameraMap.set(e.filename, eTs >= prevTs ? e : prev)
   }
-  const camera = Array.from(cameraMap.values()).sort((x, y) => x.sequence - y.sequence)
+  const camera = Array.from(cameraMap.values())
+    .filter(e => survives('camera', e.filename, e.selectedAt ?? e.capturedAt))
+    .sort((x, y) => x.sequence - y.sequence)
 
   // ── cleaned: union by filename ───────────────────────────────────────────
   const cleanedMap = new Map<string, CleanedEntry>()
@@ -175,6 +214,7 @@ export function mergeManifests(a: PhotoManifest, b: PhotoManifest): PhotoManifes
     }
   }
   const cleaned = Array.from(cleanedMap.values())
+    .filter(e => survives('cleaned', e.filename, e.addedAt))
 
   // ── ready: most-recent-processed wins ────────────────────────────────────
   let ready: ReadyEntry | null = newer.ready
@@ -183,6 +223,9 @@ export function mergeManifests(a: PhotoManifest, b: PhotoManifest): PhotoManifes
       ? a.ready : b.ready
   } else if (!ready) {
     ready = older.ready
+  }
+  if (ready && !survives('ready', ready.pngFilename, ready.processedAt)) {
+    ready = null
   }
 
   // ── excelInsertedAt: most-recent wins ────────────────────────────────────
@@ -207,5 +250,6 @@ export function mergeManifests(a: PhotoManifest, b: PhotoManifest): PhotoManifes
     ready,
     excelInsertedAt,
     excelInsertedBy,
+    deleted: Array.from(tombMap.values()),
   }
 }
