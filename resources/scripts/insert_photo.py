@@ -40,6 +40,35 @@ def row_px(ws, row_idx: int) -> float:
     return (h if h else 15) * 1.3333
 
 
+def is_locked_by_excel(excel_path: str) -> bool:
+    """Excel writes a hidden ~$name.xlsx owner file while the workbook is open."""
+    lock = os.path.join(os.path.dirname(excel_path), "~$" + os.path.basename(excel_path))
+    return os.path.exists(lock)
+
+
+def anchor_intersects_area(img, area_x0, area_y0, area_x1, area_y1, ws) -> bool:
+    """True when an existing image overlaps the G8:M35 photo area.
+    Logos and other images elsewhere on the sheet must survive."""
+    try:
+        anchor = img.anchor
+        # AbsoluteAnchor: pos/ext in EMU (1 px = 9525 EMU)
+        if hasattr(anchor, 'pos') and anchor.pos is not None:
+            x = anchor.pos.x / 9525.0
+            y = anchor.pos.y / 9525.0
+            w = anchor.ext.cx / 9525.0 if anchor.ext else 0
+            h = anchor.ext.cy / 9525.0 if anchor.ext else 0
+            return x < area_x1 and (x + w) > area_x0 and y < area_y1 and (y + h) > area_y0
+        # OneCell/TwoCell anchor: check the from-cell (0-based col/row)
+        frm = getattr(anchor, '_from', None) or getattr(anchor, 'from_', None)
+        if frm is not None:
+            # G..M = cols 6..12, rows 8..35 = 7..34 (0-based)
+            return 6 <= frm.col <= 12 and 7 <= frm.row <= 34
+    except Exception:
+        pass
+    # Unknown anchor type — assume it's ours (photo area) to avoid duplicates
+    return True
+
+
 def insert_photo(excel_path: str, image_path: str) -> None:
     if not os.path.isfile(excel_path):
         print(f"ERROR: Excel file not found: {excel_path}", file=sys.stderr)
@@ -47,6 +76,10 @@ def insert_photo(excel_path: str, image_path: str) -> None:
 
     if not os.path.isfile(image_path):
         print(f"ERROR: Image file not found: {image_path}", file=sys.stderr)
+        sys.exit(1)
+
+    if is_locked_by_excel(excel_path):
+        print("ERROR: Excel file is open in Excel — close it and try again.", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -113,12 +146,30 @@ def insert_photo(excel_path: str, image_path: str) -> None:
             ext=XDRPositiveSize2D(pixels_to_EMU(new_w), pixels_to_EMU(new_h))
         )
 
-        # Remove all existing images from the sheet before inserting
-        # (prevents duplicates on re-insert; G8:M35 is the only image area)
-        ws._images = []
+        # Remove ONLY images that overlap the photo area (re-insert dedup).
+        # Wiping ws._images entirely would also delete logos on the sheet.
+        area_x1 = x_offset + area_w
+        area_y1 = y_offset + area_h
+        ws._images = [
+            im for im in ws._images
+            if not anchor_intersects_area(im, x_offset, y_offset, area_x1, area_y1, ws)
+        ]
         ws.add_image(xl_img)
 
-        wb.save(excel_path)
+        # ── Atomic save: write a sibling temp file, then replace ─────────────
+        # Saving directly over the original means a crash/kill mid-save leaves
+        # a truncated, permanently corrupt workbook. os.replace is atomic on
+        # the same filesystem, so the original is never in a half-written state.
+        tmp_xlsx = excel_path + f".tmp-{os.getpid()}.xlsx"
+        try:
+            wb.save(tmp_xlsx)
+            os.replace(tmp_xlsx, excel_path)
+        finally:
+            if os.path.exists(tmp_xlsx):
+                try:
+                    os.unlink(tmp_xlsx)
+                except OSError:
+                    pass
         print("OK")
 
     except Exception as e:
