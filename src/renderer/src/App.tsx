@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { onSnapshot, doc } from 'firebase/firestore'
 import { auth, db } from './lib/firebase'
@@ -12,18 +12,30 @@ import EmergencyPage from './pages/EmergencyPage'
 import DashboardPage from './pages/DashboardPage'
 import BoardPage from './pages/BoardPage'
 import TaskFullPage from './pages/TaskFullPage'
-import CalendarPage from './pages/CalendarPage'
-import AnalyticsPage from './pages/AnalyticsPage'
-import SettingsPage from './pages/SettingsPage'
-import MyTasksPage from './pages/MyTasksPage'
-import MySpacePage from './pages/MySpacePage'
 import GlobalSearch from './components/search/GlobalSearch'
-import RecipeHomePage from './components/recipes/RecipeHomePage'
-import RecipeProjectPage from './components/recipes/RecipeProjectPage'
-import NewRecipeProjectWizard from './components/recipes/wizard/NewRecipeProjectWizard'
-import CapturePage from './pages/CapturePage'
 import { useKeyboardShortcuts, useGlobalSearchState } from './hooks/useKeyboardShortcuts'
 import WelcomeWizard from './components/ui/WelcomeWizard'
+
+// Heavy routes load on demand — FullCalendar, Recharts, the recipe module and
+// the capture page (camera, sharp previews) stay out of the initial bundle so
+// login → dashboard paints faster.
+const CalendarPage = lazy(() => import('./pages/CalendarPage'))
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const MyTasksPage = lazy(() => import('./pages/MyTasksPage'))
+const MySpacePage = lazy(() => import('./pages/MySpacePage'))
+const RecipeHomePage = lazy(() => import('./components/recipes/RecipeHomePage'))
+const RecipeProjectPage = lazy(() => import('./components/recipes/RecipeProjectPage'))
+const NewRecipeProjectWizard = lazy(() => import('./components/recipes/wizard/NewRecipeProjectWizard'))
+const CapturePage = lazy(() => import('./pages/CapturePage'))
+
+function RouteFallback() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-green-500 border-t-transparent" />
+    </div>
+  )
+}
 
 function BoardRoute() {
   const { boardId } = useParams<{ boardId: string }>()
@@ -176,6 +188,7 @@ export default function App() {
       </div>
     )}
 
+    <Suspense fallback={<RouteFallback />}>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/awaiting-approval" element={<AwaitingApprovalPage />} />
@@ -211,6 +224,7 @@ export default function App() {
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
+    </Suspense>
     </>
   )
 }
