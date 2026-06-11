@@ -22,7 +22,7 @@ node_modules/
 dist/
 dist-electron/
 out/
-build/
+# build/ is electron-builder buildResources (installer.nsh, entitlements) — must be tracked
 release/
 
 # ─────────────────────────────────────────
