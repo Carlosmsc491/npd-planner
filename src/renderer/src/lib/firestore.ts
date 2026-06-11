@@ -879,6 +879,28 @@ export function subscribeToComments(
   )
 }
 
+/**
+ * One-shot comment fetch for search indexing. Replaces the listener pyramid
+ * (one tasks listener + one comments listener per 30 tasks, re-created on
+ * every search open) with plain reads the caller can cache.
+ */
+export async function getCommentsForTasks(taskIds: string[]): Promise<Comment[]> {
+  try {
+    const all: Comment[] = []
+    for (let i = 0; i < taskIds.length; i += 30) {
+      const batch = taskIds.slice(i, i + 30)
+      const snap = await getDocs(
+        query(collection(db, COLLECTIONS.COMMENTS), where('taskId', 'in', batch))
+      )
+      for (const d of snap.docs) all.push({ id: d.id, ...d.data() } as Comment)
+    }
+    return all
+  } catch (err) {
+    console.error('getCommentsForTasks failed:', err)
+    return []
+  }
+}
+
 export function subscribeToCommentsForBoards(
   boardIds: string[],
   callback: (comments: Comment[]) => void

@@ -3,7 +3,8 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import Fuse from 'fuse.js'
-import { subscribeToAllTasks, subscribeToCommentsForBoards } from '../lib/firestore'
+import { getCommentsForTasks } from '../lib/firestore'
+import { listenToBoardTasks } from '../lib/taskSubscriptions'
 import { useBoardStore } from '../store/boardStore'
 import { useSettingsStore } from '../store/settingsStore'
 import { formatDate } from '../utils/dateUtils'
@@ -11,6 +12,11 @@ import type { Task, Comment, SearchResult } from '../types'
 
 const LS_KEY = 'npd:recent_searches'
 const MAX_RECENT = 5
+const COMMENTS_CACHE_TTL_MS = 60_000
+
+// Module-level comment cache: opening the search repeatedly within the TTL
+// reuses the previous fetch instead of re-reading every comment from Firestore
+let commentsCache: { data: Comment[]; fetchedAt: number } = { data: [], fetchedAt: 0 }
 
 // Fuse.js configuration keys for tasks
 const TASK_FUSE_KEYS = [
@@ -101,38 +107,46 @@ export function useSearch(): UseSearchReturn {
     setRecentSearches(loadRecentFromStorage())
   }, [])
 
-  // Subscribe to all tasks across boards
+  // Tasks come from the SHARED long-lived board listeners (taskSubscriptions):
+  // zero additional Firestore reads, cached data replays synchronously, and no
+  // listener churn on every Ctrl+K (re-created identical queries stalled for
+  // minutes on slow watch streams — same bug as board navigation).
   useEffect(() => {
     if (boards.length === 0) {
       setIsLoading(false)
       return
     }
-
     setIsLoading(true)
-    const unsubscribe = subscribeToAllTasks(
-      boards.map((b) => b.id),
-      (loadedTasks) => {
-        setTasks(loadedTasks)
+    const byBoard = new Map<string, Task[]>()
+    const detachers = boards.map((b) =>
+      listenToBoardTasks(b.id, (boardTasks) => {
+        byBoard.set(b.id, boardTasks)
+        setTasks(Array.from(byBoard.values()).flat())
         setIsLoading(false)
-      }
+      })
     )
-
-    return unsubscribe
+    return () => detachers.forEach((d) => d())
   }, [boards])
 
-  // Subscribe to all comments
+  // Comments: ONE plain fetch per search session (cached 60s module-wide).
+  // The old per-open listener pyramid (tasks listener + one comments listener
+  // per 30 tasks) burned quota on every open.
+  const commentsFetchedRef = useRef(false)
   useEffect(() => {
-    if (boards.length === 0) return
+    if (commentsFetchedRef.current || tasks.length === 0) return
+    commentsFetchedRef.current = true
 
-    const unsubscribe = subscribeToCommentsForBoards(
-      boards.map((b) => b.id),
-      (loadedComments) => {
-        setComments(loadedComments)
-      }
-    )
-
-    return unsubscribe
-  }, [boards])
+    if (Date.now() - commentsCache.fetchedAt < COMMENTS_CACHE_TTL_MS) {
+      setComments(commentsCache.data)
+      return
+    }
+    let cancelled = false
+    getCommentsForTasks(tasks.map((t) => t.id)).then((loaded) => {
+      commentsCache = { data: loaded, fetchedAt: Date.now() }
+      if (!cancelled) setComments(loaded)
+    })
+    return () => { cancelled = true }
+  }, [tasks])
 
   // Create Fuse indexes
   const taskFuse = useMemo(
