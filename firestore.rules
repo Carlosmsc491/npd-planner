@@ -23,9 +23,12 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    // Domain enforcement happens at REGISTRATION (users create rule) plus the
+    // admin approval flow. Requiring @eliteflower.com here too locked out
+    // pre-existing accounts on other domains (e.g. the original owner account)
+    // from every read in the app the moment these rules were deployed.
     function isActiveUser() {
       return isAuthenticated() &&
-             isEliteFlowerEmail() &&
              getUserData().status == 'active';
     }
 
