@@ -1230,6 +1230,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                 key={task.id + '-description'}
                 content={task.description ?? ''}
                 onBlur={saveDescription}
+                onUpdate={saveDescription}
               />
             </div>
 
