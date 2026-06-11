@@ -4,7 +4,10 @@
 import { useState, useEffect } from 'react'
 import { Timestamp } from 'firebase/firestore'
 import { useAuthStore } from '../store/authStore'
-import { updateUserPreferences, updateTaskAttachments, updateAttachmentStatus, updateTaskField } from '../lib/firestore'
+import {
+  updateUserPreferences, updateAttachmentStatus, updateTaskField,
+  addTaskAttachment, updateAttachmentFields, removeTaskAttachment,
+} from '../lib/firestore'
 import type { Task, TaskAttachment, AttachmentStatus, FileUploadJob } from '../types'
 
 const LS_KEY = 'npd_sharepoint_path'
@@ -126,7 +129,8 @@ export function useSharePoint() {
   async function attachFile(
     task: Task,
     clientName: string,
-    divisionName?: string
+    divisionName?: string,
+    droppedSourcePath?: string
   ): Promise<{ success: boolean; attachment?: TaskAttachment; error?: string }> {
     if (!isElectron) return { success: false, error: 'File attachments require the desktop app.' }
     if (!sharePointPath) {
@@ -137,7 +141,8 @@ export function useSharePoint() {
     }
     if (!user) return { success: false, error: 'Not authenticated.' }
 
-    const sourcePath = await window.electronAPI.selectFile()
+    // Drag-and-drop provides the path directly; the button opens a picker
+    const sourcePath = droppedSourcePath ?? await window.electronAPI.selectFile()
     if (!sourcePath) return { success: false } // user cancelled
 
     // Extract filename
@@ -160,7 +165,9 @@ export function useSharePoint() {
       ? [year, safeClient, safeDivision, taskFolder, fileName].join('/')
       : [year, safeClient, taskFolder, fileName].join('/')
 
-    const attachment: TaskAttachment = {
+    // Re-attaching the same file must refresh it, not create a duplicate row
+    const existing = task.attachments.find((a) => a.sharePointRelativePath === relativePath)
+    const attachment: TaskAttachment = existing ?? {
       id: crypto.randomUUID(),
       name: fileName,
       sharePointRelativePath: relativePath,
@@ -172,9 +179,8 @@ export function useSharePoint() {
       mimeType: getMimeType(fileName),
     }
 
-    // Optimistically write 'uploading' status
-    const optimistic = [...task.attachments, attachment]
-    await updateTaskAttachments(task.id, optimistic)
+    // Atomic append (arrayUnion) — concurrent attaches can't erase each other
+    if (!existing) await addTaskAttachment(task.id, attachment)
 
     try {
       const result = await window.electronAPI.copyFile(sourcePath, destPath, true, preResolvedFolder)
@@ -184,29 +190,25 @@ export function useSharePoint() {
         const actualRelativePath = safeDivision
           ? [year, safeClient, safeDivision, actualFolder, fileName].join('/')
           : [year, safeClient, actualFolder, fileName].join('/')
-        const synced: TaskAttachment = { ...attachment, sharePointRelativePath: actualRelativePath, status: 'synced' }
-        await updateTaskAttachments(task.id, optimistic.map((a) => (a.id === attachment.id ? synced : a)))
+        await updateAttachmentFields(task.id, attachment.id, { sharePointRelativePath: actualRelativePath, status: 'synced' })
         // Persist resolved folder name on the task so all subsequent uploads use it
         if (!task.sharePointFolderName && result.resolvedFolderName) {
           updateTaskField(task.id, 'sharePointFolderName', result.resolvedFolderName, user.uid, user.name).catch(() => {/* non-blocking */})
         }
-        return { success: true, attachment: synced }
+        return { success: true, attachment: { ...attachment, sharePointRelativePath: actualRelativePath, status: 'synced' } }
       } else {
-        const errAtt: TaskAttachment = { ...attachment, status: 'error' }
-        await updateTaskAttachments(task.id, optimistic.map((a) => (a.id === attachment.id ? errAtt : a)))
+        await updateAttachmentFields(task.id, attachment.id, { status: 'error' })
         retryQueue.push({ taskId: task.id, attachmentId: attachment.id, sourcePath, destPath, fileName, retryCount: 0, status: 'error' })
-        return { success: false, attachment: errAtt, error: result.error ?? 'Copy failed. Retrying in the background.' }
+        return { success: false, attachment: { ...attachment, status: 'error' }, error: result.error ?? 'Copy failed. Retrying in the background.' }
       }
     } catch (err) {
-      const errAtt: TaskAttachment = { ...attachment, status: 'error' }
-      await updateTaskAttachments(task.id, optimistic.map((a) => (a.id === attachment.id ? errAtt : a)))
-      return { success: false, attachment: errAtt, error: String(err) }
+      await updateAttachmentFields(task.id, attachment.id, { status: 'error' })
+      return { success: false, attachment: { ...attachment, status: 'error' }, error: String(err) }
     }
   }
 
   async function removeAttachment(task: Task, attachmentId: string): Promise<void> {
-    const updated = task.attachments.filter((a) => a.id !== attachmentId)
-    await updateTaskAttachments(task.id, updated)
+    await removeTaskAttachment(task.id, attachmentId)
     // Remove from retry queue
     const idx = retryQueue.findIndex((j) => j.attachmentId === attachmentId)
     if (idx !== -1) retryQueue.splice(idx, 1)

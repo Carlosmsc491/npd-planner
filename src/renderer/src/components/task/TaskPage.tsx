@@ -430,10 +430,14 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
 
   const clientName = clients.find((c) => c.id === task.clientId)?.name ?? 'Unknown Client'
 
+  // Re-entry guard — a double-fired drop event must not attach twice
+  const pageDropBusy = useRef(false)
+
   const handlePageDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
     setPageDragOver(false)
     if (!isElectron || !sharePointPath || !user) return
+    if (pageDropBusy.current) return
     const files = Array.from(e.dataTransfer.files)
 
     if (files.length === 0) {
@@ -447,6 +451,8 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
       return
     }
 
+    pageDropBusy.current = true
+    try {
     for (const file of files) {
       const f = file as File & { path: string }
       const lower = f.name.toLowerCase()
@@ -489,12 +495,17 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
           uploadedAt: Timestamp.now(),
           date: raw.date ? new Timestamp(raw.date.seconds, raw.date.nanoseconds) : null,
         }
-        await addEmailAttachment(task.id, task.emailAttachments ?? [], emailAtt)
-        setPageEmailFeedback(`Email "${emailAtt.subject}" attached.`)
+        const added = await addEmailAttachment(task.id, task.emailAttachments ?? [], emailAtt)
+        setPageEmailFeedback(added
+          ? `Email "${emailAtt.subject}" attached.`
+          : `Email "${emailAtt.subject}" is already attached.`)
         setTimeout(() => setPageEmailFeedback(null), 4000)
       } catch (err) {
         setPageEmailFeedback(String(err))
       }
+    }
+    } finally {
+      pageDropBusy.current = false
     }
   }, [isElectron, sharePointPath, user, clientName, task])
 

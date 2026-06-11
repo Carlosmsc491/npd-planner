@@ -1365,6 +1365,59 @@ export async function updateTaskAttachments(
   }
 }
 
+// Atomic append — two users (or a double-fired drop) attaching at the same
+// time both land instead of the slower write erasing the faster one.
+export async function addTaskAttachment(
+  taskId: string,
+  attachment: import('../types').TaskAttachment
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.TASKS, taskId), {
+      attachments: arrayUnion(attachment),
+      updatedAt: serverTimestamp(),
+    })
+  } catch (err) {
+    throw new Error(`Failed to add attachment: ${err}`)
+  }
+}
+
+// Patch one attachment by id against a fresh read — never overwrites the whole
+// array from a stale snapshot.
+export async function updateAttachmentFields(
+  taskId: string,
+  attachmentId: string,
+  fields: Partial<import('../types').TaskAttachment>
+): Promise<void> {
+  try {
+    const taskRef = doc(db, COLLECTIONS.TASKS, taskId)
+    const snap = await getDoc(taskRef)
+    if (!snap.exists()) return
+    const task = snap.data() as Task
+    const updated = (task.attachments ?? []).map((a) =>
+      a.id === attachmentId ? { ...a, ...fields } : a
+    )
+    await updateDoc(taskRef, { attachments: updated, updatedAt: serverTimestamp() })
+  } catch (err) {
+    console.error('updateAttachmentFields failed:', err)
+  }
+}
+
+export async function removeTaskAttachment(
+  taskId: string,
+  attachmentId: string
+): Promise<void> {
+  try {
+    const taskRef = doc(db, COLLECTIONS.TASKS, taskId)
+    const snap = await getDoc(taskRef)
+    if (!snap.exists()) return
+    const task = snap.data() as Task
+    const updated = (task.attachments ?? []).filter((a) => a.id !== attachmentId)
+    await updateDoc(taskRef, { attachments: updated, updatedAt: serverTimestamp() })
+  } catch (err) {
+    console.error('removeTaskAttachment failed:', err)
+  }
+}
+
 export async function updateAttachmentStatus(
   taskId: string,
   attachmentId: string,

@@ -454,6 +454,9 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
   } = useSharePoint()
 
   const [attaching, setAttaching] = useState(false)
+  // Re-entry guard (ref, not state — must block synchronously): a double-fired
+  // drop or double click was uploading the same file 2-3 times.
+  const busyRef = useRef(false)
   const [feedback, setFeedback] = useState<{ type: 'error' | 'info'; message: string } | null>(null)
   const [preview, setPreview] = useState<{ name: string; base64: string; mimeType: string; type: 'image' | 'pdf'; absPath?: string } | null>(null)
   const [filePreview, setFilePreview] = useState<{ name: string; absPath: string } | null>(null)
@@ -467,12 +470,18 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
     : undefined
 
   async function handleAttach() {
+    if (busyRef.current) return
+    busyRef.current = true
     setAttaching(true)
     setFeedback(null)
-    const result = await attachFile(task, clientName, divisionName)
-    setAttaching(false)
-    if (!result.success && result.error) {
-      setFeedback({ type: 'error', message: result.error })
+    try {
+      const result = await attachFile(task, clientName, divisionName)
+      if (!result.success && result.error) {
+        setFeedback({ type: 'error', message: result.error })
+      }
+    } finally {
+      busyRef.current = false
+      setAttaching(false)
     }
   }
 
@@ -533,9 +542,9 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
     }
   }
 
-  async function handleEmailAttach(filePath: string) {
+  // Core email attach — no guard; callers wrap it (so multi-file drops work)
+  async function doEmailAttach(filePath: string) {
     if (!isElectron || !sharePointPath || !user) return
-    setAttaching(true)
     setFeedback(null)
     try {
       const common = {
@@ -564,11 +573,23 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
         uploadedAt: Timestamp.now(),
         date: raw.date ? new Timestamp(raw.date.seconds, raw.date.nanoseconds) : null,
       }
-      await addEmailAttachment(task.id, task.emailAttachments ?? [], emailAtt)
-      setFeedback({ type: 'info', message: `Email "${emailAtt.subject}" attached with ${emailAtt.innerAttachments.length} file(s).` })
+      const added = await addEmailAttachment(task.id, task.emailAttachments ?? [], emailAtt)
+      setFeedback(added
+        ? { type: 'info', message: `Email "${emailAtt.subject}" attached with ${emailAtt.innerAttachments.length} file(s).` }
+        : { type: 'info', message: `Email "${emailAtt.subject}" is already attached.` })
     } catch (err) {
       setFeedback({ type: 'error', message: String(err) })
+    }
+  }
+
+  async function handleEmailAttach(filePath: string) {
+    if (busyRef.current) return
+    busyRef.current = true
+    setAttaching(true)
+    try {
+      await doEmailAttach(filePath)
     } finally {
+      busyRef.current = false
       setAttaching(false)
     }
   }
@@ -577,16 +598,29 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
     e.preventDefault()
     e.stopPropagation()
     setDragOver(false)
+    if (busyRef.current) return
     const files = Array.from(e.dataTransfer.files)
     if (files.length === 0) return
-    for (const file of files) {
-      const ext = file.name.split('.').pop()?.toLowerCase()
-      const f = file as File & { path: string }
-      if ((ext === 'msg' || ext === 'eml') && f.path) {
-        await handleEmailAttach(f.path)
-      } else if (ext !== 'msg' && ext !== 'eml') {
-        await attachFile(task, clientName, divisionName)
+    busyRef.current = true
+    setAttaching(true)
+    try {
+      for (const file of files) {
+        const ext = file.name.split('.').pop()?.toLowerCase()
+        const f = file as File & { path: string }
+        if (!f.path) continue
+        if (ext === 'msg' || ext === 'eml') {
+          await doEmailAttach(f.path)
+        } else {
+          // Attach the dropped file directly — no file picker dialog
+          const result = await attachFile(task, clientName, divisionName, f.path)
+          if (!result.success && result.error) {
+            setFeedback({ type: 'error', message: result.error })
+          }
+        }
       }
+    } finally {
+      busyRef.current = false
+      setAttaching(false)
     }
   }, [sharePointPath, user, task, clientName, divisionName])
 
