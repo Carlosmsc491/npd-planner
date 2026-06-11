@@ -29,7 +29,7 @@ function manifestsDir(projectRoot: string): string {
   return np(path.join(projectRoot, '_project', 'photos'))
 }
 
-function manifestPath(projectRoot: string, recipeUid: string): string {
+export function manifestPath(projectRoot: string, recipeUid: string): string {
   return np(path.join(manifestsDir(projectRoot), `${recipeUid}.json`))
 }
 
@@ -88,7 +88,7 @@ async function readManifestFile(filePath: string): Promise<PhotoManifest | null>
  * Atomic write: write to a sibling tmp file, then rename.
  * Rename on the same filesystem is atomic on Mac and Windows.
  */
-async function atomicWriteJson(filePath: string, content: unknown): Promise<void> {
+export async function atomicWriteJson(filePath: string, content: unknown): Promise<void> {
   const dir = path.dirname(filePath)
   await fsp.mkdir(dir, { recursive: true })
   const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`
@@ -102,7 +102,7 @@ async function atomicWriteJson(filePath: string, content: unknown): Promise<void
  * merged result, and delete the conflict copies. Returns the merged manifest
  * (or null if no manifest exists at all).
  */
-async function readAndHealManifest(
+export async function readAndHealManifest(
   projectRoot: string,
   recipeUid: string,
 ): Promise<PhotoManifest | null> {

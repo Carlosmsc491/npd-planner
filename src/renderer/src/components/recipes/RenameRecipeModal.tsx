@@ -66,6 +66,9 @@ export default function RenameRecipeModal({ file, project, effectiveRootPath, ss
         projectRoot:    effectiveRootPath,
         ssdBase,
         projectName:    project.name,
+        // Manifest-era recipes: the handler also renames the files listed in
+        // the photo manifest and rewrites the manifest JSON itself
+        recipeUid:      file.recipeUid || undefined,
       })
 
       if (!result.success) {

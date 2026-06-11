@@ -868,6 +868,8 @@ export interface RenameWithPhotosInput {
   projectRoot: string
   ssdBase: string | null
   projectName: string
+  /** Stable recipe uid — when present, the photo manifest is rewritten too */
+  recipeUid?: string
 }
 
 export interface RenameWithPhotosResult {

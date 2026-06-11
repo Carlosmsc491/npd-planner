@@ -10,6 +10,7 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import { randomUUID } from 'crypto'
 import ExcelJS from 'exceljs'
+import { readAndHealManifest, atomicWriteJson, manifestPath } from './photoManifestHandlers'
 
 const execAsync = promisify(exec)
 
@@ -63,6 +64,8 @@ interface RenameWithPhotosInput {
   projectRoot: string
   ssdBase: string | null
   projectName: string
+  /** Stable recipe uid — when present, the photo manifest is rewritten too */
+  recipeUid?: string
 }
 
 interface RenameWithPhotosResult {
@@ -545,6 +548,11 @@ export function registerRecipeHandlers(): void {
         if (isFileLockedByExcel(np(oldPath))) {
           throw new Error('File is currently open in Excel. Close it before renaming.')
         }
+        // On macOS renameSync silently REPLACES an existing destination —
+        // without this guard, renaming onto an existing recipe destroys it.
+        if (fs.existsSync(np(newPath))) {
+          throw new Error(`A file named "${path.basename(newPath)}" already exists.`)
+        }
         fs.renameSync(np(oldPath), np(newPath))
         return { success: true }
       } catch (err) {
@@ -669,6 +677,10 @@ export function registerRecipeHandlers(): void {
         // Excel lock check for .xlsx files
         if (oldPath.endsWith('.xlsx') && isFileLockedByExcel(np(oldPath))) {
           return { success: false, error: 'Close the file in Excel before renaming' }
+        }
+        // macOS renameSync silently replaces an existing destination
+        if (fs.existsSync(np(newPath))) {
+          return { success: false, error: `"${path.basename(newPath)}" already exists` }
         }
         fs.renameSync(np(oldPath), np(newPath))
         return { success: true }
@@ -1045,7 +1057,68 @@ export function registerRecipeHandlers(): void {
         }
       }
 
-      // 9. Write backup index entry — caller handles full index; we just confirm success
+      // 9. Rewrite the photo MANIFEST — for manifest-era recipes this is the
+      //    source of truth. Without this step every camera/cleaned/ready
+      //    filename in _project/photos/{uid}.json kept pointing at the OLD
+      //    names after a rename (broken thumbnails, READY lost). It also
+      //    renames files the legacy capturedPhotos[] loop doesn't know about
+      //    (SELECTED mirrors, CLEANED PNGs, manifest-only captures).
+      const { recipeUid, projectRoot } = input
+      if (recipeUid && projectRoot) {
+        try {
+          const root = np(projectRoot)
+          const manifest = await readAndHealManifest(root, recipeUid)
+          if (manifest) {
+            const oldBaseName = path.basename(np(excelPath), '.xlsx')
+            const sub = manifest.subfolderName ?? ''
+
+            const renameIn = (folderRel: string, filename: string): string => {
+              if (!filename.toLowerCase().startsWith(oldBaseName.toLowerCase())) return filename
+              const newFilename = newDisplayName + filename.slice(oldBaseName.length)
+              const oldAbs = path.join(root, folderRel, sub, filename)
+              const newAbs = path.join(root, folderRel, sub, newFilename)
+              try {
+                if (fs.existsSync(oldAbs) && !fs.existsSync(newAbs)) {
+                  fs.mkdirSync(path.dirname(newAbs), { recursive: true })
+                  safeRenameFile(oldAbs, newAbs)
+                }
+              } catch (err) {
+                errors.push(`Manifest photo rename failed for "${filename}": ${String(err)}`)
+              }
+              return newFilename
+            }
+
+            manifest.camera = manifest.camera.map(e => {
+              const nf = renameIn(path.join('PICTURES', '1. CAMERA'), e.filename)
+              // SELECTED mirror uses the same filename — rename it too
+              renameIn(path.join('PICTURES', '2. SELECTED'), e.filename)
+              return { ...e, filename: nf }
+            })
+            manifest.cleaned = manifest.cleaned.map(e => ({
+              ...e,
+              filename: renameIn(path.join('PICTURES', '3. CLEANED'), e.filename),
+            }))
+            if (manifest.ready) {
+              manifest.ready = {
+                ...manifest.ready,
+                pngFilename: renameIn(path.join('PICTURES', '4. READY', 'PNG'), manifest.ready.pngFilename),
+                jpgFilename: renameIn(path.join('PICTURES', '4. READY', 'JPG'), manifest.ready.jpgFilename),
+              }
+            }
+            // Tombstones keep their OLD filenames on purpose: stale conflict
+            // copies from other machines still reference pre-rename names and
+            // the tombstones must keep suppressing those entries.
+            manifest.recipeName = newDisplayName
+            manifest.excelRelativePath = path.relative(root, newExcelPath).replace(/\\/g, '/')
+            manifest.lastModified = new Date().toISOString()
+            await atomicWriteJson(manifestPath(root, recipeUid), manifest)
+          }
+        } catch (err) {
+          errors.push(`Photo manifest update failed: ${String(err)}`)
+        }
+      }
+
+      // 10. Write backup index entry — caller handles full index; we just confirm success
       return {
         success: true,
         newExcelPath,
