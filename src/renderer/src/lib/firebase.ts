@@ -68,6 +68,11 @@ try {
     localCache: persistentLocalCache({
       tabManager: persistentMultipleTabManager(),
     }),
+    // Electron's WebChannel streaming transport stalls on some networks: the
+    // cache served instantly but the first SERVER snapshot took ~3 minutes
+    // (measured 185s) while auto-detection failed to kick in. Forcing
+    // long-polling makes the live connection establish in seconds.
+    experimentalForceLongPolling: true,
   })
 } catch {
   // initializeFirestore throws if the instance was already created (hot reload).
