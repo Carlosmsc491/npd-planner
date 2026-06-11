@@ -699,7 +699,8 @@ function PhotoThumbnail({
   useEffect(() => {
     let cancelled = false
     const absPath = resolvePhotoPath(photo.picturePath, projectRootPath)
-    window.electronAPI.readFileAsDataUrl(absPath)
+    // 512px grid thumbnail — full-res base64 per photo OOM-crashed the renderer
+    window.electronAPI.readPhotoThumbnail(absPath, 512)
       .then(url => { if (!cancelled) setDataUrl(url) })
       .catch(() => { if (!cancelled) setDataUrl(null) })
     return () => { cancelled = true }

@@ -1417,7 +1417,9 @@ function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, sh
   useEffect(() => {
     let cancelled = false
     const absPath = resolvePhotoPath(photo.picturePath, projectRootPath)
-    window.electronAPI.readFileAsDataUrl(absPath)
+    // Grid thumbnail: 512px is enough — full-res base64 of every photo in the
+    // grid OOM-crashed the renderer (4GB heap) on large projects
+    window.electronAPI.readPhotoThumbnail(absPath, 512)
       .then(url => { if (!cancelled) setDataUrl(url) })
       .catch(() => { if (!cancelled) setDataUrl(null) })
     return () => { cancelled = true }
@@ -1529,7 +1531,7 @@ function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, on
     if (!recipe.readyJpgPath) return
     let cancelled = false
     const absJpg = resolvePhotoPath(recipe.readyJpgPath, effectiveRootPath)
-    window.electronAPI.readFileAsDataUrl(absJpg)
+    window.electronAPI.readPhotoThumbnail(absJpg, 512)
       .then(url => { if (!cancelled) setDataUrl(url) })
       .catch(() => { if (!cancelled) setDataUrl(null) })
     return () => { cancelled = true }

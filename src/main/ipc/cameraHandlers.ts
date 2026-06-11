@@ -109,6 +109,30 @@ export function registerCameraHandlers(): void {
     }
   })
 
+  // Downscaled thumbnail as a data URL. The renderer must NEVER hold
+  // full-resolution camera JPEGs as base64: a 20MB capture becomes a ~27MB
+  // string, and a gallery of them OOM-crashed the renderer at the 4GB heap
+  // limit. A 1600px JPEG is ~300KB — two orders of magnitude smaller.
+  ipcMain.handle('photo:read-thumbnail', async (
+    _event,
+    { filePath, maxDim }: { filePath: string; maxDim?: number }
+  ): Promise<string | null> => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const sharp = require('sharp')
+      const dim = Math.max(64, Math.min(maxDim ?? 512, 2048))
+      const buf = await sharp(filePath)
+        .rotate() // honor EXIF orientation
+        .resize(dim, dim, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 78 })
+        .toBuffer()
+      return `data:image/jpeg;base64,${buf.toString('base64')}`
+    } catch (err) {
+      console.warn('[photo:read-thumbnail] failed:', filePath, err)
+      return null
+    }
+  })
+
   // Convert PNG to JPG using sharp (Fase 3 — READY tab)
   ipcMain.handle('photo:convert-png-to-jpg', async (
     _event,

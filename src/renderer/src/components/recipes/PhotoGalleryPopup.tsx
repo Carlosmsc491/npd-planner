@@ -29,7 +29,9 @@ export default function PhotoGalleryPopup({ photos, initialIndex, recipeName, pr
     if (dataUrls[photo.filename] !== undefined) return
     try {
       const absPath = resolvePhotoPath(photo.picturePath, projectRootPath)
-      const url = await window.electronAPI.readFileAsDataUrl(absPath)
+      // 1600px viewer-size thumbnail — full-res base64 of every browsed photo
+      // accumulated in this cache and OOM-crashed the renderer
+      const url = await window.electronAPI.readPhotoThumbnail(absPath, 1600)
       setDataUrls(prev => ({ ...prev, [photo.filename]: url }))
     } catch {
       setDataUrls(prev => ({ ...prev, [photo.filename]: null }))

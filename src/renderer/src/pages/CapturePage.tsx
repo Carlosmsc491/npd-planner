@@ -229,11 +229,14 @@ export default function CapturePage() {
   }, [recipeId])
 
   // ── Lazy data URL loader ───────────────────────────────────────────────────
+  // 1600px is plenty for on-screen preview. Full-resolution base64 (a 20MB
+  // capture ≈ 27MB string) accumulated per viewed photo and OOM-crashed the
+  // renderer at the 4GB heap limit.
   const loadDataUrl = useCallback(async (idx: number) => {
     const photo = photosRef.current[idx]
     if (!photo || photo.dataUrl !== null) return
     try {
-      const dataUrl = await window.electronAPI.readFileAsDataUrl(photo.picturePath)
+      const dataUrl = await window.electronAPI.readPhotoThumbnail(photo.picturePath, 1600)
       setPhotos(prev =>
         prev.map((p, i) => (i === idx ? { ...p, dataUrl } : p))
       )

@@ -122,6 +122,7 @@ interface IElectronAPI {
   clearFirebaseCache: () => Promise<{ success: boolean; error?: string }>
   getDefaultTemplatePath: () => Promise<string>
   readFileAsDataUrl: (filePath: string) => Promise<string>
+  readPhotoThumbnail: (filePath: string, maxDim?: number) => Promise<string | null>
   testWriteAccess: (dirPath: string) => Promise<{ success: boolean; error?: string }>
   // File utilities
   fileExists: (filePath: string) => Promise<boolean>

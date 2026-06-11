@@ -369,6 +369,9 @@ const electronAPI = {
   readFileAsDataUrl: (filePath: string): Promise<string> =>
     ipcRenderer.invoke('app:read-file-as-dataurl', filePath),
 
+  readPhotoThumbnail: (filePath: string, maxDim?: number): Promise<string | null> =>
+    ipcRenderer.invoke('photo:read-thumbnail', { filePath, maxDim }),
+
   testWriteAccess: (dirPath: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('storage:test-write-access', dirPath),
 
