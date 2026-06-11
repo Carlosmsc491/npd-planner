@@ -42,6 +42,19 @@ export default function App() {
 
   useKeyboardShortcuts(openSearch)
 
+  // Dev-only memory watchdog — logs renderer heap every 20s so OOM growth can
+  // be correlated with what the user was doing (remove once the leak is found)
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const id = setInterval(() => {
+      const mem = (performance as unknown as { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory
+      if (mem) {
+        console.info(`[Mem] used=${(mem.usedJSHeapSize / 1048576).toFixed(0)}MB total=${(mem.totalJSHeapSize / 1048576).toFixed(0)}MB`)
+      }
+    }, 20_000)
+    return () => clearInterval(id)
+  }, [])
+
   // Listen for auto-update events from main process
   useEffect(() => {
     const offAvailable = window.electronAPI.onUpdateAvailable(() => { setUpdateAvailable(true); setUpdaterError(null) })

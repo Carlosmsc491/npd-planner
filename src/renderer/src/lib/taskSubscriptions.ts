@@ -51,3 +51,11 @@ export function releaseAllTaskListeners(): void {
   for (const entry of subscriptions.values()) entry.unsub()
   subscriptions.clear()
 }
+
+// Dev HMR: when this module is hot-replaced its Map resets, but the OLD
+// Firestore listeners would keep running forever — every edit during a dev
+// session stacked another set of live listeners (memory + quota leak).
+// Production builds strip this block.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => releaseAllTaskListeners())
+}
