@@ -8,7 +8,7 @@
  * Only shown for Planner Board tasks.
  */
 
-import { useState, useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 /** If ATA is before ETA, it's invalid (placeholder/sentinel) — treat as null */
 function sanitizeAta(eta: string | null, ata: string | null): string | null {
@@ -194,23 +194,18 @@ export function OrderStatusSection({
   // Ensure awbs is always an array
   const safeAwbs = awbs || [];
 
-  // Derive local PO entries — migrate from legacy poNumbers on first load
-  const [localPoEntries, setLocalPoEntries] = useState<PoEntry[]>(() => {
-    if (poEntries && poEntries.length > 0) return poEntries
-    // Migrate from legacy string array
+  // PO entries come straight from the task (parent keeps it optimistic + debounced).
+  // Legacy poNumbers/poNumber migrate to PoEntry[] ONCE — the generated ids must
+  // stay stable across renders, otherwise React remounts the row inputs while
+  // the user is typing and the text is lost.
+  const migratedRef = useRef<PoEntry[] | null>(null)
+  if (migratedRef.current === null && (!poEntries || poEntries.length === 0)) {
     const legacyNums = poNumbers.length > 0 ? poNumbers : (poNumber ? [poNumber] : [])
-    return legacyNums.map(n => ({ id: nanoid(), number: n, boxes: 0 }))
-  })
-
-  useEffect(() => {
-    if (poEntries && poEntries.length > 0) {
-      setLocalPoEntries(poEntries)
-    } else {
-      const legacyNums = poNumbers.length > 0 ? poNumbers : (poNumber ? [poNumber] : [])
-      setLocalPoEntries(legacyNums.map(n => ({ id: nanoid(), number: n, boxes: 0 })))
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [poEntries])
+    migratedRef.current = legacyNums.map(n => ({ id: nanoid(), number: n, boxes: 0 }))
+  }
+  const localPoEntries = (poEntries && poEntries.length > 0)
+    ? poEntries
+    : (migratedRef.current ?? [])
 
   // Smart refresh hook with 30-min cache logic
   const { isRefreshing, lastRefreshMessage, lastRefreshError, refreshAwbs, clearError } = useTrazeRefresh();
@@ -239,7 +234,8 @@ export function OrderStatusSection({
   };
 
   const syncPoEntries = (entries: PoEntry[]) => {
-    setLocalPoEntries(entries)
+    // Once the user edits, the migrated snapshot is obsolete — props take over
+    migratedRef.current = entries
     onPoEntriesChange(entries)
     // Keep legacy poNumbers in sync for backward compat
     onPoNumbersChange(entries.map(e => e.number).filter(Boolean))

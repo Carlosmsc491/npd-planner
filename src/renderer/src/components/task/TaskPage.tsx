@@ -56,9 +56,24 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   // Live task state — updated by onSnapshot so properties reflect real-time changes
   const [task, setTask] = useState<Task>(initialTask)
 
+  // ── Debounced field saves with flush-on-unmount ──────────────────────────
+  // Text fields (PO, AWB, description) buffer their writes here. Closing the
+  // modal flushes pending values instead of discarding them, and Firestore
+  // sees one write per pause instead of one per keystroke (free-tier quota).
+  const pendingSaves = useRef<Map<string, { value: unknown; old: unknown }>>(new Map())
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushRef = useRef<() => void>(() => {})
+
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'tasks', initialTask.id), (snap) => {
-      if (snap.exists()) setTask({ id: snap.id, ...snap.data() } as Task)
+      if (snap.exists()) {
+        const server = { id: snap.id, ...snap.data() } as Task
+        // Overlay locally-pending edits: a snapshot echo of an older write must
+        // not clobber what the user typed since (this was losing PO/AWB text).
+        const merged = { ...server } as unknown as Record<string, unknown>
+        for (const [field, { value }] of pendingSaves.current) merged[field] = value
+        setTask(merged as unknown as Task)
+      }
       else setSelectedTask(null)
     })
     return unsub
@@ -89,33 +104,17 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   const [editDateEnd, setEditDateEnd] = useState('')
   const [editHasEndDate, setEditHasEndDate] = useState(false)
 
-  // ── Order Status (AWB + PO) state ────────────────────────────────────────
-  const [localAwbs, setLocalAwbs] = useState<AwbEntry[]>(task.awbs ?? [])
-  const [localPoNumber, setLocalPoNumber] = useState(task.poNumber ?? '')
-  const [localPoNumbers, setLocalPoNumbers] = useState<string[]>(task.poNumbers ?? [])
-  const [localPoEntries, setLocalPoEntries] = useState<PoEntry[]>(task.poEntries ?? [])
+  // ── Order Status (AWB + PO) ──────────────────────────────────────────────
+  // No local mirror state: the optimistic `task` is the single source of truth.
+  // (The previous triple-layer state reset itself on every Firestore snapshot,
+  // wiping text the user was typing.)
   const { csvStatus, lookupAwbsInTask } = useAwbLookup()
-
-  // Sync local state when task changes (e.g., Firestore real-time update)
-  useEffect(() => { setLocalAwbs(task.awbs ?? []) }, [task.awbs])
-  useEffect(() => { setLocalPoNumber(task.poNumber ?? '') }, [task.poNumber])
-  useEffect(() => { setLocalPoNumbers(task.poNumbers ?? []) }, [task.poNumbers])
-  useEffect(() => { setLocalPoEntries(task.poEntries ?? []) }, [task.poEntries])
-
-  // Cleanup debounce timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (poSaveTimeoutRef.current) {
-        clearTimeout(poSaveTimeoutRef.current)
-      }
-    }
-  }, [])
 
   // Auto-lookup AWBs when task opens and has AWBs
   useEffect(() => {
     if (task.awbs && task.awbs.length > 0) {
       lookupAwbsInTask(task.id, task.awbs).then(updated => {
-        setLocalAwbs(updated)
+        setTask(prev => ({ ...prev, awbs: updated }))
       })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -127,9 +126,9 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     if (!csvStatus.downloadedAt) return
     if (csvStatus.downloadedAt === prevDownloadedAt.current) return
     prevDownloadedAt.current = csvStatus.downloadedAt
-    if (localAwbs.length > 0) {
-      lookupAwbsInTask(task.id, localAwbs).then(updated => {
-        setLocalAwbs(updated)
+    if ((task.awbs ?? []).length > 0) {
+      lookupAwbsInTask(task.id, task.awbs ?? []).then(updated => {
+        setTask(prev => ({ ...prev, awbs: updated }))
       })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -159,6 +158,34 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     updateTaskField(task.id, field, value, user.uid, user.name, old, board?.type).catch(
       (err) => console.error(`Failed to save ${field}:`, err)
     )
+  }
+
+  const flushPendingSaves = useCallback(() => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    if (!user || pendingSaves.current.size === 0) return
+    const entries = Array.from(pendingSaves.current.entries())
+    pendingSaves.current.clear()
+    for (const [field, { value, old }] of entries) {
+      updateTaskField(task.id, field, value, user.uid, user.name, old, board?.type).catch(
+        (err) => console.error(`Failed to save ${field}:`, err)
+      )
+    }
+  }, [user, task.id, board?.type])
+
+  useEffect(() => { flushRef.current = flushPendingSaves }, [flushPendingSaves])
+  // On unmount (modal close, navigation) FLUSH pending edits — never discard them
+  useEffect(() => () => flushRef.current(), [])
+
+  // Like save(), but coalesces rapid changes (typing) into one Firestore write.
+  function debouncedSave(field: string, value: unknown, old?: unknown) {
+    if (!user) return
+    setTask((prev) => ({ ...prev, [field]: value }))
+    // Keep the ORIGINAL old value across the burst so the activity log shows
+    // before-typing → after-typing, not the last two keystrokes
+    const existing = pendingSaves.current.get(field)
+    pendingSaves.current.set(field, { value, old: existing ? existing.old : old })
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => flushRef.current(), 800)
   }
 
   async function saveTitle() {
@@ -240,44 +267,23 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
   }
 
   function saveDescription(html: string) {
-    if (!user) return
-    setTask((prev) => ({ ...prev, description: html }))
-    updateTaskField(task.id, 'description', html, user.uid, user.name, undefined, board?.type).catch(
-      (err) => console.error('Failed to save description:', err)
-    )
+    debouncedSave('description', html, task.description)
   }
 
-  async function handleAwbsChange(updated: AwbEntry[]) {
-    setLocalAwbs(updated)
-    await save('awbs', updated, task.awbs)
+  function handleAwbsChange(updated: AwbEntry[]) {
+    debouncedSave('awbs', updated, task.awbs)
   }
 
-  // Debounce ref para evitar múltiples guardados
-  const poSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  async function handlePoNumbersChange(numbers: string[]) {
-    setLocalPoNumbers(numbers)
-    
-    // Cancelar guardado anterior si existe
-    if (poSaveTimeoutRef.current) {
-      clearTimeout(poSaveTimeoutRef.current)
+  function handlePoNumbersChange(numbers: string[]) {
+    debouncedSave('poNumbers', numbers, task.poNumbers ?? [])
+    const firstPo = numbers.find(n => n.trim() !== '') ?? ''
+    if (firstPo !== (task.poNumber ?? '')) {
+      debouncedSave('poNumber', firstPo, task.poNumber)
     }
-    
-    // Debounce: guardar después de 1 segundo de inactividad
-    poSaveTimeoutRef.current = setTimeout(() => {
-      const firstPo = numbers.find(n => n.trim() !== '') ?? ''
-      save('poNumbers', numbers, task.poNumbers ?? [])
-      if (firstPo !== task.poNumber) {
-        save('poNumber', firstPo, task.poNumber)
-        setLocalPoNumber(firstPo)
-      }
-      poSaveTimeoutRef.current = null
-    }, 1000)
   }
 
-  async function handlePoEntriesChange(entries: PoEntry[]) {
-    setLocalPoEntries(entries)
-    await save('poEntries', entries, task.poEntries ?? [])
+  function handlePoEntriesChange(entries: PoEntry[]) {
+    debouncedSave('poEntries', entries, task.poEntries ?? [])
   }
 
   // ── Event Dates handlers ─────────────────────────────────────────
@@ -1162,10 +1168,10 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                         <div key={prop.id} className="col-span-full">
                           <OrderStatusSection
                             taskId={task.id}
-                            poNumber={localPoNumber}
-                            poNumbers={localPoNumbers}
-                            poEntries={localPoEntries}
-                            awbs={localAwbs}
+                            poNumber={task.poNumber ?? ''}
+                            poNumbers={task.poNumbers ?? []}
+                            poEntries={task.poEntries ?? []}
+                            awbs={task.awbs ?? []}
                             onPoEntriesChange={handlePoEntriesChange}
                             onPoNumbersChange={handlePoNumbersChange}
                             onAwbsChange={handleAwbsChange}
@@ -1183,10 +1189,9 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                     return (
                       <PropRow key={prop.id} icon={<ChevronDown size={14} />} label={prop.name}>
                         <input
-                          key={task.id + '-poNumber'}
                           type="text"
-                          defaultValue={task.poNumber}
-                          onBlur={(e) => { if (e.target.value !== task.poNumber) save('poNumber', e.target.value, task.poNumber) }}
+                          value={task.poNumber ?? ''}
+                          onChange={(e) => debouncedSave('poNumber', e.target.value, task.poNumber)}
                           className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none focus:border-green-500"
                           placeholder="PO number"
                           onContextMenu={(e) => {
