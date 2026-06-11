@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, globalShortcut, Menu, MenuItem } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import { setupAutoUpdater } from './updater'
+import { setupAutoUpdater, deferInstallOnShutdown } from './updater'
 import { join } from 'path'
 import { registerFileHandlers } from './ipc/fileHandlers'
 import { registerNotificationHandlers } from './ipc/notificationHandlers'
@@ -161,6 +161,14 @@ function createWindow(): BrowserWindow {
     showMainWindow()
   })
 
+  // Windows: the OS session is ending (shutdown / restart / log-off — e.g. the
+  // user closed the laptop and Windows decided to update). NSIS must not start
+  // a silent install in that window of time: an interrupted install leaves the
+  // app half-deleted and the user has to reinstall.
+  if (process.platform === 'win32') {
+    win.on('session-end', () => deferInstallOnShutdown())
+  }
+
   win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     console.error('[Main] Failed to load — forcing window show:', errorCode, errorDescription)
     showMainWindow()
@@ -200,9 +208,14 @@ if (!gotLock) {
   // If a second instance tries to launch, focus the existing window instead
   app.on('second-instance', (_event, _argv, _cwd) => {
     const [existing] = BrowserWindow.getAllWindows()
-    if (existing) {
+    if (existing && !existing.isDestroyed()) {
       if (existing.isMinimized()) existing.restore()
       existing.focus()
+    } else if (app.isReady()) {
+      // The running instance is a zombie without a window (e.g. it survived a
+      // crash). Doing nothing here made the app look broken — every launch
+      // "did nothing" until users reinstalled. Give them a window instead.
+      createWindow()
     }
   })
 }
@@ -319,10 +332,21 @@ app.on('before-quit', () => {
   // Trash cleanup service will stop automatically when app exits
 })
 
+app.on('will-quit', () => {
+  // Covers quit paths that never fire window-all-closed (e.g. Cmd+Q on Mac)
+  globalShortcut.unregisterAll()
+})
+
 // Global error handlers
 process.on('uncaughtException', (error) => {
   console.error('[Main] Uncaught exception:', error)
   errorReporter.handleError('uncaughtException', error.message, error.stack)
+  // A windowless main process keeps holding the single-instance lock, so every
+  // new launch quits immediately — to the user, "the app stopped opening".
+  // If we're in that state, exit so the next launch starts clean.
+  if (app.isReady() && BrowserWindow.getAllWindows().length === 0) {
+    app.exit(1)
+  }
 })
 
 process.on('unhandledRejection', (reason) => {
