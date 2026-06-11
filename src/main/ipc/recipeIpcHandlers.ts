@@ -134,21 +134,46 @@ function resolveExcelValue(value: ExcelJS.CellValue): string {
 
 
 /**
- * Detect if a file is open in Excel on Windows by checking for the lock file
- * Excel creates a hidden file "~$filename.ext" when the file is open.
+ * Detect if a file is open in Excel by checking for the hidden "~$name.xlsx"
+ * owner file. On Windows, a stale owner file (left behind by an Excel crash)
+ * is detected by probing for the real write lock — if the workbook opens r+,
+ * Excel is NOT holding it, so the stale ~$ is cleaned up and renames unblock.
  */
 function isFileLockedByExcel(filePath: string): boolean {
   const dir = path.dirname(filePath)
   const base = path.basename(filePath)
   const lockFile = path.join(dir, `~$${base}`)
-  return fs.existsSync(lockFile)
+  if (!fs.existsSync(lockFile)) return false
+
+  if (process.platform === 'win32') {
+    try {
+      const fd = fs.openSync(filePath, 'r+')
+      fs.closeSync(fd)
+      // No exclusive lock held — the ~$ file is a crash leftover
+      try { fs.unlinkSync(lockFile) } catch { /* ignore */ }
+      return false
+    } catch {
+      return true
+    }
+  }
+  // Mac has no mandatory locks to probe — trust the owner file
+  return true
 }
 
-/** Walk a directory recursively and collect all .xlsx files, reading Z52 for stable recipeUid */
+interface UidCacheEntry { uid: string; mtimeMs: number; size: number }
+
+/**
+ * Walk a directory recursively and collect all .xlsx files, reading Z52 for the
+ * stable recipeUid. Uses a per-project uid cache (mtime+size keyed) so the scan
+ * doesn't open every workbook with ExcelJS on every load — that was slow with
+ * many recipes and, on OneDrive Files-On-Demand, forced a download of EVERY
+ * Excel in the project.
+ */
 async function walkXlsx(
   rootPath: string,
   currentPath: string,
-  results: RecipeScannedFile[]
+  results: RecipeScannedFile[],
+  uidCache: Record<string, UidCacheEntry>
 ): Promise<void> {
   const entries = fs.readdirSync(currentPath, { withFileTypes: true })
   for (const entry of entries) {
@@ -156,18 +181,29 @@ async function walkXlsx(
     if (entry.isDirectory()) {
       // Skip the _project metadata folder and PICTURES folder
       if (entry.name === '_project' || entry.name === 'PICTURES') continue
-      await walkXlsx(rootPath, fullPath, results)
+      await walkXlsx(rootPath, fullPath, results, uidCache)
     } else if (entry.isFile() && entry.name.endsWith('.xlsx') && !entry.name.startsWith('~$')) {
       const relativePath = path.relative(rootPath, fullPath).replace(/\\/g, '/')
       const parsed = parseRecipeFilename(entry.name)
       let recipeUid = ''
-      try {
-        const wb = new ExcelJS.Workbook()
-        await wb.xlsx.readFile(fullPath)
-        const ws = wb.getWorksheet('Quote') ?? wb.worksheets[0]
-        if (ws) recipeUid = getCellStringValue(ws, 'Z52').trim()
-      } catch {
-        // File locked or corrupt — recipeUid stays '' (legacy fallback kicks in)
+      let stat: fs.Stats | null = null
+      try { stat = fs.statSync(fullPath) } catch { /* keep scanning */ }
+
+      const cached = stat ? uidCache[relativePath] : undefined
+      if (cached && stat && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+        recipeUid = cached.uid
+      } else {
+        try {
+          const wb = new ExcelJS.Workbook()
+          await wb.xlsx.readFile(fullPath)
+          const ws = wb.getWorksheet('Quote') ?? wb.worksheets[0]
+          if (ws) recipeUid = getCellStringValue(ws, 'Z52').trim()
+          // Cache successful reads (including legitimately-empty Z52); a
+          // failed read is NOT cached so it retries on the next scan
+          if (stat) uidCache[relativePath] = { uid: recipeUid, mtimeMs: stat.mtimeMs, size: stat.size }
+        } catch {
+          // File locked or corrupt — recipeUid stays '' (legacy fallback kicks in)
+        }
       }
       results.push({
         relativePath,
@@ -594,11 +630,30 @@ export function registerRecipeHandlers(): void {
     'recipe:scanProject',
     async (_event, rootPath: string): Promise<RecipeScannedFile[]> => {
       try {
-        if (!fs.existsSync(np(rootPath))) {
+        const root = np(rootPath)
+        if (!fs.existsSync(root)) {
           return []
         }
+        // Load the uid cache (regenerable — corruption or absence is harmless)
+        const cachePath = path.join(root, '_project', 'uid-cache.json')
+        let uidCache: Record<string, UidCacheEntry> = {}
+        try { uidCache = JSON.parse(fs.readFileSync(cachePath, 'utf-8')) } catch { /* fresh cache */ }
+
         const results: RecipeScannedFile[] = []
-        await walkXlsx(np(rootPath), np(rootPath), results)
+        await walkXlsx(root, root, results, uidCache)
+
+        // Prune entries for files that no longer exist, then persist atomically
+        try {
+          const present = new Set(results.map(r => r.relativePath))
+          for (const key of Object.keys(uidCache)) {
+            if (!present.has(key)) delete uidCache[key]
+          }
+          fs.mkdirSync(path.dirname(cachePath), { recursive: true })
+          const tmp = `${cachePath}.tmp-${process.pid}`
+          fs.writeFileSync(tmp, JSON.stringify(uidCache, null, 2), 'utf-8')
+          fs.renameSync(tmp, cachePath)
+        } catch { /* cache persistence is best-effort */ }
+
         return results
       } catch (err) {
         console.error('recipe:scanProject error:', err)

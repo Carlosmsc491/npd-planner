@@ -270,11 +270,14 @@ export function registerCameraHandlers(): void {
     if (win) win.webContents.send('camera:tethering-error', msg)
   })
 
-  // Poll camera connection every 10 seconds, notify renderer on change
+  // Poll camera connection every 10 seconds, notify renderer on change.
+  // Skipped while tethering: spawning `gphoto2 --auto-detect` probes the USB
+  // bus and can interfere with the active gphoto2 capture session.
   let lastStatus = { connected: false, model: null as string | null }
   const pollInterval = setInterval(async () => {
     const win = getWindow()
     if (!win) { clearInterval(pollInterval); return }
+    if (cameraManager.isTethering()) return
     const status = await cameraManager.checkConnection()
     if (status.connected !== lastStatus.connected || status.model !== lastStatus.model) {
       lastStatus = status

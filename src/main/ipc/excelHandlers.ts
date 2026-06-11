@@ -33,10 +33,25 @@ function getScriptPath(): string {
   return path.join(__dirname, '../../resources/scripts/insert_photo.py')
 }
 
-/** Excel writes a hidden "~$name.xlsx" owner file while the workbook is open. */
+/**
+ * Excel writes a hidden "~$name.xlsx" owner file while the workbook is open.
+ * On Windows a stale owner file (Excel crash leftover) is detected by probing
+ * the real write lock and cleaned up so inserts aren't blocked forever.
+ */
 function isFileLockedByExcel(filePath: string): boolean {
   const lockFile = path.join(path.dirname(filePath), `~$${path.basename(filePath)}`)
-  return fs.existsSync(lockFile)
+  if (!fs.existsSync(lockFile)) return false
+  if (process.platform === 'win32') {
+    try {
+      const fd = fs.openSync(filePath, 'r+')
+      fs.closeSync(fd)
+      try { fs.unlinkSync(lockFile) } catch { /* ignore */ }
+      return false
+    } catch {
+      return true
+    }
+  }
+  return true
 }
 
 /** Whether Microsoft Excel is installed (native insert path available). */
