@@ -4,12 +4,38 @@
  * Mac only — Fase 1
  */
 
-import { ipcMain, BrowserWindow, dialog } from 'electron'
+import { ipcMain, BrowserWindow, dialog, app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import { createHash } from 'crypto'
 import { spawn } from 'child_process'
 import { cameraManager } from '../camera/CameraManager'
+
+// ── Thumbnail disk cache ──────────────────────────────────────────────────────
+// Re-encoding a 20MB JPEG with sharp on every grid render is wasteful; cache
+// the result keyed by source path + mtime + size + dimension so the second
+// visit to the Photo Manager is instant. Entries unused for 30 days are pruned
+// at startup.
+
+function thumbCacheDir(): string {
+  return path.join(app.getPath('userData'), 'thumb-cache')
+}
+
+function pruneThumbCache(): void {
+  try {
+    const dir = thumbCacheDir()
+    if (!fs.existsSync(dir)) return
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+    for (const name of fs.readdirSync(dir)) {
+      const p = path.join(dir, name)
+      try {
+        // atime is unreliable on some volumes — mtime is refreshed on cache hits
+        if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p)
+      } catch { /* skip */ }
+    }
+  } catch { /* best-effort */ }
+}
 
 /** Always resolve to the current active BrowserWindow — avoids stale references. */
 function getWindow(): BrowserWindow | null {
@@ -18,6 +44,7 @@ function getWindow(): BrowserWindow | null {
 }
 
 export function registerCameraHandlers(): void {
+  pruneThumbCache()
 
   // Renderer asks: is there a camera connected?
   ipcMain.handle('camera:check-connection', async () => {
@@ -118,14 +145,42 @@ export function registerCameraHandlers(): void {
     { filePath, maxDim }: { filePath: string; maxDim?: number }
   ): Promise<string | null> => {
     try {
+      const dim = Math.max(64, Math.min(maxDim ?? 512, 2048))
+
+      // Disk cache lookup — keyed by source identity (path+mtime+size) and size
+      let cachePath: string | null = null
+      try {
+        const stat = fs.statSync(filePath)
+        const key = createHash('sha1')
+          .update(`${filePath}|${stat.mtimeMs}|${stat.size}|${dim}`)
+          .digest('hex')
+        cachePath = path.join(thumbCacheDir(), `${key}.jpg`)
+        if (fs.existsSync(cachePath)) {
+          const cached = await fs.promises.readFile(cachePath)
+          // refresh mtime so the 30-day prune treats it as recently used
+          const now = new Date()
+          fs.utimes(cachePath, now, now, () => {})
+          return `data:image/jpeg;base64,${cached.toString('base64')}`
+        }
+      } catch { /* stat/cache failure → generate fresh */ }
+
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const sharp = require('sharp')
-      const dim = Math.max(64, Math.min(maxDim ?? 512, 2048))
       const buf = await sharp(filePath)
         .rotate() // honor EXIF orientation
         .resize(dim, dim, { fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: 78 })
         .toBuffer()
+
+      if (cachePath) {
+        try {
+          await fs.promises.mkdir(thumbCacheDir(), { recursive: true })
+          const tmp = `${cachePath}.tmp-${process.pid}`
+          await fs.promises.writeFile(tmp, buf)
+          await fs.promises.rename(tmp, cachePath)
+        } catch { /* cache write is best-effort */ }
+      }
+
       return `data:image/jpeg;base64,${buf.toString('base64')}`
     } catch (err) {
       console.warn('[photo:read-thumbnail] failed:', filePath, err)
