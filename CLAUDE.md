@@ -58,7 +58,7 @@ Run `/graphify .` to regenerate the graph after significant changes.
 
 | Layer | Technology | Notes |
 |---|---|---|
-| Desktop | Electron 28+ | Windows + Mac. Use electron-vite for dev |
+| Desktop | Electron 25 | Windows + Mac. Use electron-vite for dev |
 | Frontend | React 18 + TypeScript | Strict mode. No `any` types ever |
 | Styling | Tailwind CSS | Dark mode via `class` strategy |
 | Database | Firebase Firestore | Real-time sync. Free tier |
@@ -106,8 +106,7 @@ npd-planner/
 │   │   │   ├── photoManifestHandlers.ts ← Per-recipe JSON manifest read/write
 │   │   │   ├── emailHandlers.ts         ← .msg / .eml parsing
 │   │   │   ├── awbIpcHandlers.ts        ← AWB CSV lookup
-│   │   │   ├── crashReportHandlers.ts   ← Error reporting
-│   │   │   └── outlookServer.ts         ← Outlook Add-in HTTP bridge
+│   │   │   └── crashReportHandlers.ts   ← Error reporting
 │   │   └── services/
 │   │       ├── trazeIntegrationService.ts  ← Traze scheduler
 │   │       ├── trazePlaywrightService.ts   ← Playwright browser automation
@@ -845,6 +844,18 @@ Update these as you complete each feature. Add [x] when done.
 - [x] `useSharePoint.ts`: Firestore write and seed guarded to `win32` only (ADR-006)
 - [x] `photoUtils.ts`: `console.warn` when `getLibraryRoot` fallback triggers on Mac
 - [x] `photoManifestHandlers.ts`: `PICTURES_FOLDERS` values normalized to forward slashes
+
+### Phase 10 — v1.8.0 Stability & Security (June 2026)
+- [x] RTF parser rebuilt (`parseRtf` in emailHandlers.ts) — fonttbl/colortbl skipped, htmltag escapes processed, cp1252 decoded; fixes \par-littered emails
+- [x] Email bodySnippet sanitized (HTML + RTF stripped)
+- [x] Email "expand window" renders inside sandboxed iframe (script-execution fix)
+- [x] Updater: transient network errors silenced + 30s/2min/10min backoff; manual checks show readable message
+- [x] Mac update flow: banner offers Download → opens GitHub release (unsigned build cannot auto-install a DMG — needs `zip` target + code signing to ever auto-update)
+- [x] Task modal: debounced saves with flush-on-unmount; snapshot overlay prevents typing clobber; PO/AWB no longer write per keystroke (quota)
+- [x] Tiptap v3 `useEditorState` — placeholder + toolbar states react to typing
+- [x] Attachments: busyRef re-entry guards, arrayUnion atomic appends, dedup by path/subject+date, drop attaches dropped file directly
+- [x] Lifecycle: session-end defers NSIS install (no more half-deleted installs on laptop close); zombie windowless instance recovers with a new window
+- [x] Security: trash cleanup path validation (`isSafeTrashPath`) replaces bypassable `.includes()` check
 
 ### Phase 8 — Analytics & Build
 - [ ] Analytics dashboard (admin only): tasks/week, load by person, top clients

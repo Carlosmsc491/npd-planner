@@ -4,7 +4,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.7.5'
+const CURRENT_VERSION = '1.8.0'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Feature {
@@ -18,11 +18,39 @@ const FEATURES: Feature[] = [
   {
     icon: Mail,
     color: '#378ADD',
-    title: 'Email Viewer — No More \\par Tokens',
+    title: 'Emails Render Clean — RTF Parser Rebuilt',
     description:
-      'Emails without embedded HTML (plain RTF body) now display as clean readable text. ' +
-      'The viewer strips RTF control words (\\par, \\pard, font tables) before rendering, ' +
-      'so every email shows its real content regardless of format.',
+      'Outlook emails stored as RTF now convert to proper HTML: no more \\par tokens, ' +
+      'no font lists ("Arial; Courier New;...") at the top, and smart quotes/apostrophes ' +
+      'display correctly. Email card previews are clean text too.',
+  },
+  {
+    icon: FileText,
+    color: '#1D9E75',
+    title: 'Task Fields Never Lose Your Text',
+    description:
+      'PO, AWB and Description now save reliably — closing the task right after typing ' +
+      'flushes your changes instead of discarding them, and live updates from teammates ' +
+      'no longer wipe what you are typing. Placeholders disappear as soon as you write.',
+  },
+  {
+    icon: FolderOpen,
+    color: '#F59E0B',
+    title: 'No More Duplicate Attachments',
+    description:
+      'Files and emails attach exactly once: drops are guarded against double-firing, ' +
+      're-attaching the same email is detected, and dropping a file now attaches that ' +
+      'file directly instead of opening a file picker.',
+  },
+  {
+    icon: Wrench,
+    color: '#8B5CF6',
+    title: 'Quieter, Smarter Updates',
+    description:
+      'Temporary network hiccups no longer show a red "Update check failed" banner — ' +
+      'the app retries on its own. On Mac, the update banner now offers a Download ' +
+      'button that takes you to the new version. Windows installs are deferred during ' +
+      'system shutdown so an interrupted update can never break the app.',
   },
   {
     icon: Mail,
