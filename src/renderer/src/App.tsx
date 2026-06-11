@@ -54,6 +54,21 @@ export default function App() {
 
   useKeyboardShortcuts(openSearch)
 
+  // Weekly Firestore backup → SharePoint/_backups (admins only, 60s after
+  // login so it never competes with startup). OneDrive versions the file.
+  useEffect(() => {
+    if (!user || (user.role !== 'admin' && user.role !== 'owner')) return
+    const t = setTimeout(() => {
+      const spPath = localStorage.getItem('npd_sharepoint_path')
+      if (spPath) {
+        import('./lib/firestoreBackup').then(({ runWeeklyFirestoreBackup }) =>
+          runWeeklyFirestoreBackup(spPath)
+        )
+      }
+    }, 60_000)
+    return () => clearTimeout(t)
+  }, [user])
+
   // Dev-only memory watchdog — logs renderer heap every 20s so OOM growth can
   // be correlated with what the user was doing (remove once the leak is found)
   useEffect(() => {
