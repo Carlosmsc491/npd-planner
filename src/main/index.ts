@@ -6,6 +6,7 @@ import { join } from 'path'
 import { registerFileHandlers } from './ipc/fileHandlers'
 import { registerNotificationHandlers } from './ipc/notificationHandlers'
 import { startTrazeIntegration, stopTrazeIntegration } from './services/trazeIntegrationService'
+import { killActiveTrazeBrowser } from './services/trazePlaywrightService'
 import { registerAwbIpcHandlers } from './ipc/awbIpcHandlers'
 import { errorReporter } from './services/errorReporter'
 import { startTrashCleanupService, registerTrashCleanupHandlers } from './services/trashCleanupService'
@@ -332,6 +333,9 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   stopTrazeIntegration()
+  // Kill any in-flight Traze Chromium — it runs from INSIDE the install dir
+  // and an orphan blocks the NSIS updater ("NPD Planner cannot be closed")
+  killActiveTrazeBrowser()
   // Trash cleanup service will stop automatically when app exits
 })
 

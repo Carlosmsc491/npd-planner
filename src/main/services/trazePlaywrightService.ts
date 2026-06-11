@@ -15,12 +15,20 @@
  */
 
 import { chromium } from 'playwright';
+import type { Browser } from 'playwright';
 import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
 import * as os from 'os';
 import { readPreferences } from './trazePreferencesService';
 import { readCredentials as readEncryptedCredentials } from './trazeCredentialsService';
+
+// The bundled Chromium lives INSIDE the install directory. If the app quits
+// mid-download (e.g. the auto-updater installs on quit), an orphaned
+// chromium.exe keeps files locked and the NSIS installer shows
+// "NPD Planner cannot be closed — Retry". Track the live browser so quit can
+// kill it hard (see killActiveTrazeBrowser).
+let activeBrowser: Browser | null = null;
 
 function getCsvOutputDir(): string { return path.join(app.getPath('userData'), 'traze-exports'); }
 function getCredentialsFile(): string { return path.join(app.getPath('userData'), 'traze-credentials.json'); }
@@ -119,6 +127,7 @@ export async function downloadTrazeCSV(): Promise<string> {
     headless: !preferences.viewBrowser,
     executablePath,
   });
+  activeBrowser = browser;
   const context = await browser.newContext({ acceptDownloads: true });
   const page    = await context.newPage();
 
@@ -275,6 +284,17 @@ export async function downloadTrazeCSV(): Promise<string> {
     return savePath;
 
   } finally {
+    activeBrowser = null;
     await browser.close();
   }
+}
+
+export function killActiveTrazeBrowser(): void {
+  const b = activeBrowser;
+  activeBrowser = null;
+  if (!b) return;
+  try {
+    // Synchronous hard kill — before-quit can't await; the process must die NOW
+    b.process()?.kill('SIGKILL');
+  } catch { /* already dead */ }
 }
