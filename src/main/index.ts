@@ -294,11 +294,14 @@ app.whenReady().then(() => {
 
   const mainWindow = createWindow()
 
-  // Iniciar integración Traze después de que carga el app (5s para Firebase auth)
+  // Iniciar integración Traze 60s después de cargar. A los 5s lanzaba el
+  // Chromium de Playwright justo cuando el splash termina y el usuario abre el
+  // board — la descarga del CSV competía con la carga inicial de tasks (CPU y
+  // disco), especialmente en Mac donde el primer spawn de Chromium es pesado.
   mainWindow.webContents.on('did-finish-load', () => {
     setTimeout(() => {
       startTrazeIntegration(mainWindow)
-    }, 5000)
+    }, 60_000)
   })
 
   // Auto-updater — check for new GitHub Releases on startup (skipped in dev)
