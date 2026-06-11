@@ -242,7 +242,12 @@ function buildAndSaveEmailAttachment(
   fileExt: string,
 ) {
   const { from, subject, body, date, attachments } = parsed
-  const bodySnippet = body.replace(/<[^>]*>/g, '').trim().slice(0, 200)
+  // Snippet must be plain readable text: strip HTML tags AND RTF control words
+  // (raw .msg bodies are sometimes RTF), then collapse whitespace.
+  const bodySnippet = stripRtfControlWords(body.replace(/<[^>]*>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200)
 
   const safeClient  = sanitizeName(clientName)
   const safeTask    = sanitizeName(taskTitle)

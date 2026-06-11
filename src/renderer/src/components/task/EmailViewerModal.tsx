@@ -332,8 +332,17 @@ export default function EmailViewerModal({ msgAbsPath, subject, onClose }: Props
       ${combinedHtml}
     </body></html>`
 
+    // Render email HTML inside a sandboxed iframe (no allow-scripts): a crafted
+    // email with <script> must never execute in the app's window context.
+    const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+    const escapeText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const shell = `<!DOCTYPE html><html><head><meta charset="utf-8">
+      <title>${escapeText(content.subject)}</title>
+      <style>html,body{margin:0;height:100%}iframe{border:none;width:100%;height:100%}</style>
+      </head><body><iframe sandbox="allow-same-origin" srcdoc="${escapeAttr(html)}"></iframe></body></html>`
+
     const win = window.open('', '_blank', 'width=820,height=700,scrollbars=yes')
-    win?.document.write(html)
+    win?.document.write(shell)
     win?.document.close()
   }
 
