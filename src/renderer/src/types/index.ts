@@ -155,6 +155,14 @@ export interface Subtask {
   createdAt: Timestamp
 }
 
+/** Follow-up item — unlike subtasks, open follow-ups BLOCK completing the task */
+export interface FollowUp {
+  id: string
+  title: string
+  completed: boolean
+  createdAt: Timestamp
+}
+
 export interface TaskAttachment {
   id: string
   name: string
@@ -234,6 +242,7 @@ export interface Task {
   poEntries: PoEntry[]  // structured PO entries with boxes count (supersedes poNumbers when present)
   awbs: AwbEntry[]
   subtasks: Subtask[]
+  followUps?: FollowUp[]  // pending items that BLOCK task completion until all are checked
   sharePointFolderName: string | null  // resolved unique folder name (e.g. "Task A (1)") — stored after first upload
   attachments: TaskAttachment[]
   emailAttachments: EmailAttachment[]

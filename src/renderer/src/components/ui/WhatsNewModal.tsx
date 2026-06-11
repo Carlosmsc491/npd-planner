@@ -16,6 +16,15 @@ interface Feature {
 
 const FEATURES: Feature[] = [
   {
+    icon: Sparkles,
+    color: '#D97706',
+    title: 'Follow-ups — Nothing Slips Through',
+    description:
+      'Tasks now have a Follow-ups section next to Subtasks. Unlike subtasks, ' +
+      'open follow-ups BLOCK completing the task: the checkbox refuses with a ' +
+      'clear message until every follow-up is checked off.',
+  },
+  {
     icon: Mail,
     color: '#378ADD',
     title: 'Emails Render Clean — RTF Parser Rebuilt',

@@ -49,6 +49,18 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
       } else {
 
         // ── COMPLETE ──
+        // Open follow-ups BLOCK completion — that is their entire purpose
+        const openFollowUps = (task.followUps ?? []).filter((f) => !f.completed)
+        if (openFollowUps.length > 0) {
+          setToast({
+            id: `followups-${task.id}`,
+            message: `Can't complete "${task.title}" — ${openFollowUps.length} follow-up${openFollowUps.length !== 1 ? 's' : ''} still open. Check them off first.`,
+            type: 'warning',
+            duration: 6000,
+          })
+          return
+        }
+
         const snapshot = { ...task }
         await completeTask(task.id, user.uid, user.name, boardType)
 

@@ -22,6 +22,7 @@ import { timestampToDateInput, dateStringToTimestamp, toLocalDateString } from '
 import { useDateTypeStore } from '../../store/dateTypeStore'
 import type { TaskDate } from '../../types'
 import SubtaskList from './SubtaskList'
+import FollowUpList from './FollowUpList'
 import AttachmentPanel from './AttachmentPanel'
 import TaskReportModal from './TaskReportModal'
 import RichTextEditor from './RichTextEditor'
@@ -1249,6 +1250,12 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
             <div>
               <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Subtasks</h4>
               <SubtaskList task={task} readOnly={readOnly} />
+            </div>
+
+            {/* Follow-ups — open items block completing the task */}
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Follow-ups</h4>
+              <FollowUpList task={task} readOnly={readOnly} />
             </div>
 
             {/* Files */}
