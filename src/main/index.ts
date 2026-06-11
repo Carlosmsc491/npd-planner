@@ -6,7 +6,7 @@ import { join } from 'path'
 import { registerFileHandlers } from './ipc/fileHandlers'
 import { registerNotificationHandlers } from './ipc/notificationHandlers'
 import { startTrazeIntegration, stopTrazeIntegration } from './services/trazeIntegrationService'
-import { killActiveTrazeBrowser } from './services/trazePlaywrightService'
+import { hasActiveTrazeBrowser, closeActiveTrazeBrowser } from './services/trazePlaywrightService'
 import { registerAwbIpcHandlers } from './ipc/awbIpcHandlers'
 import { errorReporter } from './services/errorReporter'
 import { startTrashCleanupService, registerTrashCleanupHandlers } from './services/trashCleanupService'
@@ -331,11 +331,19 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
+let trazeBrowserClosed = false
+app.on('before-quit', (event) => {
   stopTrazeIntegration()
   // Kill any in-flight Traze Chromium — it runs from INSIDE the install dir
-  // and an orphan blocks the NSIS updater ("NPD Planner cannot be closed")
-  killActiveTrazeBrowser()
+  // and an orphan blocks the NSIS updater ("NPD Planner cannot be closed").
+  // Quit is deferred (max 3s) until the browser dies, then resumed.
+  if (!trazeBrowserClosed && hasActiveTrazeBrowser()) {
+    event.preventDefault()
+    trazeBrowserClosed = true
+    closeActiveTrazeBrowser().finally(() => app.quit())
+    return
+  }
+  trazeBrowserClosed = true
   // Trash cleanup service will stop automatically when app exits
 })
 

@@ -289,12 +289,19 @@ export async function downloadTrazeCSV(): Promise<string> {
   }
 }
 
-export function killActiveTrazeBrowser(): void {
+export function hasActiveTrazeBrowser(): boolean {
+  return activeBrowser !== null;
+}
+
+/** Close (kill) the in-flight Traze browser. 3s cap — quit must not hang. */
+export async function closeActiveTrazeBrowser(): Promise<void> {
   const b = activeBrowser;
   activeBrowser = null;
   if (!b) return;
   try {
-    // Synchronous hard kill — before-quit can't await; the process must die NOW
-    b.process()?.kill('SIGKILL');
+    await Promise.race([
+      b.close(),
+      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+    ]);
   } catch { /* already dead */ }
 }
