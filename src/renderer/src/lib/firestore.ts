@@ -204,9 +204,17 @@ export async function notifyAdminsOfPendingUser(newUser: AppUser): Promise<void>
 // ─────────────────────────────────────────
 
 export function subscribeToBoards(callback: (boards: Board[]) => void): Unsubscribe {
+  const t0 = Date.now()
+  let logged = false
   return onSnapshot(
     query(collection(db, COLLECTIONS.BOARDS), orderBy('order')),
-    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Board)),
+    (snap) => {
+      if (!logged) {
+        logged = true
+        console.info(`[Perf] boards snapshot +${Date.now() - t0}ms · ${snap.docs.length} docs · fromCache=${snap.metadata.fromCache}`)
+      }
+      callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Board))
+    },
     (err) => console.error('subscribeToBoards error:', err)
   )
 }
@@ -346,12 +354,23 @@ export function subscribeToTasks(
   boardId: string,
   callback: (tasks: Task[]) => void
 ): Unsubscribe {
+  // [Perf] startup diagnostics — how long until tasks arrive, and from where
+  const t0 = Date.now()
+  let loggedCache = false
+  let loggedServer = false
   return onSnapshot(
     query(
       collection(db, COLLECTIONS.TASKS),
       where('boardId', '==', boardId)
     ),
     (snap) => {
+      if (!loggedCache || (!loggedServer && !snap.metadata.fromCache)) {
+        console.info(
+          `[Perf] tasks(${boardId}) snapshot +${Date.now() - t0}ms · ${snap.docs.length} docs · fromCache=${snap.metadata.fromCache}`
+        )
+        loggedCache = true
+        if (!snap.metadata.fromCache) loggedServer = true
+      }
       const tasks = snap.docs
         .map(d => {
           const data = d.data()

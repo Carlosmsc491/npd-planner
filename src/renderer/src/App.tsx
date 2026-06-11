@@ -60,12 +60,19 @@ export default function App() {
 
   useEffect(() => {
     let unsubscribeUser: (() => void) | null = null
+    const t0 = Date.now()
+    let userDocLogged = false
 
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      console.info(`[Perf] auth state +${Date.now() - t0}ms · user=${firebaseUser ? 'yes' : 'no'}`)
       if (unsubscribeUser) { unsubscribeUser(); unsubscribeUser = null }
 
       if (firebaseUser) {
         unsubscribeUser = onSnapshot(doc(db, 'users', firebaseUser.uid), (snap) => {
+          if (!userDocLogged) {
+            userDocLogged = true
+            console.info(`[Perf] user doc +${Date.now() - t0}ms · exists=${snap.exists()} · fromCache=${snap.metadata.fromCache}`)
+          }
           if (snap.exists()) {
             setUser(snap.data() as import('./types').AppUser)
           }
