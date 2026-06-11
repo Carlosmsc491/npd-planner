@@ -534,29 +534,56 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
 
   function matchRecipe(baseName: string): RecipeFile | null {
     const lower = baseName.toLowerCase().trim()
+    const cleanName = (recipe: RecipeFile) =>
+      (recipe.recipeName || recipe.displayName || '').replace(/\s*done\s*by\s*.*/i, '').trim().toLowerCase()
+
+    // 1) Exact name match — always safe
     for (const recipe of recipes) {
-      const rName = (recipe.recipeName || recipe.displayName || '')
-        .replace(/\s*done\s*by\s*.*/i, '').trim().toLowerCase()
-      if (rName === lower || rName.startsWith(lower) || lower.startsWith(rName)) return recipe
+      if (cleanName(recipe) === lower) return recipe
     }
+    // 2) Exact match against a captured photo's base name
     for (const recipe of recipes) {
       for (const photo of recipe.capturedPhotos ?? []) {
         const photoBase = photo.filename.replace(/\s*-\s*\d+\.[^.]+$/, '').toLowerCase().trim()
-        if (photoBase === lower || photoBase.startsWith(lower) || lower.startsWith(photoBase)) return recipe
+        if (photoBase === lower) return recipe
       }
     }
-    return null
+    // 3) Prefix match — ONLY when exactly one recipe qualifies and the prefix
+    //    ends at a word boundary. The old bidirectional startsWith could send
+    //    "ROSE.png" to "ROSE DELUXE" (or vice versa) — wrong photo into the
+    //    wrong recipe's Excel. Ambiguity falls through to the manual dialog.
+    const boundary = (longer: string, shorter: string) => {
+      const next = longer.charAt(shorter.length)
+      return next === '' || next === ' ' || next === '-' || next === '_' || next === '.'
+    }
+    const candidates = recipes.filter(recipe => {
+      const rName = cleanName(recipe)
+      if (!rName) return false
+      if (rName.startsWith(lower) && boundary(rName, lower)) return true
+      if (lower.startsWith(rName) && boundary(lower, rName)) return true
+      return false
+    })
+    return candidates.length === 1 ? candidates[0] : null
   }
 
   async function moveOldReady(recipe: RecipeFile): Promise<void> {
-    if (!recipe.readyJpgPath) return
-    try {
-      const projectRoot = effectiveRootPath.replace(/\\/g, '/')
-      const absJpg      = resolvePhotoPath(recipe.readyJpgPath, projectRoot)
-      const baseName    = absJpg.split('/').pop() ?? 'old.jpg'
-      const oldDest     = `${projectRoot}/PICTURES/old/${recipe.id.replace(/::/g, '-')}-${baseName}`
-      await window.electronAPI.copyToSelected({ sourcePath: absJpg, destPath: oldDest })
-    } catch { /* non-critical */ }
+    if (!recipe.readyJpgPath && !recipe.readyPngPath) return
+    // Archive a copy of the old files in PICTURES/old/, then DELETE them from
+    // 4. READY — leftovers there got picked up by exports (ZIP / Save As) and
+    // by the disk reconciliation scan as if they were current.
+    const projectRoot = effectiveRootPath.replace(/\\/g, '/')
+    const archiveOne = async (storedPath: string | null | undefined) => {
+      if (!storedPath) return
+      try {
+        const abs      = resolvePhotoPath(storedPath, projectRoot)
+        const baseName = abs.split('/').pop() ?? 'old'
+        const oldDest  = `${projectRoot}/PICTURES/old/${recipe.id.replace(/::/g, '-')}-${baseName}`
+        await window.electronAPI.copyToSelected({ sourcePath: abs, destPath: oldDest })
+        await window.electronAPI.deleteFromSelected({ filePath: abs })
+      } catch { /* non-critical */ }
+    }
+    await archiveOne(recipe.readyJpgPath)
+    await archiveOne(recipe.readyPngPath)
   }
 
   async function processPng(file: File, recipe: RecipeFile): Promise<void> {
@@ -630,28 +657,48 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
 
   // ── READY tab drop handlers ───────────────────────────────────────────────────
 
+  // Files that need a dialog (manual assign / notes warning) wait here so a
+  // multi-file drop processes EVERYTHING. The old code `break`-ed out of the
+  // loop on the first dialog and silently dropped the remaining files.
+  const deferredFilesRef = useRef<File[]>([])
+
+  function openNextDeferredDialog() {
+    const file = deferredFilesRef.current.shift()
+    if (!file) return
+    const matched = matchRecipe(file.name.replace(/\.png$/i, ''))
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (matched && (matched.activeNotesCount ?? 0) > 0) {
+        setWarningDialog({ file, recipe: matched, dataUrl: reader.result as string })
+      } else {
+        setManualAssign({ file, dataUrl: reader.result as string })
+        setManualRecipeSearch('')
+        setManualSelectedRecipe(null)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
   async function handleFiles(files: File[]) {
     const pngs = files.filter(f => f.name.toLowerCase().endsWith('.png'))
     if (pngs.length === 0) return
     setProcessErrors([])
     setProcessing(pngs.map(f => f.name))
-    for (const file of pngs) {
-      const matched = matchRecipe(file.name.replace(/\.png$/i, ''))
-      if (!matched) {
-        const reader = new FileReader()
-        reader.onload = () => { setManualAssign({ file, dataUrl: reader.result as string }); setManualRecipeSearch(''); setManualSelectedRecipe(null) }
-        reader.readAsDataURL(file)
-        break
+    const needDialog: File[] = []
+    try {
+      for (const file of pngs) {
+        const matched = matchRecipe(file.name.replace(/\.png$/i, ''))
+        if (!matched || (matched.activeNotesCount ?? 0) > 0) {
+          needDialog.push(file)
+          continue
+        }
+        await processPng(file, matched)
       }
-      if ((matched.activeNotesCount ?? 0) > 0) {
-        const reader = new FileReader()
-        reader.onload = () => setWarningDialog({ file, recipe: matched, dataUrl: reader.result as string })
-        reader.readAsDataURL(file)
-        break
-      }
-      await processPng(file, matched)
+    } finally {
+      setProcessing([])
     }
-    setProcessing([])
+    deferredFilesRef.current.push(...needDialog)
+    openNextDeferredDialog()
   }
 
   async function handleWarningConfirm(resolveNotes: boolean) {
@@ -660,6 +707,7 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
     setWarningDialog(null)
     setWarningProcessing(true)
     try { await finalizeReadyPhoto(file, recipe, resolveNotes) } finally { setWarningProcessing(false) }
+    openNextDeferredDialog()
   }
 
   // ── CLEANED tab drop handlers ─────────────────────────────────────────────────
@@ -1037,7 +1085,7 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
                 ))}
               </div>
               <div className="flex gap-2 pt-2">
-                <button onClick={() => setManualAssign(null)}
+                <button onClick={() => { setManualAssign(null); openNextDeferredDialog() }}
                   className="flex-1 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700">
                   Skip
                 </button>
@@ -1054,6 +1102,7 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
                       setProcessing([file.name])
                       await processPng(file, manualSelectedRecipe)
                       setProcessing([])
+                      openNextDeferredDialog()
                     }
                   }}
                   className="flex-1 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold disabled:opacity-40 hover:bg-green-700">
@@ -1137,7 +1186,7 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
           recipe={warningDialog.recipe}
           dataUrl={warningDialog.dataUrl}
           onConfirm={handleWarningConfirm}
-          onCancel={() => setWarningDialog(null)}
+          onCancel={() => { setWarningDialog(null); openNextDeferredDialog() }}
         />
       )}
 
