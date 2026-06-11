@@ -880,6 +880,34 @@ export function subscribeToComments(
 }
 
 /**
+ * Prune the current user's READ notifications older than 30 days.
+ * The collection grew unbounded (rules previously forbade deletes entirely).
+ * Runs once per session, capped at 300 docs per run — leftovers go next time.
+ */
+export async function cleanupOldNotifications(userId: string): Promise<void> {
+  try {
+    const cutoff = Timestamp.fromMillis(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const snap = await getDocs(query(
+      collection(db, COLLECTIONS.NOTIFICATIONS),
+      where('userId', '==', userId),
+      where('read', '==', true),
+      limit(300)
+    ))
+    const stale = snap.docs.filter(d => {
+      const createdAt = (d.data() as AppNotification).createdAt
+      return createdAt && createdAt.toMillis() < cutoff.toMillis()
+    })
+    if (stale.length === 0) return
+    const batch = writeBatch(db)
+    for (const d of stale) batch.delete(d.ref)
+    await batch.commit()
+    console.info(`[Notifications] pruned ${stale.length} read notifications older than 30 days`)
+  } catch (err) {
+    console.warn('cleanupOldNotifications failed (non-fatal):', err)
+  }
+}
+
+/**
  * One-shot comment fetch for search indexing. Replaces the listener pyramid
  * (one tasks listener + one comments listener per 30 tasks, re-created on
  * every search open) with plain reads the caller can cache.

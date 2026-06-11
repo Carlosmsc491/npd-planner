@@ -186,8 +186,10 @@ service cloud.firestore {
                          .affectedKeys()
                          .hasOnly(['read']);
 
-      // Notifications are never deleted
-      allow delete: if false;
+      // Users may delete their own notifications (the app prunes read
+      // notifications older than 30 days — the collection grew unbounded)
+      allow delete: if isActiveUser() &&
+                       resource.data.userId == request.auth.uid;
     }
 
     // ─────────────────────────────────────────

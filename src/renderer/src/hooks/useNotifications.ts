@@ -3,11 +3,14 @@
 // Triggers Electron desktop notifications for Planner tasks, respecting DND.
 
 import { useEffect, useRef } from 'react'
-import { subscribeToNotifications } from '../lib/firestore'
+import { subscribeToNotifications, cleanupOldNotifications } from '../lib/firestore'
 import { useAuthStore } from '../store/authStore'
 import { useNotificationStore } from '../store/notificationStore'
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI
+
+// Once per app session — prunes the user's read notifications older than 30 days
+let cleanupRan = false
 
 export function useNotifications(): void {
   const { user } = useAuthStore()
@@ -15,6 +18,14 @@ export function useNotifications(): void {
 
   const notifiedIds = useRef<Set<string>>(new Set())
   const isFirstSnapshot = useRef(true)
+
+  useEffect(() => {
+    if (!user || cleanupRan) return
+    cleanupRan = true
+    // Delay past startup so it never competes with the initial board load
+    const t = setTimeout(() => { cleanupOldNotifications(user.uid) }, 30_000)
+    return () => clearTimeout(t)
+  }, [user])
 
   useEffect(() => {
     if (!user) return

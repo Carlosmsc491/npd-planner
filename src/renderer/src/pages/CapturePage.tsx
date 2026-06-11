@@ -87,6 +87,8 @@ export default function CapturePage() {
   const [photos, setPhotos]           = useState<LocalPhoto[]>([])
   const [previewIndex, setPreviewIndex] = useState(-1)    // capture mode preview
   const [processingPhoto, setProcessingPhoto] = useState(false)
+  // Failed photo copies — surfaced to the photographer instead of console-only
+  const [captureErrors, setCaptureErrors] = useState<string[]>([])
 
   // ── Selection state (gallery mode) ────────────────────────────────────────
   // Record<filename, isSelected>
@@ -406,6 +408,7 @@ export default function CapturePage() {
           // would point at a nonexistent file. The original stays in
           // camera-temp so nothing is lost.
           console.error('[Capture] CAMERA copy failed — photo NOT registered:', camResult.error)
+          setCaptureErrors(prev => [...prev.slice(-4), `${filename}: ${camResult.error} — the original is safe in the camera temp folder`])
           return
         }
 
@@ -723,6 +726,21 @@ export default function CapturePage() {
   // ── Main render ────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
+
+      {/* ── Capture error banner — a lost frame must never be silent ────────── */}
+      {captureErrors.length > 0 && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-xl rounded-xl bg-red-600 text-white shadow-2xl px-4 py-3">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 space-y-1">
+              <p className="text-xs font-semibold">Photo copy failed — NOT added to the recipe</p>
+              {captureErrors.map((err, i) => (
+                <p key={i} className="text-[11px] opacity-90 break-all">{err}</p>
+              ))}
+            </div>
+            <button onClick={() => setCaptureErrors([])} className="shrink-0 text-white/70 hover:text-white text-sm">✕</button>
+          </div>
+        </div>
+      )}
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 shrink-0">
