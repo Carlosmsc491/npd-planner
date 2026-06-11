@@ -120,10 +120,24 @@ export default function App() {
       </div>
     )}
 
-    {/* Update available — downloading in background */}
+    {/* Update available.
+        Windows: it downloads silently in the background.
+        Mac: unsigned build — nothing downloads; offer the GitHub release instead. */}
     {updateAvailable && !updateReady && (
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-blue-600 text-white px-5 py-3 rounded-xl shadow-xl text-sm font-medium">
-        <span>A new update is downloading in the background…</span>
+        {window.process?.platform === 'darwin' ? (
+          <>
+            <span>A new version is available.</span>
+            <button
+              onClick={() => window.electronAPI.send('app:restart-to-update')}
+              className="bg-white text-blue-600 px-3 py-1 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
+            >
+              Download
+            </button>
+          </>
+        ) : (
+          <span>A new update is downloading in the background…</span>
+        )}
         <button onClick={() => setUpdateAvailable(false)} className="opacity-70 hover:opacity-100">✕</button>
       </div>
     )}
