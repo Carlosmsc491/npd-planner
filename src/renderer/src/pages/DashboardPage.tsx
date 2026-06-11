@@ -4,7 +4,8 @@ import AppLayout from '../components/ui/AppLayout'
 import FlightStatusPanel from '../components/dashboard/FlightStatusPanel'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
-import { subscribeToTasks, seedDefaultBoards, deduplicateDefaultBoards, getOldTasksToArchive } from '../lib/firestore'
+import { seedDefaultBoards, deduplicateDefaultBoards, getOldTasksToArchive } from '../lib/firestore'
+import { listenToBoardTasks } from '../lib/taskSubscriptions'
 import { getBoardColor } from '../utils/colorUtils'
 import { isOverdue } from '../utils/dateUtils'
 import type { Task } from '../types'
@@ -53,12 +54,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (boards.length === 0) return
-    const unsubs = boards.map((board) =>
-      subscribeToTasks(board.id, (boardTasks) => {
+    // Shared listeners (taskSubscriptions) — same streams BoardPage uses, so
+    // navigating Dashboard ⇄ boards never tears down and re-creates queries.
+    const detachers = boards.map((board) =>
+      listenToBoardTasks(board.id, (boardTasks) => {
         setAllTasks((prev) => [...prev.filter((t) => t.boardId !== board.id), ...boardTasks])
       })
     )
-    return () => unsubs.forEach((u) => u())
+    return () => detachers.forEach((d) => d())
   }, [boards])
 
   const plannerBoardIds = boards.filter((b) => b.type === 'planner').map((b) => b.id)

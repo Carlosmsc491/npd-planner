@@ -1,12 +1,12 @@
 import { useEffect, useCallback, useRef } from 'react'
 import {
-  subscribeToTasks,
   completeTask,
   duplicateTask,
   updateTaskField,
   createTask,
   moveTaskToTrash,
 } from '../lib/firestore'
+import { listenToBoardTasks } from '../lib/taskSubscriptions'
 import { useTaskStore } from '../store/taskStore'
 import { useAuthStore } from '../store/authStore'
 import { useBoardStore } from '../store/boardStore'
@@ -24,8 +24,13 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
 
   useEffect(() => {
     if (!boardId) { setTasks([]); return }
-    const unsub = subscribeToTasks(boardId, setTasks)
-    return unsub
+    // Shared long-lived listener: replays cached data synchronously, so board
+    // navigation paints instantly instead of waiting on a fresh watch stream.
+    const detach = listenToBoardTasks(boardId, (t) => {
+      console.info(`[Perf] useTasks: store ← ${t.length} tasks (board ${boardId})`)
+      setTasks(t)
+    })
+    return detach
   }, [boardId, setTasks])
 
   const completingRef = useRef(new Set<string>())

@@ -8,7 +8,9 @@ export function useBoard() {
 
   useEffect(() => {
     if (boardId && boards.length > 0) {
-      setActiveBoard(boards.find((b) => b.id === boardId) ?? null)
+      const found = boards.find((b) => b.id === boardId) ?? null
+      console.info(`[Perf] activeBoard route=${boardId} → ${found ? `${found.id}=${found.name}` : 'NOT FOUND in boards list'}`)
+      setActiveBoard(found)
     } else if (!boardId) {
       setActiveBoard(null)
     }

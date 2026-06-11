@@ -211,7 +211,8 @@ export function subscribeToBoards(callback: (boards: Board[]) => void): Unsubscr
     (snap) => {
       if (!logged) {
         logged = true
-        console.info(`[Perf] boards snapshot +${Date.now() - t0}ms · ${snap.docs.length} docs · fromCache=${snap.metadata.fromCache}`)
+        const names = snap.docs.map(d => `${d.id}=${(d.data() as Board).name}`).join(' · ')
+        console.info(`[Perf] boards snapshot +${Date.now() - t0}ms · ${snap.docs.length} docs · fromCache=${snap.metadata.fromCache} · ${names}`)
       }
       callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Board))
     },
@@ -365,8 +366,9 @@ export function subscribeToTasks(
     ),
     (snap) => {
       if (!loggedCache || (!loggedServer && !snap.metadata.fromCache)) {
+        const completedCount = snap.docs.filter(d => d.data()['completed'] === true).length
         console.info(
-          `[Perf] tasks(${boardId}) snapshot +${Date.now() - t0}ms · ${snap.docs.length} docs · fromCache=${snap.metadata.fromCache}`
+          `[Perf] tasks(${boardId}) snapshot +${Date.now() - t0}ms · ${snap.docs.length} docs (${completedCount} completed) · fromCache=${snap.metadata.fromCache}`
         )
         loggedCache = true
         if (!snap.metadata.fromCache) loggedServer = true

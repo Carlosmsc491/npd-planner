@@ -37,6 +37,10 @@ export function useAuth() {
 
   const signOut = useCallback(async () => {
     try {
+      // Long-lived task listeners must die before auth does — security rules
+      // reject unauthenticated reads and the listeners would error-loop.
+      const { releaseAllTaskListeners } = await import('../lib/taskSubscriptions')
+      releaseAllTaskListeners()
       await firebaseSignOut(auth)
       setUser(null)
       navigate('/login')
