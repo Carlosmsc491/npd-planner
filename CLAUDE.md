@@ -680,7 +680,7 @@ Update these as you complete each feature. Add [x] when done.
 - [x] Login page with @eliteflower.com validation
 - [x] New user → status: awaiting → sees approval pending screen
 - [x] Suspended user → sees access revoked screen
-- [ ] Firebase Auth Rules deployed
+- [x] Firebase Auth Rules deployed (June 2026 — `firebase deploy --only firestore:rules`, covers all collections incl. recipeProjects subtree + deny-all catch)
 - [x] Members panel (Settings) — list, approve, reject, change role, suspend
 - [x] Role-based access control (owner / admin / member) with full hierarchy
 - [x] areaPermissions per user (none / view / edit per board and module)
