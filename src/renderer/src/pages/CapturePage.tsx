@@ -350,10 +350,13 @@ export default function CapturePage() {
   }, [startTethering, userDataPath])
 
   // ── Photo received handler ─────────────────────────────────────────────────
+  // Burst-safe: events are QUEUED, never dropped. The old guard skipped any
+  // photo that arrived while the previous 15-25MB copy was in flight, silently
+  // losing frames from burst shooting.
+  const photoQueueRef = useRef<Array<{ tempPath: string; filename: string }>>([])
+
   useEffect(() => {
-    const unlisten = window.electronAPI.onCameraPhotoReceived(async (data) => {
-      console.log('[CapturePage] photo-received:', data.filename)
-      if (processingRef.current) { console.warn('[CapturePage] already processing, skip'); return }
+    async function processOnePhoto(data: { tempPath: string; filename: string }): Promise<void> {
       const currentRecipe  = recipeRef.current
       const currentProject = projectRef.current
       if (!currentRecipe || !currentProject || !recipeId) {
@@ -361,14 +364,13 @@ export default function CapturePage() {
         return
       }
 
-      processingRef.current = true
-      setProcessingPhoto(true)
-
       try {
         const relParts      = currentRecipe.relativePath.replace(/\\/g, '/').split('/')
         const subfolderName = relParts.length > 1 ? relParts[0] : ''
         const baseName      = currentRecipe.recipeName || currentRecipe.displayName
-        const nextSeq       = photosRef.current.length + 1
+        // max(sequence)+1, NOT length+1: after deleting photo 2 of 3, length+1
+        // would produce "- 3" again and overwrite the existing photo 3.
+        const nextSeq       = photosRef.current.reduce((mx, p) => Math.max(mx, p.sequence), 0) + 1
         const filename      = `${baseName} - ${nextSeq}.jpg`
 
         const projectRoot = effectiveRootRef.current.replace(/\\/g, '/')
@@ -396,7 +398,13 @@ export default function CapturePage() {
           window.electronAPI.cameraCopyFile(data.tempPath, cameraAbsPath),
           copyTimeout,
         ])
-        if (!camResult.success) console.error('[Capture] CAMERA copy failed:', camResult.error)
+        if (!camResult.success) {
+          // Do NOT register a photo whose file never landed — the manifest
+          // would point at a nonexistent file. The original stays in
+          // camera-temp so nothing is lost.
+          console.error('[Capture] CAMERA copy failed — photo NOT registered:', camResult.error)
+          return
+        }
 
         if (ssdPath) {
           window.electronAPI.cameraCopyFile(data.tempPath, ssdPath)
@@ -460,6 +468,22 @@ export default function CapturePage() {
         })
       } catch (err) {
         console.error('[Capture] Photo processing error:', err)
+      }
+    }
+
+    const unlisten = window.electronAPI.onCameraPhotoReceived(async (data) => {
+      console.log('[CapturePage] photo-received:', data.filename)
+      photoQueueRef.current.push(data)
+      if (processingRef.current) return  // drain loop below is already running
+
+      processingRef.current = true
+      setProcessingPhoto(true)
+      try {
+        // Drain the queue sequentially — burst shots all get processed in order
+        while (photoQueueRef.current.length > 0) {
+          const next = photoQueueRef.current.shift()
+          if (next) await processOnePhoto(next)
+        }
       } finally {
         processingRef.current = false
         setProcessingPhoto(false)

@@ -39,17 +39,26 @@ export function registerCameraHandlers(): void {
     await cameraManager.stopTethering()
   })
 
-  // Direct file copy for camera photos — no SharePoint path validation
+  // Direct file copy for camera photos — no SharePoint path validation.
+  // Atomic (tmp + rename, so a crash can't leave a truncated JPG) and
+  // exclusive (refuses to overwrite an existing photo — sequence collisions
+  // must surface as errors, not silent data loss).
   ipcMain.handle('camera:copy-file', async (
     _event,
     sourcePath: string,
     destPath: string
   ): Promise<{ success: boolean; error?: string }> => {
+    const tmpPath = `${destPath}.tmp-${process.pid}`
     try {
+      if (fs.existsSync(destPath)) {
+        return { success: false, error: `EEXIST: a photo named "${path.basename(destPath)}" already exists` }
+      }
       await fs.promises.mkdir(path.dirname(destPath), { recursive: true })
-      await fs.promises.copyFile(sourcePath, destPath)
+      await fs.promises.copyFile(sourcePath, tmpPath)
+      await fs.promises.rename(tmpPath, destPath)
       return { success: true }
     } catch (err) {
+      try { await fs.promises.unlink(tmpPath) } catch { /* ignore */ }
       return { success: false, error: String(err) }
     }
   })
