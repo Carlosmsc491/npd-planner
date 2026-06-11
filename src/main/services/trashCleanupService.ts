@@ -3,10 +3,29 @@
 
 import { ipcMain } from 'electron'
 import * as fs from 'fs'
+import * as path from 'path'
 
 interface TrashItem {
   id: string
   sharePointFolderPath: string
+}
+
+/**
+ * A path is only deletable when, after resolution, 'REPORTS (NPD-SECURE)' is a
+ * real path COMPONENT (not a substring a crafted folder name could fake) and
+ * the target is strictly INSIDE that tree — never the secured root itself.
+ * Raw '..' segments are rejected outright; a substring .includes() check alone
+ * was bypassable with paths like C:\anywhere\REPORTS (NPD-SECURE)\..\..\x.
+ */
+function isSafeTrashPath(folderPath: string): boolean {
+  if (!folderPath) return false
+  const rawSegments = folderPath.split(/[\\/]+/)
+  if (rawSegments.some((s) => s === '..')) return false
+  const resolved = path.resolve(folderPath)
+  const parts = resolved.split(path.sep)
+  const idx = parts.indexOf('REPORTS (NPD-SECURE)')
+  if (idx === -1) return false
+  return parts.length > idx + 1
 }
 
 let cleanupInterval: NodeJS.Timeout | null = null
@@ -92,9 +111,8 @@ async function getTrashItemsDueForDeletion(): Promise<TrashItem[]> {
 async function deleteTrashItem(item: TrashItem): Promise<void> {
   try {
     const folderPath = item.sharePointFolderPath
-    
-    // Safety check: ensure path contains the verification folder
-    if (!folderPath.includes('REPORTS (NPD-SECURE)')) {
+
+    if (!isSafeTrashPath(folderPath)) {
       console.error(`[TrashCleanup] Invalid path rejected: ${folderPath}`)
       await markItemFailed(item.id, 'Invalid path')
       return
@@ -155,8 +173,7 @@ export function triggerManualCleanup(): void {
  */
 export async function deleteFolderImmediately(folderPath: string): Promise<{ success: boolean; error?: string }> {
   try {
-    // Safety check
-    if (!folderPath.includes('REPORTS (NPD-SECURE)')) {
+    if (!isSafeTrashPath(folderPath)) {
       return { success: false, error: 'Invalid path' }
     }
     
