@@ -86,12 +86,17 @@ class ErrorReporter {
       },
     })
 
-    // Load the error reporter HTML
+    // Load the error reporter HTML — the standalone file isn't part of the
+    // build, so go straight to the inline version when it's missing instead of
+    // spamming ERR_FILE_NOT_FOUND in the logs.
     const htmlPath = join(appPath, 'out/renderer/error-reporter.html')
-    this.errorWindow.loadFile(htmlPath).catch(() => {
-      // Fallback: create HTML inline
-      this.errorWindow?.loadURL(`data:text/html,${encodeURIComponent(this.getErrorHTML())}`)
-    })
+    if (existsSync(htmlPath)) {
+      this.errorWindow.loadFile(htmlPath).catch(() => {
+        this.errorWindow?.loadURL(`data:text/html,${encodeURIComponent(this.getErrorHTML())}`)
+      })
+    } else {
+      this.errorWindow.loadURL(`data:text/html,${encodeURIComponent(this.getErrorHTML())}`)
+    }
 
     this.errorWindow.once('ready-to-show', () => {
       this.errorWindow?.show()

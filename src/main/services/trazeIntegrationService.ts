@@ -67,6 +67,15 @@ function shouldRunNow(): boolean {
 
 // ─── Download logic ───────────────────────────────────────────────────────────
 
+// npdWindow can be destroyed mid-download (reload, quit, dev HMR) — sending to
+// a destroyed webContents throws "Object has been destroyed" and, from a catch
+// block, escaped as an unhandled rejection that popped the crash reporter.
+function sendToRenderer(channel: string, payload: unknown): void {
+  if (npdWindow && !npdWindow.isDestroyed()) {
+    try { npdWindow.webContents.send(channel, payload) } catch { /* window mid-teardown */ }
+  }
+}
+
 async function downloadCsv(): Promise<void> {
   if (isDownloading) {
     console.log('[TrazeIntegration] Descarga en progreso, se omite');
@@ -88,7 +97,7 @@ async function downloadCsv(): Promise<void> {
 
     console.log(`[TrazeIntegration] ✅ Descarga completa: ${rowCount} filas, ${sizeKb} KB`);
 
-    npdWindow?.webContents.send('traze:csv-downloaded', {
+    sendToRenderer('traze:csv-downloaded', {
       filePath,
       rowCount,
       sizeKb,
@@ -98,7 +107,7 @@ async function downloadCsv(): Promise<void> {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[TrazeIntegration] Error en descarga:', message);
-    npdWindow?.webContents.send('traze:csv-error', { message });
+    sendToRenderer('traze:csv-error', { message });
   } finally {
     isDownloading = false;
   }
@@ -158,7 +167,7 @@ export async function forceTrazeDownload(): Promise<void> {
     const sizeKb   = parseFloat((content.length / 1024).toFixed(1));
     saveLastRun();
     cleanupOldCsvFiles();
-    npdWindow?.webContents.send('traze:csv-downloaded', {
+    sendToRenderer('traze:csv-downloaded', {
       filePath,
       rowCount,
       sizeKb,

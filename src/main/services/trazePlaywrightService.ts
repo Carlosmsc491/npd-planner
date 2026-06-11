@@ -7,8 +7,8 @@
  * Follows the exact same navigation flow as the standalone traze.js script.
  *
  * CREDENTIALS:
- *   Stored in {userData}/traze-credentials.json
- *   Format: { "email": "...", "password": "..." }
+ *   Read from the encrypted store (trazeCredentialsService / safeStorage),
+ *   with a legacy plain-text {userData}/traze-credentials.json fallback.
  *
  * OUTPUT:
  *   Saved to {userData}/traze-exports/traze_export.csv
@@ -20,6 +20,7 @@ import * as fs from 'fs';
 import { app } from 'electron';
 import * as os from 'os';
 import { readPreferences } from './trazePreferencesService';
+import { readCredentials as readEncryptedCredentials } from './trazeCredentialsService';
 
 function getCsvOutputDir(): string { return path.join(app.getPath('userData'), 'traze-exports'); }
 function getCredentialsFile(): string { return path.join(app.getPath('userData'), 'traze-credentials.json'); }
@@ -77,12 +78,19 @@ export function isChromiumAvailable(): boolean {
 }
 
 function loadCredentials(): TrazeCredentials {
+  // Encrypted store first — this is where Settings → Traze saves via safeStorage.
+  // This service used to read ONLY the legacy plain-text file, so credentials
+  // saved from the UI never reached Playwright.
+  const encrypted = readEncryptedCredentials()
+  if (encrypted) return encrypted
+
+  // Legacy plain-text fallback for old installs (deleted on next save from UI)
   try {
     const raw = fs.readFileSync(getCredentialsFile(), 'utf-8');
     return JSON.parse(raw) as TrazeCredentials;
   } catch {
     throw new Error(
-      `Traze credentials not found. Create the file:\n${getCredentialsFile()}\nWith content: {"email":"...","password":"..."}`
+      'Traze credentials not configured. Go to Settings → Traze and enter your email and password.'
     );
   }
 }
