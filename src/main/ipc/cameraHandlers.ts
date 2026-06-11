@@ -26,6 +26,20 @@ export function registerCameraHandlers(): void {
 
   // Renderer requests tethering start
   ipcMain.handle('camera:start-tethering', async (_event, outputDir: string) => {
+    // Purge stale temp captures (>48h) — DSLR JPEGs are 15-25MB each and this
+    // folder was never cleaned, growing by gigabytes over time.
+    try {
+      if (fs.existsSync(outputDir)) {
+        const cutoff = Date.now() - 48 * 60 * 60 * 1000
+        for (const name of fs.readdirSync(outputDir)) {
+          const p = path.join(outputDir, name)
+          try {
+            const st = fs.statSync(p)
+            if (st.isFile() && st.mtimeMs < cutoff) fs.unlinkSync(p)
+          } catch { /* skip busy/missing files */ }
+        }
+      }
+    } catch { /* cleanup is best-effort */ }
     return await cameraManager.startTethering(outputDir)
   })
 
@@ -63,16 +77,21 @@ export function registerCameraHandlers(): void {
     }
   })
 
-  // Copy a photo to the SELECTED/ folder
+  // Copy a photo to the SELECTED/ folder (atomic: tmp + rename, overwrite OK)
   ipcMain.handle('photo:copy-to-selected', async (
     _event,
     { sourcePath, destPath }: { sourcePath: string; destPath: string }
   ): Promise<{ success: boolean; error?: string }> => {
+    const tmpPath = `${destPath}.tmp-${process.pid}`
     try {
       await fs.promises.mkdir(path.dirname(destPath), { recursive: true })
-      await fs.promises.copyFile(sourcePath, destPath)
+      await fs.promises.copyFile(sourcePath, tmpPath)
+      // Windows rename fails when the destination exists — remove it first
+      await fs.promises.rm(destPath, { force: true })
+      await fs.promises.rename(tmpPath, destPath)
       return { success: true }
     } catch (err) {
+      try { await fs.promises.unlink(tmpPath) } catch { /* ignore */ }
       return { success: false, error: String(err) }
     }
   })
@@ -182,19 +201,33 @@ export function registerCameraHandlers(): void {
 
         // Use platform-native zip tooling
         if (process.platform === 'win32') {
-          await new Promise<void>((resolve, reject) => {
-            // Pass paths as separate arguments to avoid command injection via destZipPath.
-            // PowerShell -Command receives them as $args[0] and $args[1] so no quoting needed.
-            const srcGlob = path.join(tmpDir, '*')
-            const ps = spawn('powershell', [
-              '-NoProfile', '-NonInteractive',
-              '-Command', 'Compress-Archive -Path $args[0] -DestinationPath $args[1] -Force',
-              '-args', srcGlob, destZipPath,
-            ])
-            ps.on('close', code =>
-              code === 0 ? resolve() : reject(new Error(`PowerShell exit ${code}`))
-            )
-          })
+          // A temp -File script with param() is the only reliable way to pass
+          // arbitrary paths: the previous '-Command ... -args' invocation is
+          // not valid PowerShell syntax (Compress-Archive received an unknown
+          // -args parameter) and the export failed.
+          const psScript = [
+            'param([string]$Src, [string]$Dest)',
+            '$ErrorActionPreference = "Stop"',
+            'Compress-Archive -Path $Src -DestinationPath $Dest -Force',
+          ].join('\r\n')
+          const psFile = path.join(os.tmpdir(), `npd-zip-${Date.now()}.ps1`)
+          fs.writeFileSync(psFile, psScript, 'utf8')
+          try {
+            await new Promise<void>((resolve, reject) => {
+              const srcGlob = path.join(tmpDir, '*')
+              const ps = spawn('powershell', [
+                '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                '-File', psFile, srcGlob, destZipPath,
+              ])
+              let stderr = ''
+              ps.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+              ps.on('close', code =>
+                code === 0 ? resolve() : reject(new Error(`PowerShell exit ${code}: ${stderr.trim()}`))
+              )
+            })
+          } finally {
+            try { fs.unlinkSync(psFile) } catch { /* ignore */ }
+          }
         } else {
           // `zip` is a macOS built-in (/usr/bin/zip) — always present on the only non-Windows platform this app targets.
           await new Promise<void>((resolve, reject) => {

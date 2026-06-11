@@ -1135,8 +1135,13 @@ export function registerRecipeHandlers(): void {
     'recipe:write-index',
     async (_event, indexPath: string, content: string): Promise<{ success: boolean; error?: string }> => {
       try {
-        fs.mkdirSync(path.dirname(np(indexPath)), { recursive: true })
-        fs.writeFileSync(np(indexPath), content, 'utf-8')
+        const dest = np(indexPath)
+        fs.mkdirSync(path.dirname(dest), { recursive: true })
+        // Atomic (tmp + rename) — a half-written index syncing through
+        // OneDrive produces conflict copies
+        const tmp = `${dest}.tmp-${process.pid}`
+        fs.writeFileSync(tmp, content, 'utf-8')
+        fs.renameSync(tmp, dest)
         return { success: true }
       } catch (err) {
         return { success: false, error: String(err) }
@@ -1221,7 +1226,9 @@ export function registerRecipeHandlers(): void {
           try { existing = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')) } catch { /* ignore */ }
         }
         existing.projectId = projectId
-        fs.writeFileSync(jsonPath, JSON.stringify(existing, null, 2), 'utf-8')
+        const tmp = `${jsonPath}.tmp-${process.pid}`
+        fs.writeFileSync(tmp, JSON.stringify(existing, null, 2), 'utf-8')
+        fs.renameSync(tmp, jsonPath)
         return { success: true }
       } catch (err) {
         return { success: false, error: String(err) }
