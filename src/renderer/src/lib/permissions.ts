@@ -121,9 +121,15 @@ export function canDeleteUser(actor: AppUser): boolean {
   return actor.role === 'owner'
 }
 
-export function canSuspendUser(actor: AppUser, target: AppUser): boolean {
+export function canSuspendUser(
+  actor: AppUser,
+  target: AppUser,
+  founderUid: string | null = null
+): boolean {
   if (actor.uid === target.uid) return false
-  if (actor.role === 'owner') return true
+  if (target.uid === founderUid) return false        // nobody suspends the founder
+  if (isFounder(actor, founderUid)) return true
+  if (actor.role === 'owner') return target.role !== 'owner'  // managing owners is founder-only
   if (actor.role === 'admin') return target.role === 'member'
   return false
 }

@@ -16,7 +16,8 @@ import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useBoardStore } from '../../store/boardStore'
 import AccessPermissionsModal from './AccessPermissionsModal'
-import { canChangeRole, canSuspendUser } from '../../lib/permissions'
+import { canChangeRole, canSuspendUser, canAssignRole, canTransferFounder } from '../../lib/permissions'
+import { transferFounder } from '../../lib/firestore'
 import { DEFAULT_AREA_PERMISSIONS } from '../../types'
 import type { AppUser, UserStatus, UserRole } from '../../types'
 import type { Timestamp } from 'firebase/firestore'
@@ -28,12 +29,13 @@ import {
 import { auth } from '../../lib/firebase'
 
 export default function MembersPanel() {
-  const { user: currentUser } = useAuthStore()
+  const { user: currentUser, founderUid } = useAuthStore()
   const { setToast } = useTaskStore()
   const { boards } = useBoardStore()
   const [users, setUsers] = useState<AppUser[]>([])
   const [showAddModal, setShowAddModal] = useState(false)
   const [accessUser, setAccessUser] = useState<AppUser | null>(null)
+  const [transferTarget, setTransferTarget] = useState<AppUser | null>(null)
 
   useEffect(() => {
     const unsub = subscribeToUsers(setUsers)
@@ -59,7 +61,7 @@ export default function MembersPanel() {
   async function suspend(uid: string) {
     if (!currentUser) return
     const target = users.find((u) => u.uid === uid)
-    if (!target || !canSuspendUser(currentUser, target)) return
+    if (!target || !canSuspendUser(currentUser, target, founderUid)) return
     await updateUserRole(uid, 'member' as UserRole)
     await updateUserStatus(uid, 'suspended' as UserStatus)
   }
@@ -69,7 +71,32 @@ export default function MembersPanel() {
   }
 
   async function setRole(uid: string, role: UserRole) {
+    if (!currentUser) return
+    // Owner role is founder-only — enforced here AND by firestore.rules
+    if (!canAssignRole(currentUser, role, founderUid)) return
     await updateUserRole(uid, role)
+  }
+
+  async function handleTransferFounder(target: AppUser) {
+    if (!currentUser || !canTransferFounder(currentUser, founderUid)) return
+    try {
+      await transferFounder(currentUser.uid, target.uid)
+      setToast({
+        id: `founder-${target.uid}`,
+        message: `${target.name} is now the platform founder`,
+        type: 'success',
+        duration: 5000,
+      })
+    } catch (err) {
+      setToast({
+        id: `founder-err-${target.uid}`,
+        message: err instanceof Error ? err.message : String(err),
+        type: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setTransferTarget(null)
+    }
   }
 
   async function togglePhotographer(uid: string, current: boolean) {
@@ -110,6 +137,36 @@ export default function MembersPanel() {
           boards={boards}
           onClose={() => setAccessUser(null)}
         />
+      )}
+
+      {/* Founder legacy transfer — irreversible, double confirmation */}
+      {transferTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-amber-200 bg-white p-6 shadow-xl dark:border-amber-800/50 dark:bg-gray-800">
+            <h2 className="mb-2 text-lg font-bold text-gray-900 dark:text-white">
+              Transfer founder to {transferTarget.name}?
+            </h2>
+            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+              {transferTarget.name} becomes the new platform founder — the only person
+              who can assign owners or transfer the platform again. <strong>You will
+              permanently lose founder powers.</strong> This cannot be undone by you.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setTransferTarget(null)}
+                className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleTransferFounder(transferTarget)}
+                className="flex-1 rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors"
+              >
+                Transfer Founder
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Add Member Modal */}
@@ -162,10 +219,10 @@ export default function MembersPanel() {
           {active.map((u) => {
             const isSelf = u.uid === currentUser?.uid
             // Use canChangeRole from permissions.ts for consistent enforcement
-            const canAct = !!currentUser && canChangeRole(currentUser, u)
+            const canAct = !!currentUser && canChangeRole(currentUser, u, founderUid)
             const isPhotoAddon = u.isPhotographer === true
             return (
-              <MemberRow key={u.uid} user={u} isSelf={isSelf}>
+              <MemberRow key={u.uid} user={u} isSelf={isSelf} isFounderUser={u.uid === founderUid}>
                 {canAct && u.role === 'member' && (
                   <button
                     onClick={() => setAccessUser(u)}
@@ -195,9 +252,11 @@ export default function MembersPanel() {
                   <RoleDropdown
                     user={u}
                     currentUser={currentUser}
+                    founderUid={founderUid}
                     onRoleChange={setRole}
                     onSuspend={suspend}
                     onResetPassword={resetPassword}
+                    onTransferFounder={() => setTransferTarget(u)}
                   />
                 )}
               </MemberRow>
@@ -539,10 +598,12 @@ function SectionHeader({
 function MemberRow({
   user,
   isSelf,
+  isFounderUser = false,
   children,
 }: {
   user: AppUser
   isSelf: boolean
+  isFounderUser?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -568,6 +629,14 @@ function MemberRow({
           <p className="text-xs text-gray-400 dark:text-gray-500">{user.email}</p>
         </div>
         <RoleBadge role={user.role} />
+        {isFounderUser && (
+          <span
+            title="Platform founder — only this user can assign owners or transfer the platform"
+            className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+          >
+            👑 Founder
+          </span>
+        )}
         {user.isPhotographer && user.role !== 'photographer' && (
           <span className="flex items-center gap-0.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
             <Camera size={10} />
@@ -600,24 +669,30 @@ function RoleBadge({ role }: { role: UserRole }) {
 function RoleDropdown({
   user,
   currentUser,
+  founderUid,
   onRoleChange,
   onSuspend,
   onResetPassword,
+  onTransferFounder,
 }: {
   user: AppUser
   currentUser: AppUser
+  founderUid: string | null
   onRoleChange: (uid: string, role: UserRole) => void
   onSuspend: (uid: string) => void
   onResetPassword: (email: string) => void
+  onTransferFounder: () => void
 }) {
   const [open, setOpen] = useState(false)
 
-  // Only the owner can mint admins (Azure AD model: privileged roles are
-  // assigned only by privileged role admins) — enforced by Firestore rules too
-  const canPromoteToAdmin       = currentUser.role === 'owner' && canChangeRole(currentUser, user) && user.role !== 'admin'
-  const canDemoteToMember       = canChangeRole(currentUser, user) && user.role !== 'member'
-  const canMakePhotographer     = canChangeRole(currentUser, user) && user.role !== 'photographer'
-  const canSuspend              = canSuspendUser(currentUser, user)
+  // Hierarchy: founder mints owners; owners mint admins; admins manage members.
+  // All of it enforced by Firestore rules too.
+  const canPromoteToOwner       = canAssignRole(currentUser, 'owner', founderUid) && user.role !== 'owner'
+  const canPromoteToAdmin       = canAssignRole(currentUser, 'admin', founderUid) && canChangeRole(currentUser, user, founderUid) && user.role !== 'admin'
+  const canDemoteToMember       = canChangeRole(currentUser, user, founderUid) && user.role !== 'member'
+  const canMakePhotographer     = canChangeRole(currentUser, user, founderUid) && user.role !== 'photographer'
+  const canSuspend              = canSuspendUser(currentUser, user, founderUid)
+  const showTransferFounder     = canTransferFounder(currentUser, founderUid)
 
   return (
     <div className="relative">
@@ -631,6 +706,12 @@ function RoleDropdown({
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute right-0 z-20 mt-1 w-48 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+            {canPromoteToOwner && (
+              <DropdownItem
+                label="Make Owner"
+                onClick={() => { onRoleChange(user.uid, 'owner'); setOpen(false) }}
+              />
+            )}
             {canPromoteToAdmin && (
               <DropdownItem
                 label="Make Admin"
@@ -653,6 +734,13 @@ function RoleDropdown({
               label="Reset Password"
               onClick={() => { onResetPassword(user.email); setOpen(false) }}
             />
+            {showTransferFounder && (
+              <DropdownItem
+                label="Transfer Founder (Legacy)"
+                danger
+                onClick={() => { onTransferFounder(); setOpen(false) }}
+              />
+            )}
             {canSuspend && (
               <DropdownItem
                 label="Suspend"

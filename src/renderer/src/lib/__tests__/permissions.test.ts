@@ -8,6 +8,7 @@ import {
   canTransferFounder,
   canChangeRole,
   canAssignRole,
+  canSuspendUser,
   canManageTeams,
   getTeamRole,
   canViewTeam,
@@ -92,6 +93,16 @@ describe('role assignment hierarchy', () => {
     expect(canChangeRole(admin, member, FOUNDER_UID)).toBe(true)
     expect(canChangeRole(admin, owner, FOUNDER_UID)).toBe(false)
     expect(canChangeRole(member, member, FOUNDER_UID)).toBe(false)
+  })
+
+  it('nobody suspends the founder; only the founder suspends owners', () => {
+    expect(canSuspendUser(owner, founder, FOUNDER_UID)).toBe(false)
+    expect(canSuspendUser(admin, founder, FOUNDER_UID)).toBe(false)
+    expect(canSuspendUser(founder, owner, FOUNDER_UID)).toBe(true)
+    const otherOwner = makeUser({ uid: 'u-owner-2', role: 'owner' })
+    expect(canSuspendUser(owner, otherOwner, FOUNDER_UID)).toBe(false)
+    expect(canSuspendUser(owner, member, FOUNDER_UID)).toBe(true)
+    expect(canSuspendUser(admin, member, FOUNDER_UID)).toBe(true)
   })
 })
 
