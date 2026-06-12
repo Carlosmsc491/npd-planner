@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getAreaPermission } from '../hooks/useAreaPermission'
 import {
-  User, Users, Palette, Bell, Keyboard,
+  User, Users, Users2, Palette, Bell, Keyboard,
   LayoutDashboard, Building2, Tag, FolderOpen, Truck, Trash2, Archive,
   Grid2X2, CalendarDays, DollarSign, Settings2, History, Layers, CalendarClock,
   CameraIcon, CheckCircle2, XCircle, Loader2, AlertCircle, RefreshCw, Info, Download,
@@ -10,6 +10,8 @@ import {
 } from 'lucide-react'
 import AppLayout from '../components/ui/AppLayout'
 import MembersPanel from '../components/settings/MembersPanel'
+import TeamsPanel from '../components/settings/TeamsPanel'
+import { TEAMS_MODULE_ENABLED } from '../../../shared/constants'
 import BoardTemplateEditor from '../components/settings/BoardTemplateEditor'
 import SharePointSetup from '../components/settings/SharePointSetup'
 import TrazeSettings from '../components/settings/TrazeSettings'
@@ -29,7 +31,7 @@ import type { AppUser, Board, Theme, ShortcutAction, AreaPermission, AreaPermiss
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTION_LABELS } from '../types'
 
 type SettingsTab =
-  | 'profile' | 'members' | 'appearance' | 'notifications' | 'shortcuts'
+  | 'profile' | 'members' | 'teams' | 'appearance' | 'notifications' | 'shortcuts'
   | 'boards' | 'clients' | 'divisions' | 'labels' | 'dateTypes' | 'files' | 'traze' | 'archive' | 'trash' | 'import-history'
   | 'recipe-cells' | 'recipe-holidays' | 'recipe-sleeve' | 'recipe-general'
   | 'photography' | 'about'
@@ -53,6 +55,9 @@ const SETTINGS_SECTIONS: SectionDef[] = [
     tabs: [
       { id: 'profile',       label: 'Profile',       icon: User },
       { id: 'members',       label: 'Members',       icon: Users,          adminOnly: true },
+      ...(TEAMS_MODULE_ENABLED
+        ? [{ id: 'teams' as const, label: 'Teams', icon: Users2, adminOnly: true }]
+        : []),
       { id: 'appearance',    label: 'Appearance',    icon: Palette },
       { id: 'notifications', label: 'Notifications', icon: Bell },
       { id: 'shortcuts',     label: 'Keyboard',      icon: Keyboard },
@@ -204,6 +209,10 @@ export default function SettingsPage() {
                   <DefaultPermissionsPanel />
                 </div>
               </>
+            )}
+
+            {TEAMS_MODULE_ENABLED && activeTab === 'teams' && isAdmin && (
+              <TeamsPanel />
             )}
 
             {activeTab === 'boards' && isAdmin && (

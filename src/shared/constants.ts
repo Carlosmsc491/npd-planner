@@ -9,6 +9,10 @@ export const MAX_RETRY_COUNT = 5
 export const APP_NAME = 'NPD Planner'
 export const COMPANY_NAME = 'Elite Flower'
 
+// Multi-team platform (feature/teams). MUST be false when this branch merges
+// to main — the module ships dark and is enabled deliberately.
+export const TEAMS_MODULE_ENABLED = true
+
 // IPC channel names
 export const IPC = {
   FILE_COPY: 'file:copy',
