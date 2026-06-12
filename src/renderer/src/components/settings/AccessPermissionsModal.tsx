@@ -60,7 +60,24 @@ export default function AccessPermissionsModal({ targetUser, boards, onClose }: 
   async function handleSave() {
     setSaving(true)
     try {
-      await updateUserAreaPermissions(targetUser.uid, perms)
+      // updateDoc only resolves on SERVER ack — if the write stream is down or
+      // in backoff, it pends forever and the spinner never stopped. The write
+      // stays queued by Firestore either way, so after 15s we inform and close
+      // instead of leaving the user staring at "Saving…".
+      const result = await Promise.race([
+        updateUserAreaPermissions(targetUser.uid, perms).then(() => 'ok' as const),
+        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 15_000)),
+      ])
+      if (result === 'timeout') {
+        setToast({
+          id: `access-slow-${targetUser.uid}`,
+          message: `Save queued — it will finish syncing for ${targetUser.name} when the connection recovers.`,
+          type: 'warning',
+          duration: 6000,
+        })
+        onClose()
+        return
+      }
       setToast({ id: `access-${targetUser.uid}`, message: `Permissions updated for ${targetUser.name}`, type: 'success', duration: 3000 })
       onClose()
     } catch (err) {
