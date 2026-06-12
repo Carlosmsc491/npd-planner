@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { verifyEmergencyKey, subscribeToUsers, updateUserRole } from '../lib/firestore'
+import { requestEmergencyUnlock, subscribeToUsers, updateUserRole } from '../lib/firestore'
 import type { AppUser } from '../types'
 
 export default function EmergencyPage() {
@@ -12,7 +12,9 @@ export default function EmergencyPage() {
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault()
     setIsLoading(true)
-    const valid = await verifyEmergencyKey(key)
+    // Server-verified: the write only succeeds if Firestore rules confirm the
+    // key hash matches — the key itself is never readable from the client
+    const valid = await requestEmergencyUnlock(key)
     setIsLoading(false)
     if (valid) {
       setVerified(true)

@@ -88,7 +88,7 @@ export default function RecipeProjectPage() {
     'all' | 'pending' | 'in_progress' | 'done' | 'mine'
   >('all')
 
-  const canEdit = user ? canEditArea(user, 'recipes') : false
+  const canEdit = user ? canEditArea(user, 'npd_projects') : false
 
   // Async path resolution: cache → scan projectsRoot → legacy relativeRootPath fallback
   const { effectiveRootPath, pathLoading, pathNotFound, handleLocateFolder } =

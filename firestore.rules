@@ -48,6 +48,41 @@ service cloud.firestore {
              (getUserData().role == 'admin' || getUserData().role == 'owner');
     }
 
+    // ── Area/board permission enforcement ────────────────────────────────
+    // The Access Permissions UI (None/View/Edit per board and module) used to
+    // be cosmetic — these helpers make the server enforce it. Missing fields
+    // default safely via Map.get().
+    function userPerms() {
+      return getUserData().get('areaPermissions', {});
+    }
+    function canViewBoardSrv(boardId) {
+      return isAdmin() ||
+             (isActiveUser() && userPerms().get('board_' + boardId, 'none') in ['view', 'edit']);
+    }
+    function canEditBoardSrv(boardId) {
+      return isAdmin() ||
+             (isActiveUser() && userPerms().get('board_' + boardId, 'none') == 'edit');
+    }
+    function isPhotographerUser() {
+      return isActiveUser() &&
+             (getUserData().role == 'photographer' ||
+              getUserData().get('isPhotographer', false) == true);
+    }
+    // npd_projects with legacy key aliases (elitequote, recipes)
+    function npdLevel() {
+      return userPerms().get('npd_projects',
+             userPerms().get('elitequote',
+             userPerms().get('recipes', 'none')));
+    }
+    function canViewNpd() {
+      return isAdmin() || isPhotographerUser() ||
+             (isActiveUser() && npdLevel() in ['view', 'edit']);
+    }
+    function canEditNpd() {
+      return isAdmin() || isPhotographerUser() ||
+             (isActiveUser() && npdLevel() == 'edit');
+    }
+
     // ─────────────────────────────────────────
     // USERS
     // ─────────────────────────────────────────
@@ -71,22 +106,25 @@ service cloud.firestore {
                        );
 
       // Owner can update anyone (except change another owner's role)
-      // Admin can update members only (not owners, not other admins)
+      // Admin can manage members but can NEVER mint admins or owners —
+      // privileged roles are assigned only by the owner (Azure AD model:
+      // only privileged role admins assign privileged roles)
       // Users can update their own non-sensitive preferences
-      // Emergency recovery: any active user can promote themselves to owner ONLY
-      // (protected by the emergency key in-app; this rule is intentionally permissive
-      //  because the emergency page is the last resort recovery path)
+      // Emergency recovery: self-promotion to owner requires a server-verified
+      // emergency unlock (see /emergencyUnlocks — proof of the master key)
       allow update: if isAppOwner() ||
                        (isAdmin() &&
                         resource.data.role == 'member' &&
-                        request.resource.data.role != 'owner') ||
+                        request.resource.data.role != 'owner' &&
+                        request.resource.data.role != 'admin') ||
                        (isSelf(uid) &&
                         !request.resource.data.diff(resource.data)
                           .affectedKeys()
                           .hasAny(['role', 'status', 'email', 'uid', 'areaPermissions'])) ||
                        (isSelf(uid) &&
                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']) &&
-                        request.resource.data.role == 'owner');
+                        request.resource.data.role == 'owner' &&
+                        exists(/databases/$(database)/documents/emergencyUnlocks/$(request.auth.uid)));
 
       // Only owner can delete users (soft delete via status is preferred)
       allow delete: if isAppOwner();
@@ -106,10 +144,19 @@ service cloud.firestore {
     // ─────────────────────────────────────────
 
     match /tasks/{taskId} {
-      allow read, create, update: if isActiveUser();
-      // Only the task creator or an admin can permanently delete a task
-      allow delete: if isActiveUser() &&
-                       (resource.data.createdBy == request.auth.uid || isAdmin());
+      // Board access enforced server-side: View can read, Edit can write.
+      // Assignees can always READ their own tasks (My Tasks spans boards).
+      allow read: if isActiveUser() &&
+                     (canViewBoardSrv(resource.data.boardId) ||
+                      request.auth.uid in resource.data.get('assignees', []));
+      allow create: if canEditBoardSrv(request.resource.data.boardId);
+      // Both the current board and the target board (task moves) need Edit
+      allow update: if canEditBoardSrv(resource.data.boardId) &&
+                       canEditBoardSrv(request.resource.data.boardId);
+      // Only the task creator (with board Edit) or an admin can delete
+      allow delete: if isAdmin() ||
+                       (resource.data.createdBy == request.auth.uid &&
+                        canEditBoardSrv(resource.data.boardId));
     }
 
     // ─────────────────────────────────────────
@@ -118,9 +165,10 @@ service cloud.firestore {
 
     match /clients/{clientId} {
       allow read: if isActiveUser();
+      // Create stays open — tasks offer inline "+ New Client"
       allow create: if isActiveUser();
-      allow update: if isActiveUser();
-      // Only admins can permanently delete clients
+      // Renaming/deactivating clients affects every task — admins only
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
@@ -179,8 +227,12 @@ service cloud.firestore {
       allow read: if isActiveUser() &&
                      resource.data.userId == request.auth.uid;
 
-      // Any active user can create notifications (for sending to others)
-      allow create: if isActiveUser();
+      // Any active user can create notifications for others, but the sender
+      // identity can't be spoofed — triggeredBy must be the caller (or the
+      // literal 'system', used by automated Traze alerts)
+      allow create: if isActiveUser() &&
+                       (request.resource.data.get('triggeredBy', '') == request.auth.uid ||
+                        request.resource.data.get('triggeredBy', '') == 'system');
 
       // Users can only mark their own notifications as read
       allow update: if isActiveUser() &&
@@ -210,9 +262,32 @@ service cloud.firestore {
     // ─────────────────────────────────────────
 
     match /settings/{docId} {
-      allow read: if isActiveUser();
-      // Only admins can change global settings
-      allow write: if isAdmin();
+      // The emergency master key hash must NEVER be client-readable — rules
+      // compare against it server-side (see /emergencyUnlocks below)
+      allow read: if isActiveUser() && docId != 'emergency';
+      // Only admins can change global settings; only the owner touches the key
+      allow write: if isAdmin() && docId != 'emergency';
+    }
+
+    match /settings/emergency {
+      allow read: if false;
+      allow write: if isAppOwner();
+    }
+
+    // ─────────────────────────────────────────
+    // EMERGENCY UNLOCKS (server-verified master key proof)
+    // Writing here succeeds ONLY when the submitted hash matches the stored
+    // master key hash — which clients can never read. An unlock doc is the
+    // prerequisite for the self-promotion-to-owner rule on /users.
+    // ─────────────────────────────────────────
+
+    match /emergencyUnlocks/{uid} {
+      allow read: if false;
+      allow create, update: if isSelf(uid) &&
+        request.resource.data.keys().hasOnly(['keyHash', 'unlockedAt']) &&
+        request.resource.data.keyHash ==
+          get(/databases/$(database)/documents/settings/emergency).data.masterKeyHash;
+      allow delete: if isAppOwner();
     }
 
     // appBootstrap is publicly readable so registration can check if an owner exists
@@ -238,36 +313,40 @@ service cloud.firestore {
     // RECIPE MANAGER
     // ─────────────────────────────────────────
 
+    // Access requires the npd_projects area permission (or admin/photographer)
+    // — previously any active user could read AND write every recipe even with
+    // "NPD Projects: None" in the Access Permissions UI.
     match /recipeProjects/{projectId} {
-      allow read, write: if isActiveUser();
+      allow read: if canViewNpd();
+      allow write: if canEditNpd();
 
       match /recipeFiles/{fileId} {
-        allow read, write: if isActiveUser();
+        allow read: if canViewNpd();
+        allow write: if canEditNpd();
 
-        // Notes subcollection — all active users can post; only author or admin can delete
+        // Notes — any NPD viewer can post; only author or admin can delete
         match /notes/{noteId} {
-          allow read:   if isActiveUser();
-          allow create: if isActiveUser();
+          allow read:   if canViewNpd();
+          allow create: if canViewNpd();
           // Notes are immutable — no edits allowed
           allow update: if false;
-          // Author can delete their own note; admins can delete any
-          allow delete: if isActiveUser() &&
+          allow delete: if canViewNpd() &&
                            (resource.data.authorId == request.auth.uid || isAdmin());
         }
       }
 
       match /recipePresence/{userId} {
-        allow read: if isActiveUser();
-        allow write: if request.auth.uid == userId || isAdmin();
+        allow read: if canViewNpd();
+        allow write: if canViewNpd() && (request.auth.uid == userId || isAdmin());
       }
 
       match /settings/{settingsDoc} {
-        allow read: if isActiveUser();
+        allow read: if canViewNpd();
         allow write: if isAdmin();
       }
 
       match /activity/{eventId} {
-        allow read, create: if isActiveUser();
+        allow read, create: if canViewNpd();
         allow update, delete: if false;
       }
     }
@@ -281,7 +360,10 @@ service cloud.firestore {
     // ─────────────────────────────────────────
 
     match /trashQueue/{trashId} {
-      allow read, write: if isActiveUser();
+      // Members enqueue their own deletions (the task delete flow); only
+      // admins see and manage the trash (restore, purge, schedule)
+      allow create: if isActiveUser();
+      allow read, update, delete: if isAdmin();
     }
 
     // ─────────────────────────────────────────

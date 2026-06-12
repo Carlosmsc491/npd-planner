@@ -7,7 +7,7 @@ import {
   query, where, orderBy, onSnapshot, runTransaction, serverTimestamp,
   Unsubscribe, writeBatch, limit, getCountFromServer, Timestamp, arrayUnion
 } from 'firebase/firestore'
-import { db } from './firebase'
+import { db, auth } from './firebase'
 import type {
   AppUser, Board, BoardType, BoardProperty, Task, Client, Division, Label, Comment,
   TaskHistoryEntry, AppNotification, AnnualSummary,
@@ -1508,17 +1508,26 @@ export async function updateAttachmentStatus(
   }
 }
 
-export async function verifyEmergencyKey(inputKey: string): Promise<boolean> {
+/**
+ * Server-verified emergency unlock. The master key hash is NOT readable by
+ * clients (rules deny settings/emergency reads); instead, writing the hash to
+ * emergencyUnlocks/{uid} only succeeds when rules confirm it matches — proof
+ * of knowing the key, without ever exposing it. The unlock doc is what the
+ * users rule requires for self-promotion to owner.
+ */
+export async function requestEmergencyUnlock(inputKey: string): Promise<boolean> {
   try {
-    const snap = await getDoc(doc(db, COLLECTIONS.SETTINGS, 'emergency'))
-    if (!snap.exists()) return false
-
-    const { masterKeyHash } = snap.data() as { masterKeyHash: string }
+    const uid = auth.currentUser?.uid
+    if (!uid) return false
     const { hashSHA256 } = await import('../utils/hashUtils')
-    const inputHash = await hashSHA256(inputKey)
-    return inputHash === masterKeyHash
-  } catch (err) {
-    console.error('Failed to verify emergency key:', err)
+    const keyHash = await hashSHA256(inputKey)
+    await setDoc(doc(db, 'emergencyUnlocks', uid), {
+      keyHash,
+      unlockedAt: serverTimestamp(),
+    })
+    return true
+  } catch {
+    // permission-denied = wrong key (rules rejected the hash comparison)
     return false
   }
 }

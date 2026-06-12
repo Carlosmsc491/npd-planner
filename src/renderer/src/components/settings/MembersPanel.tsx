@@ -238,6 +238,9 @@ interface AddMemberModalProps {
 }
 
 function AddMemberModal({ onClose, onSuccess }: AddMemberModalProps) {
+  // Azure AD model: only the owner assigns privileged roles
+  const actorIsOwner = useAuthStore.getState().user?.role === 'owner'
+
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
@@ -462,7 +465,7 @@ function AddMemberModal({ onClose, onSuccess }: AddMemberModalProps) {
               className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             >
               <option value="member">Member</option>
-              <option value="admin">Admin</option>
+              {actorIsOwner && <option value="admin">Admin</option>}
               <option value="photographer">Photographer</option>
             </select>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -609,7 +612,9 @@ function RoleDropdown({
 }) {
   const [open, setOpen] = useState(false)
 
-  const canPromoteToAdmin       = canChangeRole(currentUser, user) && user.role !== 'admin'
+  // Only the owner can mint admins (Azure AD model: privileged roles are
+  // assigned only by privileged role admins) — enforced by Firestore rules too
+  const canPromoteToAdmin       = currentUser.role === 'owner' && canChangeRole(currentUser, user) && user.role !== 'admin'
   const canDemoteToMember       = canChangeRole(currentUser, user) && user.role !== 'member'
   const canMakePhotographer     = canChangeRole(currentUser, user) && user.role !== 'photographer'
   const canSuspend              = canSuspendUser(currentUser, user)

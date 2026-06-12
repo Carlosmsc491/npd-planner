@@ -50,7 +50,7 @@ import {
   markAllNotificationsRead,
   createNotification,
   getGlobalSettings,
-  verifyEmergencyKey,
+  requestEmergencyUnlock,
   getAnnualSummary,
   saveAnnualSummary,
   subscribeToArchive,
@@ -140,7 +140,7 @@ export class FirebaseAppRepository implements IAppRepository {
 
   // SETTINGS
   getGlobalSettings = getGlobalSettings
-  verifyEmergencyKey = verifyEmergencyKey
+  requestEmergencyUnlock = requestEmergencyUnlock
 
   // ANNUAL ARCHIVE
   getAnnualSummary = getAnnualSummary

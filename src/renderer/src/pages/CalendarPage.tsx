@@ -17,6 +17,7 @@ import AppLayout from '../components/ui/AppLayout'
 import NewTaskModal from '../components/ui/NewTaskModal'
 import { subscribeToAllTasks, updateTaskField } from '../lib/firestore'
 import { useAuthStore } from '../store/authStore'
+import { canViewBoard } from '../lib/permissions'
 import { useBoardStore } from '../store/boardStore'
 import { useDateTypeStore } from '../store/dateTypeStore'
 import { getBoardColor, getBucketColor } from '../utils/colorUtils'
@@ -86,10 +87,15 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (boards.length === 0) return
-    const boardIds = boards.map((b) => b.id)
+    // Only boards the user can VIEW — Firestore evaluates list queries per
+    // document, so including one forbidden board denies the entire query
+    const visibleBoards = user ? boards.filter((b) => canViewBoard(user, b.id)) : []
+    const boardIds = visibleBoards.map((b) => b.id)
+    if (boardIds.length === 0) { setTasks([]); return }
     const unsub = subscribeToAllTasks(boardIds, setTasks)
     return unsub
-  }, [boards])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boards, user?.uid])
 
   const withDates = tasks.filter((t) => !t.completed && (t.dateStart || t.dateEnd) && !hiddenBoards.has(t.boardId))
   const allBuckets = [...new Set(withDates.map((t) => t.bucket).filter(Boolean))] as string[]

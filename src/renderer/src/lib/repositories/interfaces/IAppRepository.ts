@@ -84,7 +84,7 @@ export interface IAppRepository {
 
   // ── SETTINGS ───────────────────────────────────────────────────────────────
   getGlobalSettings(): Promise<GlobalSettings | null>
-  verifyEmergencyKey(inputKey: string): Promise<boolean>
+  requestEmergencyUnlock(inputKey: string): Promise<boolean>
 
   // ── ANNUAL ARCHIVE ─────────────────────────────────────────────────────────
   getAnnualSummary(year: number): Promise<AnnualSummary | null>
