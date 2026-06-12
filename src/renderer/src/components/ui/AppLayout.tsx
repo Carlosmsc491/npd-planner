@@ -6,7 +6,7 @@ import {
   MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Search,
   LayoutDashboard, CheckSquare, Package, Truck, Camera, Users, Calendar,
   Star, Folder, ShoppingCart, FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
-  User, Lock, CalendarDays, FlowerIcon, PanelLeftClose, PanelLeftOpen,
+  User, Lock, CalendarDays, FlowerIcon, PanelLeftClose, PanelLeftOpen, Inbox,
   type LucideIcon,
 } from 'lucide-react'
 import { auth } from '../../lib/firebase'
@@ -29,6 +29,8 @@ import { getAreaPermission } from '../../hooks/useAreaPermission'
 import { usePendingApprovals } from '../../hooks/usePendingApprovals'
 import { isPrivileged } from '../../lib/permissions'
 import { ApprovalModal } from '../auth/ApprovalModal'
+import { useTeamStore } from '../../store/teamStore'
+import { TEAMS_MODULE_ENABLED } from '../../../../shared/constants'
 import type { Board, BoardType } from '../../types'
 
 type IconComponent = LucideIcon
@@ -62,6 +64,7 @@ interface AppLayoutProps {
 export default function AppLayout({ children, mainClassName = 'flex-1 overflow-auto' }: AppLayoutProps) {
   const { user, setUser } = useAuthStore()
   const { boards, setBoards } = useBoardStore()
+  const { myMemberships, initMyMemberships } = useTeamStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -91,6 +94,13 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
       setShowApprovalModal(true)
     }
   }, [pendingApprovals.length, user])
+
+  // Teams platform: live own-memberships (scoped query) — drives the
+  // Requests sidebar entry visibility
+  useEffect(() => {
+    if (!TEAMS_MODULE_ENABLED || !user) return
+    return initMyMemberships(user.uid)
+  }, [user?.uid, initMyMemberships])
 
   // Always subscribe so labels/clients/dateTypes are available on any page
   useClients()
@@ -266,6 +276,21 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
               </Link>
             )
           })}
+
+          {/* Requests (teams platform) — admins + anyone with a team membership */}
+          {TEAMS_MODULE_ENABLED && !isPhotographer && user && (isAdmin || myMemberships.length > 0) && (
+            <Link
+              to="/requests"
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mb-0.5 transition-colors ${
+                location.pathname === '/requests'
+                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+              }`}
+            >
+              <Inbox size={14} className="shrink-0" />
+              <span>Requests</span>
+            </Link>
+          )}
 
           {/* Boards section — hidden for photographer */}
           {!isPhotographer && (boards.length > 0 || isAdmin) && (

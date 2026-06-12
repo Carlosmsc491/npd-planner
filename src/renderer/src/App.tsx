@@ -28,6 +28,7 @@ const RecipeHomePage = lazy(() => import('./components/recipes/RecipeHomePage'))
 const RecipeProjectPage = lazy(() => import('./components/recipes/RecipeProjectPage'))
 const NewRecipeProjectWizard = lazy(() => import('./components/recipes/wizard/NewRecipeProjectWizard'))
 const CapturePage = lazy(() => import('./pages/CapturePage'))
+const RequestsPage = lazy(() => import('./pages/RequestsPage'))
 
 function RouteFallback() {
   return (
@@ -258,6 +259,7 @@ export default function App() {
         </Route>
         <Route path="/board/:boardId" element={<BoardRoute />} />
         <Route path="/task/:taskId" element={<TaskFullPage />} />
+        <Route path="/requests" element={<RequestsPage />} />
         <Route element={<ProtectedRoute requireAdmin />}>
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
