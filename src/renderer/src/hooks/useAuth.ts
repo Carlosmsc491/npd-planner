@@ -47,9 +47,18 @@ export function useAuth() {
       setFounderUid(null)
       return
     }
-    const unsub = subscribeToPlatformGovernance((gov) => setFounderUid(gov?.founderUid ?? null))
+    const unsub = subscribeToPlatformGovernance((gov) => {
+      setFounderUid(gov?.founderUid ?? null)
+      // Self-healing bootstrap: on first registration the auth-state handler
+      // runs before the user doc exists, so the login-time bootstrap misses.
+      // If no founder is registered and this user is an active owner, claim it
+      // here (rules still gate it — no-op if someone else claimed first).
+      if (!gov && user.role === 'owner' && user.status === 'active') {
+        void bootstrapFounder(user.uid)
+      }
+    })
     return unsub
-  }, [user?.uid, setFounderUid])
+  }, [user?.uid, user?.role, user?.status, setFounderUid])
 
   const signOut = useCallback(async () => {
     try {
