@@ -110,6 +110,88 @@ export interface TeamMember {
 }
 
 // ─────────────────────────────────────────
+// SAMPLE REQUESTS (teams → NPD pipeline)
+// ─────────────────────────────────────────
+// A sales person files a request; it lands as a linked task in the NPD
+// Planner under the team's client and the chosen bucket. The request is the
+// team-facing view (follow-up, logistics); the task is the NPD-facing view.
+
+export type SampleRequestStatus =
+  | 'submitted'           // sales filed it
+  | 'accepted'            // NPD acknowledged it
+  | 'in_production'       // flower/product being made
+  | 'ready'               // NPD finished — ready to hand off
+  | 'handed_to_shipping'  // pallet delivered to shipping
+  | 'shipped'             // on the truck
+  | 'delivered'
+  | 'completed'
+  | 'cancelled'
+
+export const SAMPLE_REQUEST_STATUS_LABELS: Record<SampleRequestStatus, string> = {
+  submitted:          'Submitted',
+  accepted:           'Accepted',
+  in_production:      'In Production',
+  ready:              'Ready',
+  handed_to_shipping: 'Handed to Shipping',
+  shipped:            'Shipped',
+  delivered:          'Delivered',
+  completed:          'Completed',
+  cancelled:          'Cancelled',
+}
+
+export const SAMPLE_REQUEST_STATUS_ORDER: SampleRequestStatus[] = [
+  'submitted', 'accepted', 'in_production', 'ready',
+  'handed_to_shipping', 'shipped', 'delivered', 'completed',
+]
+
+// Request types map to buckets in the NPD Planner board
+export const SAMPLE_REQUEST_BUCKETS: string[] = [
+  'Samples Ship Out',
+  'Photos',
+  'Show',
+  'Meeting',
+  'New Product Development',
+  'Other',
+]
+
+export interface SampleRequest {
+  id: string
+  teamId: string
+  teamName: string          // denormalized for list views
+  clientId: string | null   // from the team's linked client
+  bucket: string
+  title: string
+  description: string
+  needByDate: Timestamp | null
+  shipDate: Timestamp | null
+  status: SampleRequestStatus
+  createdBy: string         // sales person uid
+  createdByName: string
+  assignedManagers: string[]  // account manager uids
+  helpers: string[]           // support people granted access by assignment
+  // Logistics — filled by the account manager
+  orderNumber: string
+  farmInfo: string
+  awbNumber: string
+  eta: string
+  linkedTaskId: string | null  // task in the NPD Planner board
+  createdAt: Timestamp
+  updatedAt: Timestamp
+  updatedBy: string
+}
+
+export type SampleRequestEventType = 'created' | 'status_change' | 'field_update' | 'assignment'
+
+export interface SampleRequestEvent {
+  id: string
+  type: SampleRequestEventType
+  message: string
+  userId: string
+  userName: string
+  createdAt: Timestamp
+}
+
+// ─────────────────────────────────────────
 // BOARDS
 // ─────────────────────────────────────────
 
@@ -299,6 +381,10 @@ export interface Task {
   completedBy: string | null
   customFields?: Record<string, unknown> | null
   sortOrder?: number        // manual sort position within bucket (lower = higher)
+  // Set when the task was created from a team sample request — rules use
+  // sourceTeamId to authorize task creation by team members
+  sourceTeamId?: string | null
+  sourceRequestId?: string | null
   createdBy: string
   createdAt: Timestamp
   updatedAt: Timestamp

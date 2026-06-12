@@ -12,6 +12,10 @@ import {
   canManageTeams,
   getTeamRole,
   canViewTeam,
+  canCreateSampleRequest,
+  canViewSampleRequest,
+  canManageRequestLogistics,
+  canEditRequestCore,
 } from '../permissions'
 import type { AppUser, TeamMember } from '../../types'
 
@@ -142,5 +146,58 @@ describe('team isolation', () => {
     expect(canManageTeams(admin)).toBe(true)
     expect(canManageTeams(owner)).toBe(true)
     expect(canManageTeams(sean)).toBe(false)
+  })
+})
+
+describe('sample request permissions', () => {
+  const memberships = [
+    membership('team-publix', 'u-sean', 'sales'),
+    membership('team-publix', 'u-am', 'account_manager'),
+    membership('team-publix', 'u-helper', 'support'),
+    membership('team-walmart', 'u-sales2', 'sales'),
+  ]
+  const sean = makeUser({ uid: 'u-sean' })
+  const am = makeUser({ uid: 'u-am' })
+  const helper = makeUser({ uid: 'u-helper' })
+  const outsider = makeUser({ uid: 'u-sales2' })  // sales, but of ANOTHER team
+
+  const req = {
+    teamId: 'team-publix',
+    createdBy: 'u-sean',
+    status: 'submitted' as const,
+    assignedManagers: ['u-am'],
+    helpers: [] as string[],
+  }
+
+  it('only sales of the team (or NPD) create requests', () => {
+    expect(canCreateSampleRequest(sean, 'team-publix', memberships)).toBe(true)
+    expect(canCreateSampleRequest(am, 'team-publix', memberships)).toBe(false)
+    expect(canCreateSampleRequest(helper, 'team-publix', memberships)).toBe(false)
+    expect(canCreateSampleRequest(outsider, 'team-publix', memberships)).toBe(false)
+    expect(canCreateSampleRequest(admin, 'team-publix', memberships)).toBe(true)
+  })
+
+  it('isolation: another team never sees the request; assignment grants access', () => {
+    expect(canViewSampleRequest(outsider, req, memberships)).toBe(false)
+    expect(canViewSampleRequest(sean, req, memberships)).toBe(true)
+    expect(canViewSampleRequest(am, req, memberships)).toBe(true)
+    const externalHelper = makeUser({ uid: 'u-ext' })
+    const reqWithHelper = { ...req, helpers: ['u-ext'] }
+    expect(canViewSampleRequest(externalHelper, req, memberships)).toBe(false)
+    expect(canViewSampleRequest(externalHelper, reqWithHelper, memberships)).toBe(true)
+  })
+
+  it('logistics belong to account managers and NPD, not sales', () => {
+    expect(canManageRequestLogistics(am, req, memberships)).toBe(true)
+    expect(canManageRequestLogistics(admin, req, memberships)).toBe(true)
+    expect(canManageRequestLogistics(sean, req, memberships)).toBe(false)
+    expect(canManageRequestLogistics(outsider, req, memberships)).toBe(false)
+  })
+
+  it('creator edits core fields only while submitted; NPD always can', () => {
+    expect(canEditRequestCore(sean, req)).toBe(true)
+    expect(canEditRequestCore(sean, { ...req, status: 'in_production' })).toBe(false)
+    expect(canEditRequestCore(am, req)).toBe(false)
+    expect(canEditRequestCore(admin, { ...req, status: 'shipped' })).toBe(true)
   })
 })

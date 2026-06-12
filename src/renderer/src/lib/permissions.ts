@@ -4,7 +4,7 @@
 //   boards  → 'board_{boardId}'
 //   areas   → 'projects' | 'recipes' | 'analytics' | 'settings'
 
-import type { AppUser, AreaPermission, TeamMember, TeamRole } from '../types'
+import type { AppUser, AreaPermission, SampleRequest, TeamMember, TeamRole } from '../types'
 
 export function isPrivileged(user: AppUser): boolean {
   return user.role === 'owner' || user.role === 'admin'
@@ -171,4 +171,50 @@ export function canViewTeam(
 ): boolean {
   if (isPrivileged(user)) return true
   return getTeamRole(user, teamId, memberships) !== null
+}
+
+// ─── Sample request permissions ───────────────────────────────────────────────
+
+/** Only sales people file requests (NPD admins/owners can too, for fixes). */
+export function canCreateSampleRequest(
+  user: AppUser,
+  teamId: string,
+  memberships: TeamMember[]
+): boolean {
+  if (isPrivileged(user)) return true
+  return getTeamRole(user, teamId, memberships) === 'sales'
+}
+
+/** Team members, the creator, assigned managers/helpers, and NPD. */
+export function canViewSampleRequest(
+  user: AppUser,
+  req: Pick<SampleRequest, 'teamId' | 'createdBy' | 'assignedManagers' | 'helpers'>,
+  memberships: TeamMember[]
+): boolean {
+  if (isPrivileged(user)) return true
+  if (req.createdBy === user.uid) return true
+  if (req.assignedManagers.includes(user.uid) || req.helpers.includes(user.uid)) return true
+  return getTeamRole(user, req.teamId, memberships) !== null
+}
+
+/** Logistics (order number, farm info, AWB, ETA) + status: NPD or the team's
+ *  account managers. */
+export function canManageRequestLogistics(
+  user: AppUser,
+  req: Pick<SampleRequest, 'teamId' | 'assignedManagers'>,
+  memberships: TeamMember[]
+): boolean {
+  if (isPrivileged(user)) return true
+  if (req.assignedManagers.includes(user.uid)) return true
+  return getTeamRole(user, req.teamId, memberships) === 'account_manager'
+}
+
+/** Core fields (title, description, dates, bucket): the creator while the
+ *  request is still 'submitted'; NPD can always fix anything. */
+export function canEditRequestCore(
+  user: AppUser,
+  req: Pick<SampleRequest, 'createdBy' | 'status'>
+): boolean {
+  if (isPrivileged(user)) return true
+  return req.createdBy === user.uid && req.status === 'submitted'
 }
