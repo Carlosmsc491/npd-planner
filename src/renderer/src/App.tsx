@@ -45,7 +45,7 @@ function BoardRoute() {
 }
 
 export default function App() {
-  const { setUser, setLoading, user } = useAuthStore()
+  const { setUser, setLoading, setFounderUid, user } = useAuthStore()
   const { open: searchOpen, openSearch, closeSearch } = useGlobalSearchState()
   const [updateReady, setUpdateReady] = useState(false)
   const [updateAvailable, setUpdateAvailable] = useState(false)
@@ -130,6 +130,32 @@ export default function App() {
       if (unsubscribeUser) unsubscribeUser()
     }
   }, [setUser, setLoading])
+
+  // Founder governance — single-doc listener on settings/platform keeps
+  // founderUid live for permission checks (only the founder mints owners).
+  // Self-healing bootstrap: if no founder exists yet and the current user is
+  // an active owner, claim it (rules gate the create server-side).
+  useEffect(() => {
+    if (!user || user.status !== 'active') {
+      setFounderUid(null)
+      return
+    }
+    let cancelled = false
+    let unsub: (() => void) | null = null
+    void import('./lib/firestore').then(({ subscribeToPlatformGovernance, bootstrapFounder }) => {
+      if (cancelled) return
+      unsub = subscribeToPlatformGovernance((gov) => {
+        setFounderUid(gov?.founderUid ?? null)
+        if (!gov && user.role === 'owner') {
+          void bootstrapFounder(user.uid)
+        }
+      })
+    })
+    return () => {
+      cancelled = true
+      if (unsub) unsub()
+    }
+  }, [user?.uid, user?.role, user?.status, setFounderUid])
 
   // Apply theme based on user preferences
   useEffect(() => {
