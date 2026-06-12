@@ -63,7 +63,9 @@ export default function NotificationCenter({ onClose }: Props) {
   async function handleClick(notif: AppNotification) {
     if (!notif.read) await markNotificationRead(notif.id)
     onClose()
-    if (notif.taskId) {
+    if (notif.requestId) {
+      navigate('/requests')
+    } else if (notif.taskId) {
       navigate(`/task/${notif.taskId}`)
     } else if (notif.type === 'new_user_pending') {
       navigate('/settings?tab=members')

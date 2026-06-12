@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, X, Loader2, Inbox, Building2, CalendarDays, ChevronRight, Truck, ClipboardList,
+  MessageSquare, Mail, Send,
 } from 'lucide-react'
 import { Timestamp } from 'firebase/firestore'
 import AppLayout from '../components/ui/AppLayout'
@@ -15,8 +16,10 @@ import { useRequestStore } from '../store/requestStore'
 import { useTaskStore } from '../store/taskStore'
 import {
   createSampleRequest, updateRequestStatus, updateRequestLogistics,
-  subscribeToRequestEvents,
+  subscribeToRequestEvents, subscribeToRequestComments, addRequestComment,
+  getRequestParticipantEmails,
 } from '../lib/requestsFirestore'
+import { buildRequestEmailUrl, buildRecipientList } from '../lib/requestEmail'
 import { subscribeToTeams } from '../lib/teamsFirestore'
 import {
   isPrivileged, canCreateSampleRequest, canManageRequestLogistics,
@@ -26,7 +29,7 @@ import {
   SAMPLE_REQUEST_BUCKETS, SAMPLE_REQUEST_STATUS_LABELS, SAMPLE_REQUEST_STATUS_ORDER,
 } from '../types'
 import type {
-  AppUser, SampleRequest, SampleRequestEvent, SampleRequestStatus, Team,
+  AppUser, SampleRequest, SampleRequestComment, SampleRequestEvent, SampleRequestStatus, Team,
 } from '../types'
 
 const STATUS_STYLES: Record<SampleRequestStatus, string> = {
@@ -336,6 +339,10 @@ function RequestDetailModal({
   const { setToast } = useTaskStore()
   const { myMemberships } = useTeamStore()
   const [events, setEvents] = useState<SampleRequestEvent[]>([])
+  const [comments, setComments] = useState<SampleRequestComment[]>([])
+  const [commentText, setCommentText] = useState('')
+  const [sendingComment, setSendingComment] = useState(false)
+  const [showEmail, setShowEmail] = useState(false)
   const [orderNumber, setOrderNumber] = useState(request.orderNumber)
   const [farmInfo, setFarmInfo] = useState(request.farmInfo)
   const [awbNumber, setAwbNumber] = useState(request.awbNumber)
@@ -343,6 +350,7 @@ function RequestDetailModal({
   const [saving, setSaving] = useState(false)
 
   useEffect(() => subscribeToRequestEvents(request.id, setEvents), [request.id])
+  useEffect(() => subscribeToRequestComments(request.id, setComments), [request.id])
 
   const canLogistics = canManageRequestLogistics(user, request, myMemberships)
   const canStatus = canLogistics  // same audience: NPD + the team's AMs
@@ -352,7 +360,7 @@ function RequestDetailModal({
 
   async function handleStatus(status: SampleRequestStatus) {
     try {
-      await updateRequestStatus(request.id, status, user)
+      await updateRequestStatus(request, status, user)
     } catch (err) {
       setToast({ id: `req-st-err-${Date.now()}`, message: err instanceof Error ? err.message : String(err), type: 'error', duration: 5000 })
     }
@@ -361,12 +369,25 @@ function RequestDetailModal({
   async function saveLogistics() {
     setSaving(true)
     try {
-      await updateRequestLogistics(request.id, { orderNumber, farmInfo, awbNumber, eta }, user)
+      await updateRequestLogistics(request, { orderNumber, farmInfo, awbNumber, eta }, user)
       setToast({ id: `req-log-${Date.now()}`, message: 'Logistics updated', type: 'success', duration: 3000 })
     } catch (err) {
       setToast({ id: `req-log-err-${Date.now()}`, message: err instanceof Error ? err.message : String(err), type: 'error', duration: 5000 })
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleComment() {
+    if (!commentText.trim()) return
+    setSendingComment(true)
+    try {
+      await addRequestComment(request, commentText.trim(), user)
+      setCommentText('')
+    } catch (err) {
+      setToast({ id: `req-cm-err-${Date.now()}`, message: err instanceof Error ? err.message : String(err), type: 'error', duration: 5000 })
+    } finally {
+      setSendingComment(false)
     }
   }
 
@@ -478,6 +499,131 @@ function RequestDetailModal({
               </div>
             )}
           </div>
+
+          {/* Comments */}
+          <div>
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              <MessageSquare size={12} /> Comments
+            </p>
+            <div className="space-y-2">
+              {comments.map((c) => (
+                <div key={c.id} className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-700/40">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    {c.authorName} · {c.createdAt ? formatDate(c.createdAt) : ''}
+                  </p>
+                  <p className="mt-0.5 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200">{c.text}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="text"
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleComment() }}
+                placeholder="Write a comment…"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              />
+              <button
+                onClick={handleComment}
+                disabled={!commentText.trim() || sendingComment}
+                className="rounded-lg bg-green-600 p-2 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+              >
+                {sendingComment ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer actions */}
+        <div className="border-t border-gray-100 px-6 py-3 dark:border-gray-700/60">
+          <button
+            onClick={() => setShowEmail(true)}
+            className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+          >
+            <Mail size={14} />
+            Send Email Update
+          </button>
+        </div>
+      </div>
+
+      {showEmail && (
+        <RequestEmailModal request={request} onClose={() => setShowEmail(false)} />
+      )}
+    </div>
+  )
+}
+
+// ─── Manual email update modal ───────────────────────────────────────────────
+// Prefills a mailto: with the request info + the fields below and opens the
+// user's mail app. Recipients: creator + assigned managers.
+
+function RequestEmailModal({ request, onClose }: { request: SampleRequest; onClose: () => void }) {
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [truck, setTruck] = useState('')
+  const [clientName, setClientName] = useState(request.teamName.replace(/ team$/i, ''))
+  const [extraNotes, setExtraNotes] = useState('')
+  const [opening, setOpening] = useState(false)
+
+  async function handleOpen() {
+    setOpening(true)
+    try {
+      const emails = await getRequestParticipantEmails(request)
+      const url = buildRequestEmailUrl(request, buildRecipientList(emails), {
+        date, truck, clientName, extraNotes,
+      })
+      await window.electronAPI.openExternal(url)
+      onClose()
+    } finally {
+      setOpening(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-800">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-900 dark:text-white">Email Update</h2>
+          <button onClick={onClose} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="space-y-3">
+          {([
+            ['Date', date, setDate, 'date'],
+            ['Truck / Carrier', truck, setTruck, 'text'],
+            ['Client', clientName, setClientName, 'text'],
+          ] as [string, string, (v: string) => void, string][]).map(([label, value, setter, type]) => (
+            <div key={label}>
+              <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{label}</label>
+              <input
+                type={type}
+                value={value}
+                onChange={(e) => setter(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-2.5 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              />
+            </div>
+          ))}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Message</label>
+            <textarea
+              value={extraNotes}
+              onChange={(e) => setExtraNotes(e.target.value)}
+              rows={3}
+              placeholder="The flower arrived, NPD finished — pallet handed to shipping…"
+              className="w-full resize-none rounded-lg border border-gray-300 px-2.5 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            />
+          </div>
+          <button
+            onClick={handleOpen}
+            disabled={opening}
+            className="w-full rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+          >
+            {opening ? 'Opening…' : 'Open in Mail App'}
+          </button>
+          <p className="text-center text-xs text-gray-400 dark:text-gray-500">
+            Sends to the request creator and assigned account managers.
+          </p>
         </div>
       </div>
     </div>

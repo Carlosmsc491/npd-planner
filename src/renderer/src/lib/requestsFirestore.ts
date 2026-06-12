@@ -5,24 +5,75 @@
 // NPD-facing view.
 
 import {
-  collection, doc, getDocs, query, where, orderBy, limit, onSnapshot,
-  serverTimestamp, writeBatch, updateDoc, arrayUnion, Timestamp,
+  collection, doc, getDoc, getDocs, query, where, orderBy, limit, onSnapshot,
+  serverTimestamp, writeBatch, updateDoc, arrayUnion, deleteDoc, Timestamp,
   Unsubscribe,
 } from 'firebase/firestore'
 import { db } from './firebase'
+import { createNotification } from './firestore'
+import { requestParticipantUids, newRequestRecipients } from './requestNotifications'
 import type {
-  AppUser, Board, SampleRequest, SampleRequestEvent, SampleRequestEventType,
+  AppNotification, AppUser, Board, NotificationType, SampleRequest,
+  SampleRequestComment, SampleRequestEvent, SampleRequestEventType,
   SampleRequestStatus, Task, Team,
 } from '../types'
 import { SAMPLE_REQUEST_STATUS_LABELS } from '../types'
 
 export const REQUEST_COLLECTIONS = {
   SAMPLE_REQUESTS: 'sampleRequests',
-  EVENTS:          'events',   // subcollection of each request
+  EVENTS:          'events',     // subcollection of each request
+  COMMENTS:        'comments',   // subcollection of each request
 } as const
 
 function eventsCol(requestId: string) {
   return collection(db, REQUEST_COLLECTIONS.SAMPLE_REQUESTS, requestId, REQUEST_COLLECTIONS.EVENTS)
+}
+
+function commentsCol(requestId: string) {
+  return collection(db, REQUEST_COLLECTIONS.SAMPLE_REQUESTS, requestId, REQUEST_COLLECTIONS.COMMENTS)
+}
+
+// ─────────────────────────────────────────
+// IN-APP NOTIFICATIONS
+// ─────────────────────────────────────────
+
+/** Fan-out one in-app notification per recipient. Failures are logged, never
+ *  thrown — a notification must not break the main write. */
+async function notifyUids(
+  uids: string[],
+  requestId: string,
+  type: NotificationType,
+  message: string,
+  actor: AppUser
+): Promise<void> {
+  for (const uid of uids) {
+    try {
+      await createNotification({
+        userId: uid,
+        requestId,
+        type,
+        message,
+        read: false,
+        triggeredBy: actor.uid,
+        triggeredByName: actor.name,
+      } as Omit<AppNotification, 'id'>)
+    } catch (err) {
+      console.error('request notification failed:', err)
+    }
+  }
+}
+
+/** NPD admins/owners — recipients for newly filed requests. */
+async function getAdminUids(): Promise<string[]> {
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'users'), where('role', 'in', ['admin', 'owner']))
+    )
+    return snap.docs.map((d) => d.id)
+  } catch (err) {
+    console.error('getAdminUids failed:', err)
+    return []
+  }
 }
 
 // ─────────────────────────────────────────
@@ -125,6 +176,16 @@ export async function createSampleRequest(
       createdAt: serverTimestamp(),
     })
     await batch.commit()
+
+    // NPD triages the incoming queue — notify admins/owners
+    const admins = await getAdminUids()
+    await notifyUids(
+      newRequestRecipients(admins, creator.uid),
+      requestRef.id,
+      'updated',
+      `New sample request from ${input.team.name}: "${input.title}"`,
+      creator
+    )
     return requestRef.id
   } catch (err) {
     throw new Error(`Failed to create sample request: ${err}`)
@@ -149,16 +210,23 @@ async function logEvent(
 }
 
 export async function updateRequestStatus(
-  requestId: string,
+  req: SampleRequest,
   status: SampleRequestStatus,
   actor: AppUser
 ): Promise<void> {
   try {
-    await updateDoc(doc(db, REQUEST_COLLECTIONS.SAMPLE_REQUESTS, requestId), {
+    await updateDoc(doc(db, REQUEST_COLLECTIONS.SAMPLE_REQUESTS, req.id), {
       status, updatedAt: serverTimestamp(), updatedBy: actor.uid,
     })
-    await logEvent(requestId, 'status_change',
-      `${actor.name} moved the request to ${SAMPLE_REQUEST_STATUS_LABELS[status]}`, actor)
+    const message = `${actor.name} moved the request to ${SAMPLE_REQUEST_STATUS_LABELS[status]}`
+    await logEvent(req.id, 'status_change', message, actor)
+    await notifyUids(
+      requestParticipantUids(req, actor.uid),
+      req.id,
+      status === 'completed' ? 'completed' : 'updated',
+      `"${req.title}": ${message}`,
+      actor
+    )
   } catch (err) {
     throw new Error(`Failed to update request status: ${err}`)
   }
@@ -166,16 +234,23 @@ export async function updateRequestStatus(
 
 /** Logistics fields filled by account managers (order, farm, AWB, ETA). */
 export async function updateRequestLogistics(
-  requestId: string,
+  req: SampleRequest,
   changes: Partial<Pick<SampleRequest, 'orderNumber' | 'farmInfo' | 'awbNumber' | 'eta'>>,
   actor: AppUser
 ): Promise<void> {
   try {
-    await updateDoc(doc(db, REQUEST_COLLECTIONS.SAMPLE_REQUESTS, requestId), {
+    await updateDoc(doc(db, REQUEST_COLLECTIONS.SAMPLE_REQUESTS, req.id), {
       ...changes, updatedAt: serverTimestamp(), updatedBy: actor.uid,
     })
     const fields = Object.keys(changes).join(', ')
-    await logEvent(requestId, 'field_update', `${actor.name} updated ${fields}`, actor)
+    await logEvent(req.id, 'field_update', `${actor.name} updated ${fields}`, actor)
+    await notifyUids(
+      requestParticipantUids(req, actor.uid),
+      req.id,
+      'updated',
+      `"${req.title}": ${actor.name} updated logistics (${fields})`,
+      actor
+    )
   } catch (err) {
     throw new Error(`Failed to update request logistics: ${err}`)
   }
@@ -198,20 +273,121 @@ export async function updateRequestCore(
 }
 
 export async function assignRequestManager(
-  requestId: string,
+  req: SampleRequest,
   managerUid: string,
   managerName: string,
   actor: AppUser
 ): Promise<void> {
   try {
-    await updateDoc(doc(db, REQUEST_COLLECTIONS.SAMPLE_REQUESTS, requestId), {
+    await updateDoc(doc(db, REQUEST_COLLECTIONS.SAMPLE_REQUESTS, req.id), {
       assignedManagers: arrayUnion(managerUid),
       updatedAt: serverTimestamp(),
       updatedBy: actor.uid,
     })
-    await logEvent(requestId, 'assignment', `${actor.name} assigned ${managerName} as account manager`, actor)
+    await logEvent(req.id, 'assignment', `${actor.name} assigned ${managerName} as account manager`, actor)
+    await notifyUids([managerUid], req.id, 'assigned',
+      `${actor.name} assigned you to "${req.title}" (${req.teamName})`, actor)
   } catch (err) {
     throw new Error(`Failed to assign manager: ${err}`)
+  }
+}
+
+// ─────────────────────────────────────────
+// COMMENTS
+// ─────────────────────────────────────────
+
+export async function addRequestComment(
+  req: SampleRequest,
+  text: string,
+  actor: AppUser
+): Promise<void> {
+  try {
+    const batch = writeBatch(db)
+    batch.set(doc(commentsCol(req.id)), {
+      authorId: actor.uid,
+      authorName: actor.name,
+      text,
+      createdAt: serverTimestamp(),
+    })
+    await batch.commit()
+    await notifyUids(
+      requestParticipantUids(req, actor.uid),
+      req.id,
+      'comment',
+      `${actor.name} commented on "${req.title}"`,
+      actor
+    )
+  } catch (err) {
+    throw new Error(`Failed to add comment: ${err}`)
+  }
+}
+
+export async function deleteRequestComment(requestId: string, commentId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, REQUEST_COLLECTIONS.SAMPLE_REQUESTS, requestId, REQUEST_COLLECTIONS.COMMENTS, commentId))
+  } catch (err) {
+    throw new Error(`Failed to delete comment: ${err}`)
+  }
+}
+
+export function subscribeToRequestComments(
+  requestId: string,
+  callback: (comments: SampleRequestComment[]) => void
+): Unsubscribe {
+  return onSnapshot(
+    query(commentsCol(requestId), orderBy('createdAt', 'asc')),
+    (snap) => callback(snap.docs.map((d) => ({ ...(d.data() as Omit<SampleRequestComment, 'id'>), id: d.id }))),
+    (err) => console.error('subscribeToRequestComments error:', err)
+  )
+}
+
+/** Emails for the manual update email (creator + assigned managers). */
+export async function getRequestParticipantEmails(req: SampleRequest): Promise<string[]> {
+  try {
+    const uids = [...new Set([req.createdBy, ...req.assignedManagers])].slice(0, 10)
+    if (uids.length === 0) return []
+    const snap = await getDocs(query(collection(db, 'users'), where('uid', 'in', uids)))
+    return snap.docs.map((d) => (d.data() as AppUser).email)
+  } catch (err) {
+    console.error('getRequestParticipantEmails failed:', err)
+    return []
+  }
+}
+
+// ─────────────────────────────────────────
+// TASK → REQUEST SYNC
+// ─────────────────────────────────────────
+
+/**
+ * Closes the loop: when NPD completes the linked Planner task, the request
+ * moves to 'completed', the timeline records it and everyone involved gets
+ * notified (this is the "report copy" signal to the sales person).
+ * Called from completeTask() via dynamic import — never throws.
+ */
+export async function completeLinkedRequest(requestId: string, actor: AppUser): Promise<void> {
+  try {
+    const snap = await getDoc(doc(db, REQUEST_COLLECTIONS.SAMPLE_REQUESTS, requestId))
+    if (!snap.exists()) return
+    const req = { ...(snap.data() as Omit<SampleRequest, 'id'>), id: snap.id }
+    if (req.status === 'completed' || req.status === 'cancelled') return
+
+    await updateDoc(snap.ref, {
+      status: 'completed' satisfies SampleRequestStatus,
+      updatedAt: serverTimestamp(),
+      updatedBy: actor.uid,
+    })
+    await logEvent(requestId, 'status_change',
+      `NPD completed the task — request finished by ${actor.name}`, actor)
+    await notifyUids(
+      requestParticipantUids(req, actor.uid),
+      requestId,
+      'completed',
+      `"${req.title}" is completed — open Requests to see the full follow-up`,
+      actor
+    )
+  } catch (err) {
+    // Sync must never break task completion (e.g. non-admin completer)
+    console.error('completeLinkedRequest failed:', err)
   }
 }
 

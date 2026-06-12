@@ -601,6 +601,17 @@ export async function completeTask(
       })
     })
 
+    // Teams platform: completing a task born from a sample request closes the
+    // request too (status, timeline, notifications). Dynamic import avoids a
+    // static cycle (requestsFirestore imports createNotification from here).
+    if (taskData && (taskData as Task).sourceRequestId) {
+      const { completeLinkedRequest } = await import('./requestsFirestore')
+      await completeLinkedRequest((taskData as Task).sourceRequestId as string, {
+        uid: userId,
+        name: userName,
+      } as import('../types').AppUser)
+    }
+
     // Notify assignees about task completion (only for planner boards)
     if (taskData && boardType === 'planner' && (taskData as Task).assignees?.length > 0) {
       for (const assigneeUid of (taskData as Task).assignees!) {

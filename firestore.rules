@@ -552,6 +552,17 @@ service cloud.firestore {
         allow create: if requestVisible(getAfter(/databases/$(database)/documents/sampleRequests/$(requestId)).data);
         allow update, delete: if false;
       }
+
+      // Comments — anyone who can see the request can comment; no author
+      // spoofing; immutable except author/admin delete.
+      match /comments/{commentId} {
+        allow read: if requestVisible(get(/databases/$(database)/documents/sampleRequests/$(requestId)).data);
+        allow create: if requestVisible(get(/databases/$(database)/documents/sampleRequests/$(requestId)).data) &&
+                         request.resource.data.authorId == request.auth.uid;
+        allow update: if false;
+        allow delete: if isAdmin() ||
+                         (isActiveUser() && resource.data.authorId == request.auth.uid);
+      }
     }
 
     // ─────────────────────────────────────────

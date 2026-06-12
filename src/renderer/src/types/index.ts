@@ -191,6 +191,14 @@ export interface SampleRequestEvent {
   createdAt: Timestamp
 }
 
+export interface SampleRequestComment {
+  id: string
+  authorId: string
+  authorName: string
+  text: string
+  createdAt: Timestamp
+}
+
 // ─────────────────────────────────────────
 // BOARDS
 // ─────────────────────────────────────────
@@ -479,6 +487,7 @@ export interface AppNotification {
   taskTitle?: string
   boardId?: string
   boardType?: BoardType
+  requestId?: string  // sample request notifications navigate to /requests
   type: NotificationType
   message: string
   read: boolean
