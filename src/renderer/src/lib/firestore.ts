@@ -767,16 +767,38 @@ export function subscribeToDivisions(
   )
 }
 
+// "All" means ALL — inactive included. The DivisionManager needs them for its
+// Show Inactive toggle (filtering active==true here made deactivated divisions
+// vanish from the admin panel entirely).
 export function subscribeToAllDivisions(callback: (divisions: Division[]) => void): Unsubscribe {
   return onSnapshot(
     query(
       collection(db, COLLECTIONS.DIVISIONS),
-      where('active', '==', true),
       orderBy('name')
     ),
     (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Division)),
     (err) => console.error('subscribeToAllDivisions error:', err)
   )
+}
+
+export async function getDivisionTaskCount(divisionId: string): Promise<number> {
+  try {
+    const snap = await getCountFromServer(
+      query(collection(db, COLLECTIONS.TASKS), where('divisionId', '==', divisionId))
+    )
+    return snap.data().count
+  } catch (err) {
+    console.error('getDivisionTaskCount failed:', err)
+    return 0
+  }
+}
+
+export async function deleteDivision(divisionId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.DIVISIONS, divisionId))
+  } catch (err) {
+    throw new Error(`Failed to delete division: ${err}`)
+  }
 }
 
 export async function getDivisionById(divisionId: string): Promise<Division | null> {

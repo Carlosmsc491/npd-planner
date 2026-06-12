@@ -7,8 +7,10 @@ import {
   subscribeToAllClients,
   createDivision,
   updateDivision,
+  deleteDivision,
+  getDivisionTaskCount,
 } from '../../lib/firestore'
-import { Search, Edit2, Check, X, Power, PowerOff, Plus } from 'lucide-react'
+import { Search, Edit2, Check, X, Power, PowerOff, Plus, Trash2 } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
 import type { Division, Client } from '../../types'
 
@@ -31,30 +33,22 @@ export default function DivisionManager() {
   const [newDivisionClient, setNewDivisionClient] = useState('')
   const [error, setError] = useState('')
 
-  // Subscribe to all divisions and clients
+  // Subscribe ONCE — the previous version depended on [clients] and re-created
+  // both listeners on every clients snapshot (quota churn + stale clientName).
+  const [rawDivisions, setRawDivisions] = useState<Division[]>([])
+
+  useEffect(() => subscribeToAllClients(setClients), [])
+  useEffect(() => subscribeToAllDivisions((d) => { setRawDivisions(d); setLoading(false) }), [])
+
+  // clientName resolved at render time so it's never stale
   useEffect(() => {
-    let unsubDivisions: (() => void) | null = null
-    let unsubClients: (() => void) | null = null
-
-    unsubClients = subscribeToAllClients((fetchedClients) => {
-      setClients(fetchedClients)
-    })
-
-    unsubDivisions = subscribeToAllDivisions((fetchedDivisions) => {
-      setDivisions(
-        fetchedDivisions.map((d) => ({
-          ...d,
-          clientName: clients.find((c) => c.id === d.clientId)?.name ?? 'Unknown',
-        }))
-      )
-      setLoading(false)
-    })
-
-    return () => {
-      unsubDivisions?.()
-      unsubClients?.()
-    }
-  }, [clients])
+    setDivisions(
+      rawDivisions.map((d) => ({
+        ...d,
+        clientName: clients.find((c) => c.id === d.clientId)?.name ?? 'Unknown',
+      }))
+    )
+  }, [rawDivisions, clients])
 
   // Filter and sort divisions
   const filteredDivisions = useMemo(() => {
@@ -123,6 +117,22 @@ export default function DivisionManager() {
       setEditName('')
     } catch (err) {
       setError('Failed to update division name')
+      console.error(err)
+    }
+  }
+
+  async function handleDelete(division: DivisionWithClient) {
+    setError('')
+    try {
+      const count = await getDivisionTaskCount(division.id)
+      if (count > 0) {
+        setError(`"${division.name}" is used by ${count} task${count !== 1 ? 's' : ''} — deactivate it instead of deleting`)
+        return
+      }
+      if (!window.confirm(`Delete division "${division.name}"? This cannot be undone.`)) return
+      await deleteDivision(division.id)
+    } catch (err) {
+      setError('Failed to delete division')
       console.error(err)
     }
   }
@@ -426,6 +436,15 @@ export default function DivisionManager() {
                     ) : (
                       <Power size={14} />
                     )}
+                  </button>
+
+                  {/* Delete button — blocked when tasks reference the division */}
+                  <button
+                    onClick={() => handleDelete(division)}
+                    className="rounded p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                    title="Delete division"
+                  >
+                    <Trash2 size={14} />
                   </button>
                 </div>
               )}

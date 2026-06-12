@@ -4,11 +4,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   subscribeToAllClients,
+  createClient,
   updateClient,
   deleteClient,
   getClientTaskCount,
 } from '../../lib/firestore'
-import { Search, Edit2, Check, X, Power, PowerOff, Trash2, AlertTriangle } from 'lucide-react'
+import { Search, Edit2, Check, X, Power, PowerOff, Trash2, AlertTriangle, Plus, Loader2 } from 'lucide-react'
+import { useAuthStore } from '../../store/authStore'
 import type { Client } from '../../types'
 
 interface ClientWithCount extends Client {
@@ -16,6 +18,7 @@ interface ClientWithCount extends Client {
 }
 
 export default function ClientManager() {
+  const { user } = useAuthStore()
   const [clients, setClients] = useState<ClientWithCount[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -24,6 +27,8 @@ export default function ClientManager() {
   const [showInactive, setShowInactive] = useState(true)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [newName, setNewName] = useState('')
+  const [adding, setAdding] = useState(false)
 
   // Subscribe to all clients (active and inactive)
   useEffect(() => {
@@ -120,6 +125,25 @@ export default function ClientManager() {
     }
   }
 
+  async function handleAdd() {
+    const trimmed = newName.trim()
+    if (!trimmed || !user) return
+    if (clients.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())) {
+      setError(`A client named "${trimmed}" already exists`)
+      return
+    }
+    setAdding(true)
+    setError('')
+    try {
+      await createClient(trimmed, user.uid)
+      setNewName('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create client')
+    } finally {
+      setAdding(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -160,6 +184,28 @@ export default function ClientManager() {
                        dark:border-gray-700 dark:bg-gray-700 dark:text-white sm:w-64"
           />
         </div>
+      </div>
+
+      {/* Add new client */}
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={newName}
+          onChange={(e) => { setNewName(e.target.value); setError('') }}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleAdd() }}
+          placeholder="New client name…"
+          className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm
+                     focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500
+                     dark:border-gray-700 dark:bg-gray-700 dark:text-white sm:max-w-xs"
+        />
+        <button
+          onClick={handleAdd}
+          disabled={!newName.trim() || adding}
+          className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+        >
+          {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+          Add Client
+        </button>
       </div>
 
       {/* Show inactive toggle */}
