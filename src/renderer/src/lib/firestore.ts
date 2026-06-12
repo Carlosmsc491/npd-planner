@@ -779,6 +779,16 @@ export function subscribeToAllDivisions(callback: (divisions: Division[]) => voi
   )
 }
 
+export async function getDivisionById(divisionId: string): Promise<Division | null> {
+  try {
+    const snap = await getDoc(doc(db, COLLECTIONS.DIVISIONS, divisionId))
+    return snap.exists() ? ({ id: snap.id, ...snap.data() } as Division) : null
+  } catch (err) {
+    console.error('getDivisionById failed:', err)
+    return null
+  }
+}
+
 export async function createDivision(
   data: Omit<Division, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<string> {
