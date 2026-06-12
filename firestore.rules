@@ -48,6 +48,30 @@ service cloud.firestore {
              (getUserData().role == 'admin' || getUserData().role == 'owner');
     }
 
+    // ── Founder model (settings/platform.founderUid) ─────────────────────
+    // Exactly one founder. Only the founder mints/demotes owners and only
+    // the founder can transfer founder status. When the platform doc does
+    // not exist yet (bootstrap), nobody has founder powers.
+    function platformExists() {
+      return exists(/databases/$(database)/documents/settings/platform);
+    }
+    function founderUidOrEmpty() {
+      return platformExists()
+        ? get(/databases/$(database)/documents/settings/platform).data.founderUid
+        : '';
+    }
+    function isFounder() {
+      return isActiveUser() && platformExists() &&
+             get(/databases/$(database)/documents/settings/platform).data.founderUid == request.auth.uid;
+    }
+
+    // ── Team isolation ───────────────────────────────────────────────────
+    // Membership docs use the deterministic id {teamId}_{uid}, so a single
+    // exists() proves membership without a query.
+    function isTeamMemberSrv(teamId) {
+      return exists(/databases/$(database)/documents/teamMembers/$(teamId + '_' + request.auth.uid));
+    }
+
     // ── Area/board permission enforcement ────────────────────────────────
     // The Access Permissions UI (None/View/Edit per board and module) used to
     // be cosmetic — these helpers make the server enforce it. Missing fields
@@ -105,14 +129,18 @@ service cloud.firestore {
                           request.resource.data.role == 'owner')
                        );
 
-      // Owner can update anyone (except change another owner's role)
-      // Admin can manage members but can NEVER mint admins or owners —
-      // privileged roles are assigned only by the owner (Azure AD model:
-      // only privileged role admins assign privileged roles)
-      // Users can update their own non-sensitive preferences
+      // Founder can update anyone (the only one who manages owners).
+      // Owner can update anyone EXCEPT the founder and except touching the
+      // owner role in any direction — minting/demoting owners is founder-only.
+      // Admin can manage members but can NEVER mint admins or owners.
+      // Users can update their own non-sensitive preferences.
       // Emergency recovery: self-promotion to owner requires a server-verified
       // emergency unlock (see /emergencyUnlocks — proof of the master key)
-      allow update: if isAppOwner() ||
+      allow update: if isFounder() ||
+                       (isAppOwner() &&
+                        uid != founderUidOrEmpty() &&
+                        resource.data.role != 'owner' &&
+                        request.resource.data.role != 'owner') ||
                        (isAdmin() &&
                         resource.data.role == 'member' &&
                         request.resource.data.role != 'owner' &&
@@ -126,8 +154,12 @@ service cloud.firestore {
                         request.resource.data.role == 'owner' &&
                         exists(/databases/$(database)/documents/emergencyUnlocks/$(request.auth.uid)));
 
-      // Only owner can delete users (soft delete via status is preferred)
-      allow delete: if isAppOwner();
+      // Founder can delete anyone; owners can delete non-owners only.
+      // The founder's doc can never be deleted by someone else.
+      allow delete: if isFounder() ||
+                       (isAppOwner() &&
+                        uid != founderUidOrEmpty() &&
+                        resource.data.role != 'owner');
     }
 
     // ─────────────────────────────────────────
@@ -265,13 +297,30 @@ service cloud.firestore {
       // The emergency master key hash must NEVER be client-readable — rules
       // compare against it server-side (see /emergencyUnlocks below)
       allow read: if isActiveUser() && docId != 'emergency';
-      // Only admins can change global settings; only the owner touches the key
-      allow write: if isAdmin() && docId != 'emergency';
+      // Only admins can change global settings; 'emergency' is owner-only and
+      // 'platform' (founder governance) has its own match below
+      allow write: if isAdmin() && docId != 'emergency' && docId != 'platform';
     }
 
     match /settings/emergency {
       allow read: if false;
       allow write: if isAppOwner();
+    }
+
+    // Founder governance doc — see Founder model helpers above.
+    //   create → bootstrap: an owner claims founder while no founder exists
+    //   update → legacy transfer by the current founder (target must be a real
+    //            user), or emergency recovery via server-verified master key
+    match /settings/platform {
+      allow read: if isActiveUser();
+      allow create: if isAppOwner() &&
+                       request.resource.data.founderUid == request.auth.uid;
+      allow update: if (isFounder() &&
+                        exists(/databases/$(database)/documents/users/$(request.resource.data.founderUid))) ||
+                       (isActiveUser() &&
+                        request.resource.data.founderUid == request.auth.uid &&
+                        exists(/databases/$(database)/documents/emergencyUnlocks/$(request.auth.uid)));
+      allow delete: if false;
     }
 
     // ─────────────────────────────────────────
@@ -418,6 +467,28 @@ service cloud.firestore {
       allow delete: if isAdmin();
       // Reports are immutable — no updates
       allow update: if false;
+    }
+
+    // ─────────────────────────────────────────
+    // TEAMS (multi-team platform — full isolation)
+    // ─────────────────────────────────────────
+    // A team only sees itself. NPD admins/owners see and manage everything.
+    // Membership management is admin-only in Fase 1.
+
+    match /teams/{teamId} {
+      allow read: if isAdmin() ||
+                     (isActiveUser() && isTeamMemberSrv(teamId));
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /teamMembers/{membershipId} {
+      // Readable by: admins, the member themself (My Teams), and fellow
+      // members of the same team (roster view). Never across teams.
+      allow read: if isAdmin() ||
+                     (isActiveUser() &&
+                      (resource.data.uid == request.auth.uid ||
+                       isTeamMemberSrv(resource.data.teamId)));
+      allow create, update, delete: if isAdmin();
     }
 
     // ─────────────────────────────────────────

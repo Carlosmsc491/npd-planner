@@ -1,5 +1,6 @@
 {
   "projects": {
-    "default": "npd-planner"
+    "default": "npd-project-teams",
+    "prod": "npd-planner"
   }
 }
