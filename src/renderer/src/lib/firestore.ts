@@ -13,7 +13,8 @@ import type {
   TaskHistoryEntry, AppNotification, AnnualSummary,
   GlobalSettings, HistoryAction, ConflictData,
   PersonalNote, PersonalTask, QuickLink, TrashQueueItem, TrashItemStatus,
-  AttachmentStatus, AreaPermissions, DateType, PendingApproval, CapturedPhoto
+  AttachmentStatus, AreaPermissions, DateType, PendingApproval, CapturedPhoto,
+  PlatformGovernance
 } from '../types'
 
 // ─────────────────────────────────────────
@@ -1146,6 +1147,57 @@ export async function updateGlobalSettings(
   } catch (err) {
     console.error('Failed to update global settings:', err)
     throw err
+  }
+}
+
+// ─────────────────────────────────────────
+// PLATFORM GOVERNANCE (Founder model)
+// ─────────────────────────────────────────
+// settings/platform holds the single founderUid. Rules only allow:
+//   create → an owner claiming founder when the doc doesn't exist (bootstrap)
+//   update → the current founder (legacy transfer)
+
+export function subscribeToPlatformGovernance(
+  callback: (gov: PlatformGovernance | null) => void
+): Unsubscribe {
+  return onSnapshot(
+    doc(db, COLLECTIONS.SETTINGS, 'platform'),
+    (snap) => callback(snap.exists() ? (snap.data() as PlatformGovernance) : null),
+    (err) => console.error('subscribeToPlatformGovernance error:', err)
+  )
+}
+
+/**
+ * First-owner bootstrap: if no founder is registered yet, the calling owner
+ * claims founder status. No-op when the platform doc already exists.
+ */
+export async function bootstrapFounder(uid: string): Promise<void> {
+  try {
+    const ref = doc(db, COLLECTIONS.SETTINGS, 'platform')
+    const snap = await getDoc(ref)
+    if (snap.exists()) return
+    await setDoc(ref, { founderUid: uid })
+  } catch (err) {
+    console.error('bootstrapFounder failed:', err)
+  }
+}
+
+/**
+ * Legacy transfer: the founder hands the platform to another user, who becomes
+ * the new founder. The recipient is promoted to owner first so the founder is
+ * always an owner; the previous founder keeps the owner role (the new founder
+ * can demote them later).
+ */
+export async function transferFounder(currentFounderUid: string, newFounderUid: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.USERS, newFounderUid), { role: 'owner' })
+    await updateDoc(doc(db, COLLECTIONS.SETTINGS, 'platform'), {
+      founderUid: newFounderUid,
+      transferredFrom: currentFounderUid,
+      transferredAt: serverTimestamp(),
+    })
+  } catch (err) {
+    throw new Error(`Failed to transfer founder: ${err}`)
   }
 }
 

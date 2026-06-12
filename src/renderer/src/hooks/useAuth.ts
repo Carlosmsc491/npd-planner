@@ -1,17 +1,17 @@
 // src/renderer/src/hooks/useAuth.ts
 // Subscribes to Firebase auth state and loads user document from Firestore
-// Exposes: user, isAdmin, isLoading, signOut
+// Exposes: user, isAdmin, isOwner, isFounder, isLoading, signOut
 
 import { useEffect, useCallback } from 'react'
 import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth'
 import { useNavigate } from 'react-router-dom'
 import { auth } from '../lib/firebase'
-import { getUser } from '../lib/firestore'
+import { getUser, subscribeToPlatformGovernance, bootstrapFounder } from '../lib/firestore'
 import { useAuthStore } from '../store/authStore'
 import type { AppUser } from '../types'
 
 export function useAuth() {
-  const { user, isLoading, setUser, setLoading } = useAuthStore()
+  const { user, isLoading, founderUid, setUser, setLoading, setFounderUid } = useAuthStore()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -23,6 +23,11 @@ export function useAuth() {
         try {
           const appUser = await Promise.race([getUser(firebaseUser.uid), timeout]) as AppUser | null
           setUser(appUser)
+          // Founder bootstrap: the first owner to log in claims founder status
+          // (no-op once settings/platform exists — rules enforce it too)
+          if (appUser?.role === 'owner' && appUser.status === 'active') {
+            void bootstrapFounder(appUser.uid)
+          }
         } catch {
           setUser(null)
         }
@@ -34,6 +39,17 @@ export function useAuth() {
 
     return unsubscribe
   }, [setUser, setLoading])
+
+  // Single-doc listener on settings/platform — keeps founderUid current for
+  // permission checks (only the founder can mint owners / transfer legacy)
+  useEffect(() => {
+    if (!user) {
+      setFounderUid(null)
+      return
+    }
+    const unsub = subscribeToPlatformGovernance((gov) => setFounderUid(gov?.founderUid ?? null))
+    return unsub
+  }, [user?.uid, setFounderUid])
 
   const signOut = useCallback(async () => {
     try {
@@ -51,6 +67,7 @@ export function useAuth() {
 
   const isOwner = user?.role === 'owner'
   const isAdmin = user?.role === 'admin' || isOwner
+  const isFounder = !!user && !!founderUid && user.uid === founderUid && isOwner
 
-  return { user, isAdmin, isOwner, isLoading, signOut }
+  return { user, isAdmin, isOwner, isFounder, founderUid, isLoading, signOut }
 }

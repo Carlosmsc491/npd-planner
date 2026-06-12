@@ -63,6 +63,53 @@ export interface AppUser {
 }
 
 // ─────────────────────────────────────────
+// PLATFORM GOVERNANCE (Founder model)
+// ─────────────────────────────────────────
+// Exactly ONE founder exists (settings/platform.founderUid). Only the founder
+// can mint or demote owners, and only the founder can transfer founder status
+// ("legacy") to another user — the recipient becomes the new founder.
+
+export interface PlatformGovernance {
+  founderUid: string
+  transferredFrom?: string   // previous founder uid (set on legacy transfer)
+  transferredAt?: Timestamp
+}
+
+// ─────────────────────────────────────────
+// TEAMS (multi-team platform — sales teams per account)
+// ─────────────────────────────────────────
+// A team maps to one account/client (Publix Team, Walmart Team...).
+// Role is per-membership, NOT global: the same user can be 'sales' in two
+// teams, and an account manager can belong to many teams. Teams are fully
+// isolated from each other — only NPD admins/owners see across teams.
+
+export type TeamRole = 'sales' | 'account_manager' | 'support'
+
+export const TEAM_ROLE_LABELS: Record<TeamRole, string> = {
+  sales:           'Sales Person',
+  account_manager: 'Account Manager',
+  support:         'Support',
+}
+
+export interface Team {
+  id: string
+  name: string
+  clientId: string | null   // linked client in the clients collection
+  active: boolean
+  createdBy: string
+  createdAt: Timestamp
+}
+
+export interface TeamMember {
+  id: string        // deterministic: `${teamId}_${uid}` (enables exists() checks in rules)
+  teamId: string
+  uid: string
+  teamRole: TeamRole
+  addedBy: string
+  addedAt: Timestamp
+}
+
+// ─────────────────────────────────────────
 // BOARDS
 // ─────────────────────────────────────────
 

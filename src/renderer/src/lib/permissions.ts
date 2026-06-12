@@ -4,7 +4,7 @@
 //   boards  → 'board_{boardId}'
 //   areas   → 'projects' | 'recipes' | 'analytics' | 'settings'
 
-import type { AppUser, AreaPermission } from '../types'
+import type { AppUser, AreaPermission, TeamMember, TeamRole } from '../types'
 
 export function isPrivileged(user: AppUser): boolean {
   return user.role === 'owner' || user.role === 'admin'
@@ -71,25 +71,48 @@ export function canViewPhotos(_user: AppUser): boolean {
   return true  // all authenticated users with recipe access can view
 }
 
+// ─── Platform governance (Founder model) ─────────────────────────────────────
+// Exactly ONE founder exists (settings/platform.founderUid). The founder is
+// the only user who can mint/demote owners and the only one who can transfer
+// founder status ("legacy"). Enforced server-side by firestore.rules.
+
+export function isFounder(user: AppUser, founderUid: string | null): boolean {
+  return !!founderUid && user.uid === founderUid && user.role === 'owner'
+}
+
+/** Only the current founder can hand over the platform ("legacy" transfer). */
+export function canTransferFounder(actor: AppUser, founderUid: string | null): boolean {
+  return isFounder(actor, founderUid)
+}
+
 // ─── User management permissions ─────────────────────────────────────────────
 
 export function canApproveUsers(user: AppUser): boolean {
   return isPrivileged(user)
 }
 
-// Azure AD model: admins manage members (suspend, permissions, member ↔
-// photographer) but only the OWNER assigns or removes the admin role.
+// Hierarchy: founder > owner > admin > everyone else.
+// Founder manages owners; owners manage admins/members; admins manage members.
 // Enforced server-side by the users update rule.
-export function canChangeRole(actor: AppUser, target: AppUser): boolean {
+export function canChangeRole(
+  actor: AppUser,
+  target: AppUser,
+  founderUid: string | null = null
+): boolean {
   if (actor.uid === target.uid) return false          // nobody can change their own role
+  if (isFounder(actor, founderUid)) return true       // founder manages everyone, owners included
   if (actor.role === 'owner') return target.role !== 'owner'
   if (actor.role === 'admin') return target.role === 'member'
   return false
 }
 
-/** Whether the actor may assign a specific role — admins can never mint admins */
-export function canAssignRole(actor: AppUser, newRole: AppUser['role']): boolean {
-  if (newRole === 'owner') return false               // owner is never assigned from the UI
+/** Whether the actor may assign a specific role — only the founder mints owners */
+export function canAssignRole(
+  actor: AppUser,
+  newRole: AppUser['role'],
+  founderUid: string | null = null
+): boolean {
+  if (newRole === 'owner') return isFounder(actor, founderUid)
   if (newRole === 'admin') return actor.role === 'owner'
   return isPrivileged(actor)
 }
@@ -110,4 +133,36 @@ export function canEditAreaPermissions(actor: AppUser, target: AppUser): boolean
   if (actor.role === 'owner') return true
   if (actor.role === 'admin') return target.role === 'member'
   return false
+}
+
+// ─── Team permissions (multi-team platform) ───────────────────────────────────
+// Teams are isolated from each other: a team only sees its own data. NPD
+// admins/owners see across all teams. Resolution cascade:
+//   1. NPD admin/owner → full access everywhere
+//   2. team membership → access per teamRole
+//   3. (Fase 2) direct assignment on a request → access to that request only
+
+/** Only NPD admins/owners create teams and manage memberships. */
+export function canManageTeams(user: AppUser): boolean {
+  return isPrivileged(user)
+}
+
+/** The user's role inside a team, or null if not a member. */
+export function getTeamRole(
+  user: AppUser,
+  teamId: string,
+  memberships: TeamMember[]
+): TeamRole | null {
+  const m = memberships.find((mm) => mm.teamId === teamId && mm.uid === user.uid)
+  return m ? m.teamRole : null
+}
+
+/** Team isolation: members of the team + NPD admins/owners. Nobody else. */
+export function canViewTeam(
+  user: AppUser,
+  teamId: string,
+  memberships: TeamMember[]
+): boolean {
+  if (isPrivileged(user)) return true
+  return getTeamRole(user, teamId, memberships) !== null
 }
