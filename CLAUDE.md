@@ -4,6 +4,13 @@
 > Update checkboxes as features are completed.
 > Never skip this file, even for small tasks.
 
+> ⚠️ **THIS IS THE `feature/teams` BRANCH (worktree ~/npd-planner-teams).**
+> It targets the DEV Firebase project (`npd-project-teams`), NOT production.
+> Before touching teams/requests/founder code, READ **TEAMS_PLATFORM.md**
+> (repo root) — it is the dictionary for the multi-team platform: data model,
+> permission matrix, flows, file map, merge checklist and pending work.
+> Production fixes belong in `~/npd-planner` (branch `main`).
+
 ---
 
 ## Knowledge Graph (graphify)
