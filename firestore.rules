@@ -71,6 +71,19 @@ service cloud.firestore {
     function isTeamMemberSrv(teamId) {
       return exists(/databases/$(database)/documents/teamMembers/$(teamId + '_' + request.auth.uid));
     }
+    function teamRoleSrv(teamId) {
+      return get(/databases/$(database)/documents/teamMembers/$(teamId + '_' + request.auth.uid)).data.teamRole;
+    }
+    // Request visibility: NPD, the creator, assigned managers/helpers, and
+    // members of the owning team. Nobody outside the team — full isolation.
+    function requestVisible(r) {
+      return isAdmin() ||
+             (isActiveUser() &&
+              (r.createdBy == request.auth.uid ||
+               request.auth.uid in r.assignedManagers ||
+               request.auth.uid in r.helpers ||
+               isTeamMemberSrv(r.teamId)));
+    }
 
     // ── Area/board permission enforcement ────────────────────────────────
     // The Access Permissions UI (None/View/Edit per board and module) used to
@@ -181,7 +194,14 @@ service cloud.firestore {
       allow read: if isActiveUser() &&
                      (canViewBoardSrv(resource.data.boardId) ||
                       request.auth.uid in resource.data.get('assignees', []));
-      allow create: if canEditBoardSrv(request.resource.data.boardId);
+      // Board editors create tasks normally. Sales people of a team may also
+      // create the linked task that accompanies their sample request — the
+      // task must carry their own team in sourceTeamId.
+      allow create: if canEditBoardSrv(request.resource.data.boardId) ||
+                       (isActiveUser() &&
+                        request.resource.data.get('sourceTeamId', '') != '' &&
+                        isTeamMemberSrv(request.resource.data.sourceTeamId) &&
+                        teamRoleSrv(request.resource.data.sourceTeamId) == 'sales');
       // Both the current board and the target board (task moves) need Edit
       allow update: if canEditBoardSrv(resource.data.boardId) &&
                        canEditBoardSrv(request.resource.data.boardId);
@@ -489,6 +509,49 @@ service cloud.firestore {
                       (resource.data.uid == request.auth.uid ||
                        isTeamMemberSrv(resource.data.teamId)));
       allow create, update, delete: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────
+    // SAMPLE REQUESTS (teams → NPD pipeline)
+    // ─────────────────────────────────────────
+
+    match /sampleRequests/{requestId} {
+      allow read: if requestVisible(resource.data);
+
+      // Only sales of the owning team file requests (NPD can too). The
+      // creator can't impersonate and every request starts at 'submitted'.
+      allow create: if isAdmin() ||
+                       (isActiveUser() &&
+                        request.resource.data.createdBy == request.auth.uid &&
+                        request.resource.data.status == 'submitted' &&
+                        isTeamMemberSrv(request.resource.data.teamId) &&
+                        teamRoleSrv(request.resource.data.teamId) == 'sales');
+
+      // NPD fixes anything. Account managers (of the team, or directly
+      // assigned) drive logistics + status. The creator edits core fields
+      // only while the request is still 'submitted'.
+      allow update: if isAdmin() ||
+                       (isActiveUser() &&
+                        (request.auth.uid in resource.data.assignedManagers ||
+                         (isTeamMemberSrv(resource.data.teamId) &&
+                          teamRoleSrv(resource.data.teamId) == 'account_manager')) &&
+                        request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['orderNumber', 'farmInfo', 'awbNumber', 'eta', 'status', 'updatedAt', 'updatedBy'])) ||
+                       (isActiveUser() &&
+                        resource.data.createdBy == request.auth.uid &&
+                        resource.data.status == 'submitted' &&
+                        request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['title', 'description', 'bucket', 'needByDate', 'shipDate', 'updatedAt', 'updatedBy']));
+
+      allow delete: if isAdmin();
+
+      // Follow-up timeline — append-only, same audience as the request.
+      // getAfter() covers the creation batch (request + task + first event).
+      match /events/{eventId} {
+        allow read: if requestVisible(get(/databases/$(database)/documents/sampleRequests/$(requestId)).data);
+        allow create: if requestVisible(getAfter(/databases/$(database)/documents/sampleRequests/$(requestId)).data);
+        allow update, delete: if false;
+      }
     }
 
     // ─────────────────────────────────────────
