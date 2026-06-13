@@ -120,6 +120,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
     if (!title.trim()) { setError('Title is required'); return }
     if (!isPersonBoard && !clientId) { setError('Client is required'); return }
     if (isPersonBoard && !personId) { setError('Person is required'); return }
+    if (!bucket.trim()) { setError('Bucket is required'); return }
     if (!user) return
 
     setSaving(true)
@@ -259,7 +260,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
     if (prop.id === 'builtin-bucket') {
       return (
         <div key={prop.id}>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{prop.name}</label>
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{prop.name} *</label>
           <input
             type="text"
             list={`buckets-${board.id}`}
@@ -408,7 +409,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
                 </div>
               )}
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Bucket</label>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Bucket *</label>
                 <input type="text" list={`buckets-${board.id}`} value={bucket} onChange={e => setBucket(e.target.value)}
                   placeholder="Select or type a bucket"
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
