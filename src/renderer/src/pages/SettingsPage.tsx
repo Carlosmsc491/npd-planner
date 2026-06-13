@@ -61,16 +61,16 @@ const SETTINGS_SECTIONS: SectionDef[] = [
   {
     label: 'Planner',
     tabs: [
-      { id: 'boards',         label: 'Boards',         icon: LayoutDashboard, adminOnly: true },
-      { id: 'clients',        label: 'Clients',        icon: Building2,       adminOnly: true },
-      { id: 'divisions',      label: 'Divisions',      icon: Layers,          adminOnly: true },
-      { id: 'labels',         label: 'Labels',         icon: Tag,             adminOnly: true },
-      { id: 'dateTypes',      label: 'Date Types',     icon: CalendarClock,   adminOnly: true },
+      { id: 'boards',         label: 'Boards',         icon: LayoutDashboard, memberAreaId: 'settings_boards' },
+      { id: 'clients',        label: 'Clients',        icon: Building2,       memberAreaId: 'settings_clients' },
+      { id: 'divisions',      label: 'Divisions',      icon: Layers,          memberAreaId: 'settings_divisions' },
+      { id: 'labels',         label: 'Labels',         icon: Tag,             memberAreaId: 'settings_labels' },
+      { id: 'dateTypes',      label: 'Date Types',     icon: CalendarClock,   memberAreaId: 'settings_dateTypes' },
       { id: 'files',          label: 'Files',          icon: FolderOpen,      memberAreaId: 'settings_files' },
       { id: 'traze',          label: 'Traze',          icon: Truck,           memberAreaId: 'settings_traze' },
-      { id: 'archive',        label: 'Archive',        icon: Archive,         adminOnly: true },
+      { id: 'archive',        label: 'Archive',        icon: Archive,         memberAreaId: 'settings_archive' },
       { id: 'trash',          label: 'Trash',          icon: Trash2,          memberAreaId: 'settings_trash' },
-      { id: 'import-history', label: 'Import History', icon: History,         adminOnly: true },
+      { id: 'import-history', label: 'Import History', icon: History,         memberAreaId: 'settings_importHistory' },
     ],
   },
   {
@@ -85,7 +85,7 @@ const SETTINGS_SECTIONS: SectionDef[] = [
   {
     label: 'Photography',
     tabs: [
-      { id: 'photography', label: 'SSD Storage', icon: CameraIcon, adminOnly: true },
+      { id: 'photography', label: 'SSD Storage', icon: CameraIcon, memberAreaId: 'settings_photography' },
     ],
   },
   {
@@ -1019,10 +1019,18 @@ const CORE_PERM_AREAS: { label: string; areaId: string; options: AreaPermission[
 ]
 
 const SETTINGS_PERM_AREAS: { label: string; areaId: string }[] = [
-  { label: 'Files (SharePoint)', areaId: 'settings_files'  },
-  { label: 'Traze / AWB',        areaId: 'settings_traze'  },
-  { label: 'Trash',              areaId: 'settings_trash'  },
-  { label: 'Recipe Settings',    areaId: 'settings_recipe' },
+  { label: 'Boards',             areaId: 'settings_boards'        },
+  { label: 'Clients',            areaId: 'settings_clients'       },
+  { label: 'Divisions',          areaId: 'settings_divisions'     },
+  { label: 'Labels',             areaId: 'settings_labels'        },
+  { label: 'Date Types',         areaId: 'settings_dateTypes'     },
+  { label: 'Files (SharePoint)', areaId: 'settings_files'         },
+  { label: 'Traze / AWB',        areaId: 'settings_traze'         },
+  { label: 'Archive',            areaId: 'settings_archive'       },
+  { label: 'Trash',              areaId: 'settings_trash'         },
+  { label: 'Import History',     areaId: 'settings_importHistory' },
+  { label: 'Recipe Settings',    areaId: 'settings_recipe'        },
+  { label: 'SSD Storage',        areaId: 'settings_photography'   },
 ]
 
 const PERM_LABELS: Record<AreaPermission, string> = { none: 'None', view: 'View', edit: 'Edit' }

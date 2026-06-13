@@ -29,11 +29,24 @@ const MODULE_AREAS: AreaRow[] = [
   { label: 'NPD Projects',     areaId: 'npd_projects',         options: ['none', 'view', 'edit'] },
 ]
 
+// One entry per settings sidebar item that is NOT admin-only.
+// "Members" is intentionally absent — member management must stay admin-only.
 const SETTINGS_TAB_AREAS: AreaRow[] = [
-  { label: 'Files (SharePoint)', areaId: 'settings_files',   options: ['none', 'view'] },
-  { label: 'Traze / AWB',        areaId: 'settings_traze',   options: ['none', 'view'] },
-  { label: 'Trash',              areaId: 'settings_trash',   options: ['none', 'view'] },
-  { label: 'Recipe Settings',    areaId: 'settings_recipe',  options: ['none', 'view', 'edit'] },
+  // Planner
+  { label: 'Boards',           areaId: 'settings_boards',        options: ['none', 'view'] },
+  { label: 'Clients',          areaId: 'settings_clients',       options: ['none', 'view'] },
+  { label: 'Divisions',        areaId: 'settings_divisions',     options: ['none', 'view'] },
+  { label: 'Labels',           areaId: 'settings_labels',        options: ['none', 'view'] },
+  { label: 'Date Types',       areaId: 'settings_dateTypes',     options: ['none', 'view'] },
+  { label: 'Files (SharePoint)', areaId: 'settings_files',       options: ['none', 'view'] },
+  { label: 'Traze / AWB',      areaId: 'settings_traze',         options: ['none', 'view'] },
+  { label: 'Archive',          areaId: 'settings_archive',       options: ['none', 'view'] },
+  { label: 'Trash',            areaId: 'settings_trash',         options: ['none', 'view'] },
+  { label: 'Import History',   areaId: 'settings_importHistory', options: ['none', 'view'] },
+  // Recipe Manager
+  { label: 'Recipe Settings',  areaId: 'settings_recipe',        options: ['none', 'view', 'edit'] },
+  // Photography
+  { label: 'SSD Storage',      areaId: 'settings_photography',   options: ['none', 'view'] },
 ]
 
 const PERMISSION_LABELS: Record<AreaPermission, string> = {
