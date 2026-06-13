@@ -54,6 +54,28 @@ export interface TaskAttachment {
   mimeType: string | null
 }
 
+export interface EmailInnerAttachment {
+  id: string
+  name: string
+  sharePointRelativePath: string
+  sizeBytes: number | null
+  mimeType: string | null
+}
+
+export interface EmailAttachment {
+  id: string
+  type: 'email'
+  from: string
+  subject: string
+  date: Timestamp | null
+  bodySnippet: string
+  msgRelativePath: string
+  innerAttachments: EmailInnerAttachment[]
+  uploadedBy: string
+  uploadedByName?: string
+  uploadedAt: Timestamp | null
+}
+
 export interface PoEntry {
   id: string
   number: string
@@ -100,6 +122,7 @@ export interface Task {
   awbs?: AwbEntry[]
   subtasks?: Subtask[]
   attachments?: TaskAttachment[]
+  emailAttachments?: EmailAttachment[]
   completed: boolean
   createdBy: string
   createdAt: Timestamp

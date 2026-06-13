@@ -346,12 +346,12 @@ function TaskCard({
             {subtaskTotal > 0 && (
               <span className="text-[10px] text-gray-400">✓ {subtaskDone}/{subtaskTotal}</span>
             )}
-            {(task.attachments?.length ?? 0) > 0 && (
+            {(task.attachments?.length ?? 0) + (task.emailAttachments?.length ?? 0) > 0 && (
               <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-                {task.attachments!.length}
+                {(task.attachments?.length ?? 0) + (task.emailAttachments?.length ?? 0)}
               </span>
             )}
           </div>

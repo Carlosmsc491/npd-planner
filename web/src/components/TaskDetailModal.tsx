@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { Board, Task, Client, Label, AppUser } from '../types'
 import { STATUS_COLORS, STATUS_LABELS, getBucketColor, getInitials, getInitialsColor } from '../types'
+import { buildSharePointUrl } from '../sharepoint'
 
 interface Props {
   task: Task
@@ -34,6 +35,7 @@ export default function TaskDetailModal({ task, board, client, labels, users, on
   const subtaskDone = task.subtasks?.filter((s) => s.completed).length ?? 0
   const subtaskTotal = task.subtasks?.length ?? 0
   const attachments = task.attachments ?? []
+  const emails = task.emailAttachments ?? []
 
   // Strip HTML tags from rich-text description for a plain-text preview
   const descText = useMemo(() => {
@@ -181,26 +183,82 @@ export default function TaskDetailModal({ task, board, client, labels, users, on
             </Section>
           )}
 
-          {/* Attachments — list only (files live in SharePoint, openable from desktop app) */}
+          {/* Attachments — open directly in SharePoint Online */}
           {attachments.length > 0 && (
             <Section title={`Attachments · ${attachments.length}`}>
               <div className="space-y-1.5">
                 {attachments.map((att) => (
-                  <div key={att.id} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4 text-gray-400 shrink-0">
+                  <a
+                    key={att.id}
+                    href={buildSharePointUrl(att.sharePointRelativePath)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 hover:border-green-300 hover:bg-green-50 active:scale-[0.99] transition group"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4 text-gray-400 group-hover:text-green-600 shrink-0">
                       <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-800 truncate">{att.name}</p>
+                      <p className="text-sm text-gray-800 group-hover:text-green-700 truncate">{att.name}</p>
                       {att.uploadedByName && <p className="text-[10px] text-gray-400">by {att.uploadedByName}</p>}
                     </div>
-                  </div>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 text-gray-300 group-hover:text-green-600 shrink-0">
+                      <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </a>
                 ))}
               </div>
               <p className="text-[11px] text-gray-400 mt-2 flex items-start gap-1.5">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 shrink-0 mt-0.5"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" strokeLinecap="round" /></svg>
-                Files are stored in SharePoint. Open them from the desktop app to view or download.
+                Opens in SharePoint Online — sign in with your Elite Flower account.
               </p>
+            </Section>
+          )}
+
+          {/* Emails — .msg files + their inner attachments, all on SharePoint */}
+          {emails.length > 0 && (
+            <Section title={`Emails · ${emails.length}`}>
+              <div className="space-y-2">
+                {emails.map((em) => (
+                  <div key={em.id} className="rounded-lg border border-gray-100 bg-gray-50 overflow-hidden">
+                    <a
+                      href={buildSharePointUrl(em.msgRelativePath)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-start gap-2 px-3 py-2 hover:bg-green-50 active:scale-[0.99] transition group"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4 text-gray-400 group-hover:text-green-600 shrink-0 mt-0.5">
+                        <rect x="2" y="4" width="20" height="16" rx="2" /><path d="M22 7l-10 6L2 7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-800 group-hover:text-green-700 font-medium truncate">{em.subject || '(no subject)'}</p>
+                        {em.from && <p className="text-[10px] text-gray-400 truncate">from {em.from}</p>}
+                      </div>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 text-gray-300 group-hover:text-green-600 shrink-0 mt-0.5">
+                        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </a>
+                    {em.innerAttachments?.length > 0 && (
+                      <div className="border-t border-gray-100 px-3 py-1.5 space-y-1">
+                        {em.innerAttachments.map((inner) => (
+                          <a
+                            key={inner.id}
+                            href={buildSharePointUrl(inner.sharePointRelativePath)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-green-700 pl-5"
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3 shrink-0">
+                              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            <span className="truncate">{inner.name}</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </Section>
           )}
         </div>
