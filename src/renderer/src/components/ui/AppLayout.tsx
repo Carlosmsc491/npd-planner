@@ -6,7 +6,7 @@ import {
   MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Search,
   LayoutDashboard, CheckSquare, Package, Truck, Camera, Users, Calendar,
   Star, Folder, ShoppingCart, FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
-  User, Lock, CalendarDays, FlowerIcon, PanelLeftClose, PanelLeftOpen,
+  User, Lock, CalendarDays, FlowerIcon, PanelLeftClose, PanelLeftOpen, BookUser,
   type LucideIcon,
 } from 'lucide-react'
 import { auth } from '../../lib/firebase'
@@ -249,6 +249,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
             { path: '/dashboard',      label: 'Dashboard', icon: LayoutGrid, areaId: 'dashboard' },
             { path: '/my-space',       label: 'My Space', icon: User, isPrivate: true, areaId: 'my_space' },
             { path: '/calendar',       label: 'Master Calendar', icon: CalendarDays, areaId: 'calendar' },
+            { path: '/directory',      label: 'Directory', icon: BookUser, areaId: 'directory' },
           ].filter((item) => getAreaPermission(item.areaId) !== 'none').map((item) => {
             const Icon = item.icon
             return (
