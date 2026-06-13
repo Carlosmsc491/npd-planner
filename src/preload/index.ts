@@ -336,8 +336,8 @@ const electronAPI = {
   generateTaskReport: (req: {
     summaryHtml: string
     includeAttachments: boolean
-    attachments: Array<{ name: string; absPath: string }>
-    emailAttachments: Array<{ name: string; absPath: string }>
+    attachments: Array<{ name: string; absPath: string; group?: string }>
+    emailAttachments: Array<{ name: string; absPath: string; group?: string }>
     outputPdfPath: string
   }): Promise<{ success: boolean; pdfPath?: string; error?: string }> =>
     ipcRenderer.invoke('task:generate-report', req),

@@ -184,6 +184,19 @@ export default function WelcomeWizard({ user, onComplete }: Props) {
                 </div>
               )}
 
+              {/* OneDrive offline tip — files-on-demand placeholders break
+                  attachment copies, so nudge users to pin the folder locally */}
+              <div className="flex items-start gap-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3">
+                <span className="text-base leading-none mt-0.5">💡</span>
+                <p className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
+                  <strong>Pro tip for a better experience:</strong> open this folder in
+                  Finder/File Explorer, <strong>right-click it</strong> and choose{' '}
+                  <strong>“Always keep on this device”</strong> (OneDrive option). This keeps
+                  the files available offline so attachments open and copy instantly,
+                  without waiting for downloads.
+                </p>
+              </div>
+
               <div className="flex justify-end pt-2">
                 <button
                   onClick={handleNextFromSharePoint}

@@ -1018,20 +1018,27 @@ function ArchivePanel() {
 
 // ─── Default Permissions Panel ─────────────────────────────────────────────
 
-const DEFAULT_PERM_AREAS: { label: string; areaId: string; options: AreaPermission[] }[] = [
-  { label: 'Dashboard',        areaId: 'dashboard',     options: ['none', 'view'] },
-  { label: 'My Tasks',         areaId: 'my_tasks',       options: ['none', 'view'] },
-  { label: 'My Space',         areaId: 'my_space',       options: ['none', 'view'] },
-  { label: 'Master Calendar',  areaId: 'calendar',       options: ['none', 'view'] },
-  { label: 'Analytics',        areaId: 'analytics',      options: ['none', 'view'] },
-  { label: 'NPD Projects',     areaId: 'npd_projects',   options: ['none', 'view', 'edit'] },
-  { label: 'Files (Settings)', areaId: 'settings_files', options: ['none', 'view'] },
+const CORE_PERM_AREAS: { label: string; areaId: string; options: AreaPermission[] }[] = [
+  { label: 'Dashboard',       areaId: 'dashboard',   options: ['none', 'view'] },
+  { label: 'My Tasks',        areaId: 'my_tasks',    options: ['none', 'view'] },
+  { label: 'My Space',        areaId: 'my_space',    options: ['none', 'view'] },
+  { label: 'Master Calendar', areaId: 'calendar',    options: ['none', 'view'] },
+  { label: 'Analytics',       areaId: 'analytics',   options: ['none', 'view'] },
+  { label: 'NPD Projects',    areaId: 'npd_projects', options: ['none', 'view', 'edit'] },
+]
+
+const SETTINGS_PERM_AREAS: { label: string; areaId: string }[] = [
+  { label: 'Files (SharePoint)', areaId: 'settings_files'  },
+  { label: 'Traze / AWB',        areaId: 'settings_traze'  },
+  { label: 'Trash',              areaId: 'settings_trash'  },
+  { label: 'Recipe Settings',    areaId: 'settings_recipe' },
 ]
 
 const PERM_LABELS: Record<AreaPermission, string> = { none: 'None', view: 'View', edit: 'Edit' }
 
 function DefaultPermissionsPanel() {
   const { setToast } = useTaskStore()
+  const { boards } = useBoardStore()
   const [perms, setPerms] = useState<AreaPermissions>({})
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1067,11 +1074,14 @@ function DefaultPermissionsPanel() {
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
         When a new member is approved, they automatically receive these permissions. You can customize per user afterward.
       </p>
-      <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-        {DEFAULT_PERM_AREAS.map((area, i) => (
+
+      {/* Core areas */}
+      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5">Core</p>
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-4">
+        {CORE_PERM_AREAS.map((area, i) => (
           <div
             key={area.areaId}
-            className={`flex items-center justify-between px-4 py-2.5 ${i < DEFAULT_PERM_AREAS.length - 1 ? 'border-b border-gray-100 dark:border-gray-700/50' : ''}`}
+            className={`flex items-center justify-between px-4 py-2.5 bg-white dark:bg-gray-800 ${i < CORE_PERM_AREAS.length - 1 ? 'border-b border-gray-100 dark:border-gray-700/50' : ''}`}
           >
             <span className="text-sm text-gray-700 dark:text-gray-300">{area.label}</span>
             <div className="flex items-center gap-4">
@@ -1079,7 +1089,7 @@ function DefaultPermissionsPanel() {
                 const available = area.options.includes(opt)
                 if (!available) {
                   return (
-                    <span key={opt} className="w-16 text-xs text-gray-300 dark:text-gray-600 flex items-center gap-1">
+                    <span key={opt} className="w-14 text-xs text-gray-300 dark:text-gray-600 flex items-center gap-1">
                       <span className="h-3.5 w-3.5 rounded-full border border-gray-200 dark:border-gray-700" />
                       N/A
                     </span>
@@ -1087,7 +1097,7 @@ function DefaultPermissionsPanel() {
                 }
                 const selected = (perms[area.areaId] ?? 'none') === opt
                 return (
-                  <label key={opt} className="flex items-center gap-1 text-xs cursor-pointer w-16">
+                  <label key={opt} className="flex items-center gap-1 text-xs cursor-pointer w-14">
                     <input
                       type="radio"
                       name={`default-${area.areaId}`}
@@ -1105,6 +1115,77 @@ function DefaultPermissionsPanel() {
           </div>
         ))}
       </div>
+
+      {/* Boards — derived from real boards in the store */}
+      {boards.length > 0 && (
+        <>
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5">Boards</p>
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-4">
+            {boards.map((board, i) => {
+              const areaId = `board_${board.id}`
+              const selected = (perms[areaId] ?? 'none') as AreaPermission
+              return (
+                <div
+                  key={areaId}
+                  className={`flex items-center justify-between px-4 py-2.5 bg-white dark:bg-gray-800 ${i < boards.length - 1 ? 'border-b border-gray-100 dark:border-gray-700/50' : ''}`}
+                >
+                  <span className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: getBoardColor(board) }} />
+                    {board.name}
+                  </span>
+                  <div className="flex items-center gap-4">
+                    {(['none', 'view', 'edit'] as AreaPermission[]).map((opt) => (
+                      <label key={opt} className="flex items-center gap-1 text-xs cursor-pointer w-14">
+                        <input
+                          type="radio"
+                          name={`default-${areaId}`}
+                          checked={selected === opt}
+                          onChange={() => setValue(areaId, opt)}
+                          className="h-3.5 w-3.5 accent-green-600"
+                        />
+                        <span className={selected === opt ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}>
+                          {PERM_LABELS[opt]}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Settings tabs — binary access (yes/no) */}
+      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5">Settings Tabs</p>
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-4">
+        {SETTINGS_PERM_AREAS.map((area, i) => {
+          const enabled = (perms[area.areaId] ?? 'none') !== 'none'
+          return (
+            <div
+              key={area.areaId}
+              className={`flex items-center justify-between px-4 py-2.5 bg-white dark:bg-gray-800 ${i < SETTINGS_PERM_AREAS.length - 1 ? 'border-b border-gray-100 dark:border-gray-700/50' : ''}`}
+            >
+              <span className="text-sm text-gray-700 dark:text-gray-300">{area.label}</span>
+              <button
+                onClick={() => setValue(area.areaId, enabled ? 'none' : 'edit')}
+                className={`flex items-center justify-center w-5 h-5 rounded-full border-2 transition-colors ${
+                  enabled
+                    ? 'bg-green-500 border-green-500 text-white'
+                    : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700'
+                }`}
+              >
+                {enabled && (
+                  <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3">
+                    <path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
       <div className="mt-3 flex justify-end">
         <button
           onClick={handleSave}

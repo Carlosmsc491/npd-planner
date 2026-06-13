@@ -566,6 +566,22 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────
+    // DIRECTORY MODULE
+    // ─────────────────────────────────────────
+
+    match /directoryContacts/{contactId} {
+      allow read: if isActiveUser();
+      allow create, update: if isActiveUser();
+      allow delete: if isAdmin();
+    }
+
+    match /directorySettings/{docId} {
+      allow read: if isActiveUser();
+      // Only admins can define/edit custom column schemas
+      allow write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────
     // DENY ALL OTHER PATHS
     // ─────────────────────────────────────────
 

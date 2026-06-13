@@ -3,10 +3,11 @@ import type { AreaPermission, AreaPermissions } from '../types'
 
 // Core features every member gets by default (no explicit grant needed)
 const MEMBER_DEFAULTS: Record<string, AreaPermission> = {
-  dashboard: 'view',
-  my_tasks:  'view',
-  my_space:  'view',
-  calendar:  'view',
+  dashboard:  'view',
+  my_tasks:   'view',
+  my_space:   'view',
+  calendar:   'view',
+  directory:  'view',
 }
 
 // Legacy key aliases — maps current key → old Firestore keys to check as fallback

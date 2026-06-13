@@ -1219,3 +1219,43 @@ export interface ImportBatch {
   importedBy: string
   source: 'planner'
 }
+
+// ─────────────────────────────────────────
+// DIRECTORY MODULE
+// ─────────────────────────────────────────
+
+export type DirectoryColumnType = 'text' | 'droplist' | 'multi-select'
+
+export interface DirectoryColumnOption {
+  id: string
+  label: string
+}
+
+export interface DirectoryColumnDef {
+  id: string
+  name: string
+  type: DirectoryColumnType
+  options: DirectoryColumnOption[]  // non-empty for droplist / multi-select
+  order: number
+}
+
+export interface DirectoryContact {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  phone: string
+  location: string
+  contactFor: string[]                       // what clients/locations this person covers
+  customValues: Record<string, string | string[]>  // columnId → value(s)
+  createdAt: Timestamp
+  createdBy: string
+  updatedAt: Timestamp
+  updatedBy: string
+}
+
+export interface DirectorySettings {
+  columns: DirectoryColumnDef[]
+  updatedAt: Timestamp
+  updatedBy: string
+}

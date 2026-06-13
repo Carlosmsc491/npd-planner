@@ -1,16 +1,75 @@
 // src/renderer/src/utils/taskReportGenerator.ts
-// Generates a self-contained HTML report for a task (inline CSS, no external deps)
+// Generates a self-contained HTML report for a task (inline CSS, no external deps).
+// Every section is opt-in via ReportSectionOptions — the export modal lets the
+// user pick exactly which task properties go into the PDF.
 
-import type { Task, Client, Label, AppUser, Board, Comment, TaskHistoryEntry, EmailAttachment } from '../types'
+import type {
+  Task, Client, Division, Label, AppUser, Board, Comment, TaskHistoryEntry,
+  EmailAttachment, DateType,
+} from '../types'
+
+// Which task properties/sections the user wants in the PDF
+export interface ReportSectionOptions {
+  client: boolean
+  division: boolean
+  bucket: boolean
+  assignees: boolean
+  dates: boolean          // dateStart → dateEnd
+  taskDates: boolean      // typed date tags (Preparation, Ship, Show day…)
+  labels: boolean
+  poNumbers: boolean
+  awbs: boolean
+  description: boolean
+  notes: boolean
+  subtasks: boolean
+  followUps: boolean
+  customFields: boolean
+  attachmentsList: boolean  // textual index of files in the summary
+  emails: boolean           // email summary cards
+  comments: boolean
+  history: boolean
+}
+
+export const DEFAULT_REPORT_SECTIONS: ReportSectionOptions = {
+  client: true, division: true, bucket: true, assignees: true,
+  dates: true, taskDates: true, labels: true, poNumbers: true, awbs: true,
+  description: true, notes: true, subtasks: true, followUps: true,
+  customFields: true, attachmentsList: true, emails: true,
+  comments: true, history: true,
+}
+
+export const REPORT_SECTION_LABELS: Record<keyof ReportSectionOptions, string> = {
+  client: 'Client',
+  division: 'Division',
+  bucket: 'Bucket',
+  assignees: 'Assignees',
+  dates: 'Date range',
+  taskDates: 'Typed dates',
+  labels: 'Labels',
+  poNumbers: 'PO numbers',
+  awbs: 'AWB shipments',
+  description: 'Description',
+  notes: 'Notes',
+  subtasks: 'Subtasks',
+  followUps: 'Follow-ups',
+  customFields: 'Custom fields',
+  attachmentsList: 'Attachment index',
+  emails: 'Email summaries',
+  comments: 'Comments',
+  history: 'Activity log',
+}
 
 export interface ReportData {
   task: Task
   client: Client | null
+  division: Division | null
   board: Board | null
   labels: Label[]
   users: AppUser[]
+  dateTypes: DateType[]
   comments: Comment[]
   history: TaskHistoryEntry[]
+  options: ReportSectionOptions
 }
 
 function esc(s: string | null | undefined): string {
@@ -37,12 +96,25 @@ const STATUS_COLORS: Record<string, string> = {
   done:       'background:#E1F5EE;color:#085041',
 }
 
+function formatCustomValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—'
+  if (Array.isArray(value)) return value.map(v => esc(String(v))).join(', ') || '—'
+  if (typeof value === 'boolean') return value ? '✓ Yes' : '✗ No'
+  if (typeof value === 'object' && value !== null && 'toDate' in (value as Record<string, unknown>)) {
+    return fmtDate(value as { toDate(): Date })
+  }
+  return esc(String(value))
+}
+
 export function generateTaskReportHTML(data: ReportData): string {
-  const { task, client, board, labels, users, comments, history } = data
+  const { task, client, division, board, labels, users, dateTypes, comments, history, options: opt } = data
   const generatedAt = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })
 
   const userMap: Record<string, string> = {}
   users.forEach(u => { userMap[u.uid] = u.name })
+
+  const dateTypeMap: Record<string, DateType> = {}
+  dateTypes.forEach(dt => { dateTypeMap[dt.key] = dt })
 
   const assigneeNames = (task.assignees ?? []).map(uid => userMap[uid] ?? uid).join(', ') || '—'
   const statusStyle = STATUS_COLORS[task.status] ?? 'background:#eee;color:#333'
@@ -58,6 +130,41 @@ export function generateTaskReportHTML(data: ReportData): string {
         ${st.assigneeUid ? (userMap[st.assigneeUid] ?? st.assigneeUid) : ''}
       </td>
     </tr>`).join('')
+
+  const followUpRows = (task.followUps ?? []).map(fu => `
+    <tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;">
+        ${fu.completed ? '✓' : '○'} ${esc(fu.title)}
+      </td>
+      <td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#888;">
+        ${fmtDate(fu.createdAt)}
+      </td>
+    </tr>`).join('')
+
+  const taskDateRows = (task.taskDates ?? []).map(td => {
+    const dt = dateTypeMap[td.typeKey]
+    const range = td.dateEnd ? `${fmtDate(td.dateStart)} → ${fmtDate(td.dateEnd)}` : fmtDate(td.dateStart)
+    return `
+    <tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(dt?.color ?? '#888')};margin-right:6px;"></span>
+        ${esc(dt?.label ?? td.typeKey)}
+      </td>
+      <td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#444;">${range}</td>
+    </tr>`
+  }).join('')
+
+  const customProps = board?.customProperties ?? []
+  const customFieldRows = Object.entries(task.customFields ?? {})
+    .map(([propId, value]) => {
+      const prop = customProps.find(p => p.id === propId)
+      if (!prop) return ''
+      return `
+      <tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#888;width:35%;">${esc(prop.name)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;">${formatCustomValue(value)}</td>
+      </tr>`
+    }).filter(Boolean).join('')
 
   const awbRows = (task.awbs ?? []).map(awb => `
     <tr>
@@ -124,6 +231,16 @@ export function generateTaskReportHTML(data: ReportData): string {
       ✓ Completed by <strong>${esc(userMap[task.completedBy ?? ''] ?? task.completedBy ?? '')}</strong> on ${fmtDateTime(task.completedAt)}
     </div>` : ''
 
+  // Properties grid — each cell honors its option toggle
+  const props: string[] = []
+  if (opt.client) props.push(`<div class="prop"><div class="prop-label">Client</div><div class="prop-value">${esc(client?.name ?? '—')}</div></div>`)
+  if (opt.division) props.push(`<div class="prop"><div class="prop-label">Division</div><div class="prop-value">${esc(division?.name ?? '—')}</div></div>`)
+  if (opt.bucket) props.push(`<div class="prop"><div class="prop-label">Bucket</div><div class="prop-value">${esc(task.bucket ?? '—')}</div></div>`)
+  if (opt.assignees) props.push(`<div class="prop"><div class="prop-label">Assignees</div><div class="prop-value">${esc(assigneeNames)}</div></div>`)
+  if (opt.dates) props.push(`<div class="prop"><div class="prop-label">Date Range</div><div class="prop-value">${fmtDate(task.dateStart)} → ${fmtDate(task.dateEnd)}</div></div>`)
+  if (opt.poNumbers) props.push(`<div class="prop"><div class="prop-label">PO Numbers</div><div class="prop-value">${esc(poList)}</div></div>`)
+  props.push(`<div class="prop"><div class="prop-label">Created</div><div class="prop-value">${fmtDateTime(task.createdAt)}</div></div>`)
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -174,29 +291,36 @@ export function generateTaskReportHTML(data: ReportData): string {
 
     <div class="section">
       <div class="props-grid">
-        <div class="prop"><div class="prop-label">Client</div><div class="prop-value">${esc(client?.name ?? '—')}</div></div>
-        <div class="prop"><div class="prop-label">Bucket</div><div class="prop-value">${esc(task.bucket ?? '—')}</div></div>
-        <div class="prop"><div class="prop-label">Assignees</div><div class="prop-value">${esc(assigneeNames)}</div></div>
-        <div class="prop"><div class="prop-label">Date Range</div><div class="prop-value">${fmtDate(task.dateStart)} → ${fmtDate(task.dateEnd)}</div></div>
-        <div class="prop"><div class="prop-label">PO Numbers</div><div class="prop-value">${esc(poList)}</div></div>
-        <div class="prop"><div class="prop-label">Created</div><div class="prop-value">${fmtDateTime(task.createdAt)}</div></div>
+        ${props.join('\n        ')}
       </div>
-      ${labelPills ? `<div style="margin-top:10px;">${labelPills}</div>` : ''}
+      ${opt.labels && labelPills ? `<div style="margin-top:10px;">${labelPills}</div>` : ''}
     </div>
 
-    ${task.description ? `
+    ${opt.taskDates && taskDateRows ? `
+    <div class="section">
+      <div class="section-title">Dates</div>
+      <table><tbody>${taskDateRows}</tbody></table>
+    </div>` : ''}
+
+    ${opt.description && task.description ? `
     <div class="section">
       <div class="section-title">Description</div>
       <div style="font-size:13px;color:#444;line-height:1.6;" class="rich-content">${task.description}</div>
     </div>` : ''}
 
-    ${task.notes ? `
+    ${opt.notes && task.notes ? `
     <div class="section">
       <div class="section-title">Notes</div>
       <p style="font-size:13px;color:#444;line-height:1.6;white-space:pre-wrap;">${esc(task.notes)}</p>
     </div>` : ''}
 
-    ${(task.awbs ?? []).length > 0 ? `
+    ${opt.customFields && customFieldRows ? `
+    <div class="section">
+      <div class="section-title">Custom Fields</div>
+      <table><tbody>${customFieldRows}</tbody></table>
+    </div>` : ''}
+
+    ${opt.awbs && (task.awbs ?? []).length > 0 ? `
     <div class="section">
       <div class="section-title">AWB Shipments</div>
       <table>
@@ -205,31 +329,37 @@ export function generateTaskReportHTML(data: ReportData): string {
       </table>
     </div>` : ''}
 
-    ${(task.subtasks ?? []).length > 0 ? `
+    ${opt.subtasks && (task.subtasks ?? []).length > 0 ? `
     <div class="section">
       <div class="section-title">Subtasks (${(task.subtasks ?? []).filter(s => s.completed).length}/${(task.subtasks ?? []).length} done)</div>
       <table><tbody>${subtaskRows}</tbody></table>
     </div>` : ''}
 
-    ${(task.attachments ?? []).length > 0 ? `
+    ${opt.followUps && (task.followUps ?? []).length > 0 ? `
+    <div class="section">
+      <div class="section-title">Follow-ups (${(task.followUps ?? []).filter(f => f.completed).length}/${(task.followUps ?? []).length} done)</div>
+      <table><tbody>${followUpRows}</tbody></table>
+    </div>` : ''}
+
+    ${opt.attachmentsList && (task.attachments ?? []).length > 0 ? `
     <div class="section">
       <div class="section-title">Attachments (${(task.attachments ?? []).length})</div>
       <ul style="margin:0;padding-left:18px;list-style:disc;">${attachmentList}</ul>
     </div>` : ''}
 
-    ${emailAttachments.length > 0 ? `
+    ${opt.emails && emailAttachments.length > 0 ? `
     <div class="section">
       <div class="section-title">Emails (${emailAttachments.length})</div>
       ${emailCards}
     </div>` : ''}
 
-    ${comments.length > 0 ? `
+    ${opt.comments && comments.length > 0 ? `
     <div class="section">
       <div class="section-title">Comments (${comments.length})</div>
       ${commentList}
     </div>` : ''}
 
-    ${history.length > 0 ? `
+    ${opt.history && history.length > 0 ? `
     <div class="section">
       <div class="section-title">Activity Log</div>
       ${historyList}

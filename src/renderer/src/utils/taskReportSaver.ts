@@ -3,7 +3,7 @@
 
 import type { Task } from '../types'
 import type { ReportData } from './taskReportGenerator'
-import { generateTaskReportHTML } from './taskReportGenerator'
+import { generateTaskReportHTML, DEFAULT_REPORT_SECTIONS } from './taskReportGenerator'
 import { getComments, getTaskHistory } from '../lib/firestore'
 
 function sanitize(s: string): string {
@@ -34,14 +34,25 @@ export async function generateAndSaveTaskReport(
   task: Task,
   sharePointPath: string,
   clientName: string,
-  partialData: Omit<ReportData, 'task' | 'comments' | 'history'>
+  partialData: Partial<Omit<ReportData, 'task' | 'comments' | 'history'>>
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const [comments, history] = await Promise.all([
       getComments(task.id),
       getTaskHistory(task.id),
     ])
-    const html = generateTaskReportHTML({ ...partialData, task, comments, history })
+    // Auto-saved reports (e.g. on completion) include everything by default
+    const html = generateTaskReportHTML({
+      client: null,
+      division: null,
+      board: null,
+      labels: [],
+      users: [],
+      dateTypes: [],
+      options: DEFAULT_REPORT_SECTIONS,
+      ...partialData,
+      task, comments, history,
+    })
     return saveTaskReport(task, html, sharePointPath, clientName)
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }

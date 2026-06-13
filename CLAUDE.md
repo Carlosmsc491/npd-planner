@@ -864,6 +864,15 @@ Update these as you complete each feature. Add [x] when done.
 - [x] Lifecycle: session-end defers NSIS install (no more half-deleted installs on laptop close); zombie windowless instance recovers with a new window
 - [x] Security: trash cleanup path validation (`isSafeTrashPath`) replaces bypassable `.includes()` check
 
+### Phase 10 cont. — v1.9.0 Backlog (June 2026)
+- [x] fix(recipes): withTimeout on all blocking recipe lock operations — buttons never freeze offline
+- [x] feat(settings): binary access for settings_* areas ('edit'/'none'), dynamic boards in default perms, warm users cache on admin login
+- [x] feat(directory): contact database module — search, filters, custom columns (text/droplist/multi-select), Firestore rules deployed
+- [x] feat(pwa): lightweight PWA in web/ — login, boards, create tasks; deployed to GitHub Pages via CI; manifest + service worker for iOS Add to Home Screen
+  - **Requires:** Carlos add `carlosmsc491.github.io` to Firebase Auth → Authorized domains
+  - **GitHub Secrets** configured from .env: `VITE_FIREBASE_*`
+- [x] feat(ui): "What you missed" modal — shown once per session, sections: unread notifs, upcoming 7-day tasks, high priority, AWB arrivals; updates lastSeen on close
+
 ### Phase 8 — Analytics & Build
 - [ ] Analytics dashboard (admin only): tasks/week, load by person, top clients
 - [x] Annual archive: auto-detect tasks > 12 months old on startup

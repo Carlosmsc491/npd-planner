@@ -1277,6 +1277,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
         users={users}
         labels={labels.filter(l => (task.labelIds ?? []).includes(l.id))}
         client={clients.find(c => c.id === task.clientId) ?? null}
+        division={divisions.find(d => d.id === task.divisionId) ?? null}
         onClose={() => setShowReportModal(false)}
       />
     )}

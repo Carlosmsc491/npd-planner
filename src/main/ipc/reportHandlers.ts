@@ -381,10 +381,12 @@ interface ReportRequest {
   attachments: Array<{        // regular file attachments
     name: string
     absPath: string
+    group?: string            // type section label (Photos, Emails, PDF Documents…)
   }>
   emailAttachments: Array<{   // email files
     name: string
     absPath: string
+    group?: string
   }>
   outputPdfPath: string       // absolute path to save PDF
 }
@@ -459,7 +461,27 @@ export function registerReportHandlers(): void {
           await Promise.all(batch)
         }
 
-        const attachmentPages = results.filter(Boolean).join('')
+        // Stitch pages in order, inserting a full-page section divider every
+        // time the type group changes (Photos → Emails → PDF Documents → …)
+        let attachmentPages = ''
+        let lastGroup = ''
+        for (let i = 0; i < allAttachments.length; i++) {
+          const page = results[i]
+          if (!page) continue
+          const group = allAttachments[i].group ?? ''
+          if (group && group !== lastGroup) {
+            const count = allAttachments.filter(a => a.group === group && results[allAttachments.indexOf(a)]).length
+            attachmentPages += `
+              <div style="page-break-before:always;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;height:9.5in;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+                <div style="font-size:11px;letter-spacing:.3em;color:#94a3b8;text-transform:uppercase;margin-bottom:12px;">Attachments</div>
+                <div style="font-size:34px;font-weight:800;color:#0f172a;">${group}</div>
+                <div style="margin-top:10px;font-size:13px;color:#64748b;">${count} file${count !== 1 ? 's' : ''}</div>
+                <div style="margin-top:18px;width:60px;height:4px;border-radius:2px;background:#1D9E75;"></div>
+              </div>`
+            lastGroup = group
+          }
+          attachmentPages += page
+        }
         if (attachmentPages) {
           fullHtml = fullHtml.replace('</body>', `${attachmentPages}</body>`)
         }

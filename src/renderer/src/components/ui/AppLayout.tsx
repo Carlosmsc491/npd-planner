@@ -6,17 +6,18 @@ import {
   MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Search,
   LayoutDashboard, CheckSquare, Package, Truck, Camera, Users, Calendar,
   Star, Folder, ShoppingCart, FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
-  User, Lock, CalendarDays, FlowerIcon, PanelLeftClose, PanelLeftOpen, Inbox,
+  User, Lock, CalendarDays, FlowerIcon, PanelLeftClose, PanelLeftOpen, Inbox, BookUser,
   type LucideIcon,
 } from 'lucide-react'
 import { auth } from '../../lib/firebase'
 import { useAuthStore } from '../../store/authStore'
 import { useBoardStore } from '../../store/boardStore'
-import { subscribeToBoards, updateBoard, deleteBoard } from '../../lib/firestore'
+import { subscribeToBoards, subscribeToUsers, updateBoard, deleteBoard } from '../../lib/firestore'
 import { getBoardColor, getInitials, getInitialsColor } from '../../utils/colorUtils'
 import ConnectionStatus from './ConnectionStatus'
 import NewBoardModal from './NewBoardModal'
 import WhatsNewModal from './WhatsNewModal'
+import WhatYouMissedModal from './WhatYouMissedModal'
 import NotificationBell from '../notifications/NotificationBell'
 import { CameraBadge } from './CameraBadge'
 import GlobalSearch from '../search/GlobalSearch'
@@ -80,6 +81,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
   const [showNewBoard, setShowNewBoard] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [showApprovalModal, setShowApprovalModal] = useState(false)
+  const [showWhatYouMissed, setShowWhatYouMissed] = useState(false)
 
   const isAdmin        = user?.role === 'admin' || user?.role === 'owner'
   // Standalone photographer (role=photographer without the add-on flag) is app-restricted
@@ -87,6 +89,19 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
 
   // Pending approvals — only active for admin/owner
   const pendingApprovals = usePendingApprovals(user ?? null)
+
+  // "What you missed" modal — shown once per session after user is active
+  useEffect(() => {
+    if (!user || user.status !== 'active') return
+    const key = `npd:session-modal-shown-${user.uid}`
+    if (sessionStorage.getItem(key)) return
+    // Small delay so stores (tasks, notifs) have a moment to hydrate from cache
+    const t = setTimeout(() => {
+      sessionStorage.setItem(key, '1')
+      setShowWhatYouMissed(true)
+    }, 1200)
+    return () => clearTimeout(t)
+  }, [user?.uid, user?.status])
 
   // Auto-open approval modal when new users are waiting
   useEffect(() => {
@@ -170,6 +185,14 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
     return unsub
   }, [setBoards])
 
+  // Warm the users cache globally so Settings > Members renders instantly.
+  // MembersPanel creates its own listener that reads from this warm cache.
+  useEffect(() => {
+    if (!isAdmin) return
+    const unsub = subscribeToUsers(() => {})
+    return unsub
+  }, [isAdmin])
+
   function toggleSidebar() {
     setSidebarOpen((prev) => {
       try { localStorage.setItem('npd-sidebar', String(!prev)) } catch {}
@@ -251,6 +274,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
             { path: '/dashboard',      label: 'Dashboard', icon: LayoutGrid, areaId: 'dashboard' },
             { path: '/my-space',       label: 'My Space', icon: User, isPrivate: true, areaId: 'my_space' },
             { path: '/calendar',       label: 'Master Calendar', icon: CalendarDays, areaId: 'calendar' },
+            { path: '/directory',      label: 'Directory', icon: BookUser, areaId: 'directory' },
           ].filter((item) => getAreaPermission(item.areaId) !== 'none').map((item) => {
             const Icon = item.icon
             return (
@@ -461,6 +485,10 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
       {showNewBoard && <NewBoardModal onClose={() => setShowNewBoard(false)} />}
       {showSearch && <GlobalSearch onClose={() => setShowSearch(false)} />}
       <WhatsNewModal />
+
+      {showWhatYouMissed && (
+        <WhatYouMissedModal onClose={() => setShowWhatYouMissed(false)} />
+      )}
 
       {/* Approval modal — auto-opens for admin/owner when new users register */}
       {showApprovalModal && user && isPrivileged(user) && pendingApprovals.length > 0 && (
