@@ -17,6 +17,7 @@ import { getBoardColor, getInitials, getInitialsColor } from '../../utils/colorU
 import ConnectionStatus from './ConnectionStatus'
 import NewBoardModal from './NewBoardModal'
 import WhatsNewModal from './WhatsNewModal'
+import WhatYouMissedModal from './WhatYouMissedModal'
 import NotificationBell from '../notifications/NotificationBell'
 import { CameraBadge } from './CameraBadge'
 import GlobalSearch from '../search/GlobalSearch'
@@ -77,6 +78,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
   const [showNewBoard, setShowNewBoard] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [showApprovalModal, setShowApprovalModal] = useState(false)
+  const [showWhatYouMissed, setShowWhatYouMissed] = useState(false)
 
   const isAdmin        = user?.role === 'admin' || user?.role === 'owner'
   // Standalone photographer (role=photographer without the add-on flag) is app-restricted
@@ -84,6 +86,19 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
 
   // Pending approvals — only active for admin/owner
   const pendingApprovals = usePendingApprovals(user ?? null)
+
+  // "What you missed" modal — shown once per session after user is active
+  useEffect(() => {
+    if (!user || user.status !== 'active') return
+    const key = `npd:session-modal-shown-${user.uid}`
+    if (sessionStorage.getItem(key)) return
+    // Small delay so stores (tasks, notifs) have a moment to hydrate from cache
+    const t = setTimeout(() => {
+      sessionStorage.setItem(key, '1')
+      setShowWhatYouMissed(true)
+    }, 1200)
+    return () => clearTimeout(t)
+  }, [user?.uid, user?.status])
 
   // Auto-open approval modal when new users are waiting
   useEffect(() => {
@@ -445,6 +460,10 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
       {showNewBoard && <NewBoardModal onClose={() => setShowNewBoard(false)} />}
       {showSearch && <GlobalSearch onClose={() => setShowSearch(false)} />}
       <WhatsNewModal />
+
+      {showWhatYouMissed && (
+        <WhatYouMissedModal onClose={() => setShowWhatYouMissed(false)} />
+      )}
 
       {/* Approval modal — auto-opens for admin/owner when new users register */}
       {showApprovalModal && user && isPrivileged(user) && pendingApprovals.length > 0 && (

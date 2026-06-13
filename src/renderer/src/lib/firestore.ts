@@ -2443,3 +2443,15 @@ export async function notifyOwnersCrashReport(
   })
   await batch.commit()
 }
+
+// ─────────────────────────────────────────
+// LAST SEEN
+// ─────────────────────────────────────────
+
+export async function updateLastSeen(uid: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.USERS, uid), { lastSeen: serverTimestamp() })
+  } catch (err) {
+    console.error('updateLastSeen failed:', err)
+  }
+}
