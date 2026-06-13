@@ -164,36 +164,37 @@ export default function BoardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 safe-top shrink-0 sticky top-0 z-20">
-        <button onClick={() => navigate('/boards')} className="text-gray-400 hover:text-gray-600 p-1">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
-            <path d="M15 18l-6-6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-        <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0"
-          style={{ backgroundColor: board.color }}
-        >
-          {board.name.charAt(0)}
-        </div>
-        <h1 className="font-bold text-gray-900 flex-1 truncate">{board.name}</h1>
-        {canEdit && (
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 rounded-xl bg-green-500 text-white text-xs font-semibold px-3 py-2 hover:bg-green-600 active:scale-95 transition shrink-0"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5">
-              <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+      {/* Header + toolbar — single sticky block so there is no magic offset */}
+      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 safe-top">
+        <header className="px-4 py-3 flex items-center gap-3">
+          <button onClick={() => navigate('/boards')} className="text-gray-400 hover:text-gray-600 p-1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+              <path d="M15 18l-6-6 6-6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            New Task
           </button>
-        )}
-      </header>
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0"
+            style={{ backgroundColor: board.color }}
+          >
+            {board.name.charAt(0)}
+          </div>
+          <h1 className="font-bold text-gray-900 flex-1 truncate">{board.name}</h1>
+          {canEdit && (
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-1.5 rounded-xl bg-green-500 text-white text-xs font-semibold px-3 py-2 hover:bg-green-600 active:scale-95 transition shrink-0"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5">
+                <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+              </svg>
+              New Task
+            </button>
+          )}
+        </header>
 
-      {/* Toolbar: search + sort */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-2 sticky top-[57px] z-10">
-        <div className="relative flex-1 max-w-md">
+        {/* Toolbar: search + sort */}
+        <div className="px-4 pb-2.5 flex items-center gap-2">
+          <div className="relative flex-1 max-w-md">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
             <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" strokeLinecap="round" />
           </svg>
@@ -218,6 +219,7 @@ export default function BoardPage() {
             <option key={k} value={k}>{SORT_LABELS[k]}</option>
           ))}
         </select>
+        </div>
       </div>
 
       {/* Bucket-grouped list */}

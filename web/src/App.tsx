@@ -5,7 +5,7 @@ import { onSnapshot, doc } from 'firebase/firestore'
 import { auth, db } from './firebase'
 import { useAuthStore } from './store/authStore'
 import LoginPage from './pages/LoginPage'
-import BoardsPage from './pages/BoardsPage'
+import DashboardPage from './pages/DashboardPage'
 import BoardPage from './pages/BoardPage'
 import type { AppUser } from './types'
 
@@ -46,8 +46,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/" element={<RequireAuth><BoardsPage /></RequireAuth>} />
-      <Route path="/boards" element={<RequireAuth><BoardsPage /></RequireAuth>} />
+      <Route path="/" element={<RequireAuth><DashboardPage /></RequireAuth>} />
+      <Route path="/boards" element={<RequireAuth><DashboardPage /></RequireAuth>} />
       <Route path="/board/:boardId" element={<RequireAuth><BoardPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
