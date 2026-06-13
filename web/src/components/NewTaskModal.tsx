@@ -46,6 +46,7 @@ export default function NewTaskModal({ board, onClose }: Props) {
   async function handleSave() {
     if (!title.trim()) { setError('Title is required'); return }
     if (!clientId)     { setError('Client is required'); return }
+    if (bucketOptions.length > 0 && !bucket) { setError('Bucket is required'); return }
     if (!user)         { setError('Not signed in'); return }
 
     setSaving(true)
@@ -126,13 +127,13 @@ export default function NewTaskModal({ board, onClose }: Props) {
 
             {bucketOptions.length > 0 && (
               <div>
-                <label className="text-xs font-medium text-gray-600 mb-1 block">Bucket</label>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">Bucket *</label>
                 <select
                   value={bucket}
                   onChange={(e) => setBucket(e.target.value)}
                   className="w-full rounded-xl border border-gray-300 px-3 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500/30"
                 >
-                  <option value="">— No bucket —</option>
+                  <option value="">— Select bucket —</option>
                   {bucketOptions.map((b) => (
                     <option key={b} value={b}>{b}</option>
                   ))}

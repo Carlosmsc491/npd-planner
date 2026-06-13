@@ -39,7 +39,9 @@ export default function BoardPage() {
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<SortKey>('default')
   const [showModal, setShowModal] = useState(false)
-  const [openTask, setOpenTask] = useState<Task | null>(null)
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null)
+  // Derive the open task from the live list so edits (here or from desktop) reflect instantly
+  const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) ?? null : null
 
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
 
@@ -256,7 +258,7 @@ export default function BoardPage() {
                         labels={labels}
                         users={users}
                         overdue={isOverdue(task)}
-                        onClick={() => setOpenTask(task)}
+                        onClick={() => setOpenTaskId(task.id)}
                       />
                     ))}
                   </div>
@@ -276,9 +278,11 @@ export default function BoardPage() {
           task={openTask}
           board={board}
           client={clients[openTask.clientId]}
+          clients={clients}
           labels={labels}
           users={users}
-          onClose={() => setOpenTask(null)}
+          canEdit={canEdit}
+          onClose={() => setOpenTaskId(null)}
         />
       )}
     </div>
