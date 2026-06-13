@@ -1,10 +1,10 @@
 // src/renderer/src/pages/DirectoryPage.tsx
 // Directory module — contact database with custom columns, search, filters
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
-  Search, Plus, Trash2, Edit2, X, ChevronDown, ChevronUp, Settings2, Check,
-  Loader2, Phone, Mail, MapPin, Tag,
+  Search, Plus, Trash2, Edit2, X, Settings2, Check,
+  Loader2, Phone, Mail, MapPin,
 } from 'lucide-react'
 import AppLayout from '../components/ui/AppLayout'
 import {
@@ -49,7 +49,6 @@ export default function DirectoryPage() {
   const [editingContact, setEditingContact] = useState<DirectoryContact | null>(null)
   const [colMgrOpen, setColMgrOpen] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
 
   const columns = settings?.columns ?? []
 
