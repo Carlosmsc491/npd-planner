@@ -80,6 +80,14 @@ async function getDocCacheFirst(ref: DocumentReference) {
   }
 }
 
+/** Rejects with `message` if `promise` does not settle within `ms` milliseconds. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+  ])
+}
+
 // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 // COLLECTION NAMES
 // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -249,7 +257,7 @@ export async function claimRecipeFile(
   const fileRef = doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, fileId)
 
   console.log('[NPD] claimRecipeFile START', { projectId, fileId, userName })
-  const snap = await getDocCacheFirst(fileRef)
+  const snap = await withTimeout(getDocCacheFirst(fileRef), 15_000, 'No connection — try again')
   console.log('[NPD] claimRecipeFile getDoc done —',
     'exists:', snap.exists(),
     'fromCache:', (snap as { metadata?: { fromCache?: boolean } }).metadata?.fromCache)
@@ -314,27 +322,31 @@ export async function unclaimRecipeFile(
 ): Promise<void> {
   const fileRef = doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, fileId)
   try {
-    await runTransaction(db, async (tx) => {
-      const snap = await tx.get(fileRef)
-      if (!snap.exists()) return
+    await withTimeout(
+      runTransaction(db, async (tx) => {
+        const snap = await tx.get(fileRef)
+        if (!snap.exists()) return
 
-      const data = snap.data() as RecipeFile
-      // Only release if we own the lock
-      if (data.lockToken !== lockToken) return
+        const data = snap.data() as RecipeFile
+        // Only release if we own the lock
+        if (data.lockToken !== lockToken) return
 
-      tx.update(fileRef, {
-        status:          'pending' as RecipeFileStatus,
-        lockedBy:        null,
-        lockClaimedAt:   null,
-        lockHeartbeatAt: null,
-        lockToken:       null,
-        version:         (data.version ?? 0) + 1,
-        updatedAt:       serverTimestamp(),
-      })
-    })
+        tx.update(fileRef, {
+          status:          'pending' as RecipeFileStatus,
+          lockedBy:        null,
+          lockClaimedAt:   null,
+          lockHeartbeatAt: null,
+          lockToken:       null,
+          version:         (data.version ?? 0) + 1,
+          updatedAt:       serverTimestamp(),
+        })
+      }),
+      15_000,
+      'No connection — try again'
+    )
   } catch (err) {
     console.error('unclaimRecipeFile error:', err)
-    throw new Error(`Failed to unclaim recipe file: ${err}`)
+    throw new Error(err instanceof Error ? err.message : `Failed to unclaim recipe file: ${err}`)
   }
 }
 
@@ -346,25 +358,29 @@ export async function markRecipeDone(
 ): Promise<void> {
   const fileRef = doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, fileId)
   try {
-    await runTransaction(db, async (tx) => {
-      const snap = await tx.get(fileRef)
-      if (!snap.exists()) throw new Error('Recipe file not found')
-      const data = snap.data() as RecipeFile
+    await withTimeout(
+      runTransaction(db, async (tx) => {
+        const snap = await tx.get(fileRef)
+        if (!snap.exists()) throw new Error('Recipe file not found')
+        const data = snap.data() as RecipeFile
 
-      tx.update(fileRef, {
-        status:          'done' as RecipeFileStatus,
-        doneBy:          userName,
-        doneAt:          serverTimestamp(),
-        lockedBy:        null,
-        lockClaimedAt:   null,
-        lockHeartbeatAt: null,
-        lockToken:       null,
-        version:         (data.version ?? 0) + 1,
-        updatedAt:       serverTimestamp(),
-      })
-    })
+        tx.update(fileRef, {
+          status:          'done' as RecipeFileStatus,
+          doneBy:          userName,
+          doneAt:          serverTimestamp(),
+          lockedBy:        null,
+          lockClaimedAt:   null,
+          lockHeartbeatAt: null,
+          lockToken:       null,
+          version:         (data.version ?? 0) + 1,
+          updatedAt:       serverTimestamp(),
+        })
+      }),
+      15_000,
+      'No connection — try again'
+    )
   } catch (err) {
-    throw new Error(`Failed to mark recipe done: ${err}`)
+    throw new Error(err instanceof Error ? err.message : `Failed to mark recipe done: ${err}`)
   }
 }
 
@@ -374,25 +390,29 @@ export async function reopenRecipeFile(
 ): Promise<void> {
   const fileRef = doc(db, RECIPE_PROJECTS, projectId, RECIPE_FILES, fileId)
   try {
-    await runTransaction(db, async (tx) => {
-      const snap = await tx.get(fileRef)
-      if (!snap.exists()) throw new Error('Recipe file not found')
-      const data = snap.data() as RecipeFile
+    await withTimeout(
+      runTransaction(db, async (tx) => {
+        const snap = await tx.get(fileRef)
+        if (!snap.exists()) throw new Error('Recipe file not found')
+        const data = snap.data() as RecipeFile
 
-      tx.update(fileRef, {
-        status:          'pending' as RecipeFileStatus,
-        doneBy:          null,
-        doneAt:          null,
-        lockedBy:        null,
-        lockClaimedAt:   null,
-        lockHeartbeatAt: null,
-        lockToken:       null,
-        version:         (data.version ?? 0) + 1,
-        updatedAt:       serverTimestamp(),
-      })
-    })
+        tx.update(fileRef, {
+          status:          'pending' as RecipeFileStatus,
+          doneBy:          null,
+          doneAt:          null,
+          lockedBy:        null,
+          lockClaimedAt:   null,
+          lockHeartbeatAt: null,
+          lockToken:       null,
+          version:         (data.version ?? 0) + 1,
+          updatedAt:       serverTimestamp(),
+        })
+      }),
+      15_000,
+      'No connection — try again'
+    )
   } catch (err) {
-    throw new Error(`Failed to reopen recipe file: ${err}`)
+    throw new Error(err instanceof Error ? err.message : `Failed to reopen recipe file: ${err}`)
   }
 }
 
@@ -406,16 +426,20 @@ export async function forceUnlockRecipeFile(
       RECIPE_PROJECTS, projectId,
       RECIPE_FILES, fileId
     )
-    await updateDoc(fileRef, {
-      status: 'pending',
-      lockedBy: null,
-      lockClaimedAt: null,
-      lockHeartbeatAt: null,
-      lockToken: null,
-      updatedAt: serverTimestamp(),
-    })
+    await withTimeout(
+      updateDoc(fileRef, {
+        status: 'pending',
+        lockedBy: null,
+        lockClaimedAt: null,
+        lockHeartbeatAt: null,
+        lockToken: null,
+        updatedAt: serverTimestamp(),
+      }),
+      15_000,
+      'No connection — try again'
+    )
   } catch (err) {
-    throw new Error(`Failed to force unlock: ${err}`)
+    throw new Error(err instanceof Error ? err.message : `Failed to force unlock: ${err}`)
   }
 }
 
@@ -650,13 +674,17 @@ export async function assignRecipeFile(
       RECIPE_PROJECTS, projectId,
       RECIPE_FILES, fileId
     )
-    await updateDoc(fileRef, {
-      assignedTo,
-      assignedToName,
-      updatedAt: serverTimestamp(),
-    })
+    await withTimeout(
+      updateDoc(fileRef, {
+        assignedTo,
+        assignedToName,
+        updatedAt: serverTimestamp(),
+      }),
+      15_000,
+      'No connection — try again'
+    )
   } catch (err) {
-    throw new Error(`Failed to assign recipe: ${err}`)
+    throw new Error(err instanceof Error ? err.message : `Failed to assign recipe: ${err}`)
   }
 }
 
