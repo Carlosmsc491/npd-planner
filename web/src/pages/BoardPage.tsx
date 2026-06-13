@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  collection, onSnapshot, query, where, orderBy,
+  collection, onSnapshot, query, where,
   doc, getDoc,
 } from 'firebase/firestore'
 import { db } from '../firebase'
@@ -30,12 +30,9 @@ export default function BoardPage() {
 
   useEffect(() => {
     if (!boardId) return
-    const q = query(
-      collection(db, 'tasks'),
-      where('boardId', '==', boardId),
-      where('completed', '==', false),
-      orderBy('createdAt', 'desc')
-    )
+    // Single-field where — no composite index required.
+    // completed filtering and createdAt sorting happen client-side.
+    const q = query(collection(db, 'tasks'), where('boardId', '==', boardId))
     return onSnapshot(q, (snap) =>
       setTasks(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Task)))
     )
@@ -45,7 +42,15 @@ export default function BoardPage() {
     const groups: Record<Task['status'], Task[]> = {
       todo: [], inprogress: [], review: [], done: [],
     }
-    tasks.forEach((t) => groups[t.status].push(t))
+    // Filter completed and sort by createdAt desc client-side
+    const active = tasks
+      .filter((t) => !t.completed)
+      .sort((a, b) => {
+        const at = a.createdAt?.seconds ?? 0
+        const bt = b.createdAt?.seconds ?? 0
+        return bt - at
+      })
+    active.forEach((t) => groups[t.status].push(t))
     return groups
   }, [tasks])
 
@@ -97,7 +102,7 @@ export default function BoardPage() {
 
       {/* Task list — grouped by status */}
       <main className="flex-1 overflow-y-auto px-4 py-4 max-w-lg mx-auto w-full">
-        {tasks.length === 0 ? (
+        {statuses.every((s) => byStatus[s].length === 0) ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-12 h-12 mb-3 opacity-30">
               <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" strokeLinecap="round" strokeLinejoin="round" />
