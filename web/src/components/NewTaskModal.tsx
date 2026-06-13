@@ -1,22 +1,23 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   collection, addDoc, serverTimestamp, onSnapshot,
-  query, where, orderBy,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuthStore } from '../store/authStore'
-import type { Client, Task } from '../types'
+import type { Board, Client, Task } from '../types'
+import { BOARD_BUCKETS } from '../types'
 
 interface Props {
-  boardId: string
+  board: Board
   onClose: () => void
 }
 
-export default function NewTaskModal({ boardId, onClose }: Props) {
+export default function NewTaskModal({ board, onClose }: Props) {
   const { user } = useAuthStore()
 
   const [title, setTitle]       = useState('')
   const [clientId, setClientId] = useState('')
+  const [bucket, setBucket]     = useState('')
   const [status, setStatus]     = useState<Task['status']>('todo')
   const [priority, setPriority] = useState<Task['priority']>('normal')
   const [dateEnd, setDateEnd]   = useState('')
@@ -24,11 +25,22 @@ export default function NewTaskModal({ boardId, onClose }: Props) {
   const [saving, setSaving]     = useState(false)
   const [error, setError]       = useState('')
 
+  // Bucket options: board's "Bucket" custom property → fallback to BOARD_BUCKETS[type]
+  const bucketOptions = useMemo(() => {
+    const prop = board.customProperties?.find((p) => p.id === 'builtin-bucket' || p.name === 'Bucket')
+    if (prop?.options?.length) return prop.options.map((o) => o.label)
+    return BOARD_BUCKETS[board.type] ?? []
+  }, [board])
+
+  // No orderBy — sort client-side to avoid composite index requirement.
   useEffect(() => {
-    const q = query(collection(db, 'clients'), where('active', '==', true), orderBy('name'))
-    return onSnapshot(q, (snap) =>
-      setClients(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Client)))
-    )
+    return onSnapshot(collection(db, 'clients'), (snap) => {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Client))
+        .filter((c) => c.active)
+        .sort((a, b) => a.name.localeCompare(b.name))
+      setClients(list)
+    })
   }, [])
 
   async function handleSave() {
@@ -39,29 +51,32 @@ export default function NewTaskModal({ boardId, onClose }: Props) {
     setSaving(true)
     try {
       await addDoc(collection(db, 'tasks'), {
-        boardId,
-        title:      title.trim(),
+        boardId:     board.id,
+        title:       title.trim(),
         clientId,
         status,
         priority,
-        assignees:  [user.uid],
-        labelIds:   [],
-        bucket:     '',
-        dateStart:  null,
-        dateEnd:    dateEnd ? new Date(dateEnd) : null,
-        notes:      '',
-        poNumber:   '',
-        awbNumber:  '',
-        subtasks:   [],
+        assignees:   [user.uid],
+        labelIds:    [],
+        bucket,
+        dateStart:   null,
+        dateEnd:     dateEnd ? new Date(dateEnd) : null,
+        notes:       '',
+        poNumber:    '',
+        poNumbers:   [],
+        poEntries:   [],
+        awbs:        [],
+        subtasks:    [],
         attachments: [],
-        recurring:  null,
-        completed:  false,
+        emailAttachments: [],
+        recurring:   null,
+        completed:   false,
         completedAt: null,
         completedBy: null,
-        createdBy:  user.uid,
-        createdAt:  serverTimestamp(),
-        updatedAt:  serverTimestamp(),
-        updatedBy:  user.uid,
+        createdBy:   user.uid,
+        createdAt:   serverTimestamp(),
+        updatedAt:   serverTimestamp(),
+        updatedBy:   user.uid,
       })
       onClose()
     } catch {
@@ -73,15 +88,9 @@ export default function NewTaskModal({ boardId, onClose }: Props) {
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Sheet — slides up from bottom on mobile */}
-      <div className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-3xl shadow-xl safe-bottom">
-        {/* Drag handle */}
+      <div className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-3xl shadow-xl safe-bottom max-w-2xl mx-auto">
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 bg-gray-200 rounded-full" />
         </div>
@@ -90,7 +99,6 @@ export default function NewTaskModal({ boardId, onClose }: Props) {
           <h2 className="text-base font-bold text-gray-900 mb-4">New Task</h2>
 
           <div className="space-y-3">
-            {/* Title */}
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">Title *</label>
               <input
@@ -102,7 +110,6 @@ export default function NewTaskModal({ boardId, onClose }: Props) {
               />
             </div>
 
-            {/* Client */}
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">Client *</label>
               <select
@@ -117,7 +124,22 @@ export default function NewTaskModal({ boardId, onClose }: Props) {
               </select>
             </div>
 
-            {/* Status + Priority row */}
+            {bucketOptions.length > 0 && (
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">Bucket</label>
+                <select
+                  value={bucket}
+                  onChange={(e) => setBucket(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 px-3 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500/30"
+                >
+                  <option value="">— No bucket —</option>
+                  {bucketOptions.map((b) => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-medium text-gray-600 mb-1 block">Status</label>
@@ -145,7 +167,6 @@ export default function NewTaskModal({ boardId, onClose }: Props) {
               </div>
             </div>
 
-            {/* Due date */}
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">Due Date</label>
               <input
@@ -160,7 +181,6 @@ export default function NewTaskModal({ boardId, onClose }: Props) {
               <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>
             )}
 
-            {/* Buttons */}
             <div className="flex gap-3 pt-1 pb-4">
               <button
                 onClick={onClose}
