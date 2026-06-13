@@ -168,7 +168,7 @@ export default function AccessPermissionsModal({ targetUser, boards, onClose }: 
                   key={area.areaId}
                   label={area.label}
                   enabled={getValue(area.areaId) !== 'none'}
-                  onChange={(v) => setPerm(area.areaId, v ? 'view' : 'none')}
+                  onChange={(v) => setPerm(area.areaId, v ? 'edit' : 'none')}
                 />
               ))}
             </>

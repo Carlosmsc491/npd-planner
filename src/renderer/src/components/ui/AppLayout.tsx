@@ -12,7 +12,7 @@ import {
 import { auth } from '../../lib/firebase'
 import { useAuthStore } from '../../store/authStore'
 import { useBoardStore } from '../../store/boardStore'
-import { subscribeToBoards, updateBoard, deleteBoard } from '../../lib/firestore'
+import { subscribeToBoards, subscribeToUsers, updateBoard, deleteBoard } from '../../lib/firestore'
 import { getBoardColor, getInitials, getInitialsColor } from '../../utils/colorUtils'
 import ConnectionStatus from './ConnectionStatus'
 import NewBoardModal from './NewBoardModal'
@@ -159,6 +159,14 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
     const unsub = subscribeToBoards(setBoards)
     return unsub
   }, [setBoards])
+
+  // Warm the users cache globally so Settings > Members renders instantly.
+  // MembersPanel creates its own listener that reads from this warm cache.
+  useEffect(() => {
+    if (!isAdmin) return
+    const unsub = subscribeToUsers(() => {})
+    return unsub
+  }, [isAdmin])
 
   function toggleSidebar() {
     setSidebarOpen((prev) => {
