@@ -11,8 +11,6 @@ import {
   onSnapshot,
   serverTimestamp,
   Unsubscribe,
-  query,
-  orderBy,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type { DirectoryContact, DirectorySettings, DirectoryColumnDef } from '../types'
@@ -23,11 +21,12 @@ const DIR_SETTINGS_DOC = 'columns'
 
 // ─── Contacts ────────────────────────────────────────────────────────────────
 
+// No orderBy here — would require a composite Firestore index. Sort client-side instead.
 export function subscribeToDirectoryContacts(
   callback: (contacts: DirectoryContact[]) => void
 ): Unsubscribe {
   return onSnapshot(
-    query(collection(db, CONTACTS), orderBy('lastName'), orderBy('firstName')),
+    collection(db, CONTACTS),
     (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as DirectoryContact))),
     (err) => console.error('subscribeToDirectoryContacts error:', err)
   )
