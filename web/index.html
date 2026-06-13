@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1D9E75" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NPD Planner" />
+    <meta name="description" content="NPD Planner — Elite Flower task management" />
+
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <link rel="icon" type="image/png" href="icons/icon-192.png" />
+
+    <title>NPD Planner</title>
+
+    <!-- Tailwind Play CDN — works offline after first load (cached by SW) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: '#1D9E75',
+            },
+          },
+        },
+      }
+    </script>
+
+    <style>
+      body { background: #f9fafb; }
+      @media (prefers-color-scheme: dark) { body { background: #111827; } }
+      /* Safe area insets for iPhone notch */
+      .safe-top    { padding-top:    env(safe-area-inset-top); }
+      .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

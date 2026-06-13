@@ -1,0 +1,27 @@
+{
+  "name": "NPD Planner",
+  "short_name": "NPD",
+  "description": "Elite Flower — task management on the go",
+  "start_url": "/npd-planner/",
+  "scope": "/npd-planner/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#111827",
+  "theme_color": "#1D9E75",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "business"],
+  "lang": "en"
+}
