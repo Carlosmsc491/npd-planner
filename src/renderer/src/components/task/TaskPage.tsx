@@ -18,6 +18,7 @@ import { useTaskStore } from '../../store/taskStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { STATUS_STYLES, getBoardColor, BOARD_BUCKETS, getInitials, getInitialsColor } from '../../utils/colorUtils'
 import { DynamicIcon } from '../../utils/propertyUtils'
+import { normalizeBoardProperties } from '../../lib/boardProperties'
 import { timestampToDateInput, dateStringToTimestamp, toLocalDateString } from '../../utils/dateUtils'
 import { useDateTypeStore } from '../../store/dateTypeStore'
 import type { TaskDate } from '../../types'
@@ -638,10 +639,17 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
 
         {/* ── DETAILS ── */}
         <>
-            {(board?.customProperties ?? [])
-              .slice()
-              .sort((a, b) => a.order - b.order)
+            {(board ? normalizeBoardProperties(board) : [])
               .map((prop) => {
+                // Section heading / page break (Phase 3 templates)
+                if (prop.type === 'section') {
+                  return (
+                    <div key={prop.id} className="col-span-full flex items-center gap-2 pt-1">
+                      <span className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{prop.name}</span>
+                      <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                    </div>
+                  )
+                }
                 switch (prop.id) {
                   case 'builtin-client': {
                     const isPersonBoard = board?.type === 'trips' || board?.type === 'vacations'
