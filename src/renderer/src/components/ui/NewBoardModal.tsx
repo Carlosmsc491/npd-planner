@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { createBoard } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
+import { buildBoardPropertiesFromBuiltins } from '../../lib/boardProperties'
 import type { BoardProperty, BoardView } from '../../types'
 
 interface Props {
@@ -90,9 +91,10 @@ export default function NewBoardModal({ onClose }: Props) {
     if (!user) return
     setSaving(true)
     try {
-      const customProperties: BoardProperty[] = PROPERTY_OPTIONS
-        .filter((p) => selectedProps.has(p.id))
-        .map((p, i) => ({ id: p.id, name: p.name, icon: p.icon, type: p.type, order: i, required: p.required }))
+      // Build a bind-aware template from the selected builtins (keeps wizard order)
+      const selectedIds = PROPERTY_OPTIONS.filter((p) => selectedProps.has(p.id)).map((p) => p.id)
+      const customProperties = buildBoardPropertiesFromBuiltins(selectedIds, 'custom')
+        .map((p) => ({ ...p, required: PROPERTY_OPTIONS.find((o) => o.id === p.id)?.required }))
 
       await createBoard({
         name: name.trim(),

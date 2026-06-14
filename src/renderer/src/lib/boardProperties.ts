@@ -185,6 +185,14 @@ export function getDefaultBoardProperties(boardType: BoardType): BoardProperty[]
   ]
 }
 
+// Build a fresh template from a set of selected builtin ids (used by the New
+// Board wizard) so new boards are born bind-aware with the right type + options.
+export function buildBoardPropertiesFromBuiltins(ids: string[], boardType: BoardType): BoardProperty[] {
+  return ids
+    .filter((id) => BUILTIN_REGISTRY[id])
+    .map((id, i) => mk(id, boardType, i))
+}
+
 // ── Normalization (lazy, read-time, NON-destructive migration) ──────────────
 // Called wherever a board's properties are consumed. Backfills bind/type/icon/
 // options on existing builtins, strips foreign builtins, and falls back to the

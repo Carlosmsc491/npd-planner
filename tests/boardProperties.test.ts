@@ -5,6 +5,7 @@ import {
   getDefaultBoardProperties,
   normalizeBoardProperties,
   pickCustomFields,
+  buildBoardPropertiesFromBuiltins,
 } from '../src/renderer/src/lib/boardProperties'
 import type { Board, BoardProperty } from '../src/renderer/src/types'
 
@@ -131,6 +132,22 @@ describe('normalizeBoardProperties', () => {
       expect(def.type, `${id} type`).toBeTruthy()
       expect(def.icon, `${id} icon`).toBeTruthy()
     }
+  })
+})
+
+describe('buildBoardPropertiesFromBuiltins', () => {
+  it('builds bind-aware props with type + options, in the given order', () => {
+    const props = buildBoardPropertiesFromBuiltins(['builtin-client', 'builtin-bucket', 'builtin-status'], 'planner')
+    expect(props.map((p) => p.id)).toEqual(['builtin-client', 'builtin-bucket', 'builtin-status'])
+    expect(props.map((p) => p.order)).toEqual([0, 1, 2])
+    expect(props.find((p) => p.id === 'builtin-client')?.bind).toBe('clientId')
+    expect(props.find((p) => p.id === 'builtin-bucket')?.options?.length).toBeGreaterThan(0)
+    expect(props.find((p) => p.id === 'builtin-status')?.options?.length).toBeGreaterThan(0)
+  })
+
+  it('ignores unknown ids', () => {
+    const props = buildBoardPropertiesFromBuiltins(['builtin-bucket', 'not-a-builtin'], 'custom')
+    expect(props.map((p) => p.id)).toEqual(['builtin-bucket'])
   })
 })
 
