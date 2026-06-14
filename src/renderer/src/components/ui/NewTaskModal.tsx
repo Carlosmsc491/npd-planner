@@ -79,6 +79,17 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
   // Has date property in template?
   const hasDateProp = properties.some(p => p.id === 'builtin-date')
 
+  // Person boards: only active users are selectable, and we render exactly ONE
+  // Person picker bound to personId (templates vary — the person field may be
+  // builtin-client, builtin-assignees, or a custom person-type property).
+  const activeUsers = users.filter(u => u.status === 'active')
+  const personFieldIds = isPersonBoard
+    ? properties
+        .filter(p => p.id === 'builtin-client' || p.id === 'builtin-assignees' || p.type === 'person')
+        .map(p => p.id)
+    : []
+  const primaryPersonFieldId = personFieldIds[0]
+
   const setField = useCallback((id: string, value: unknown) => {
     setCustomFieldValues(prev => ({ ...prev, [id]: value }))
   }, [])
@@ -182,6 +193,24 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
 
   // ── Render a single property field ───────────────────────────────────────
   function renderPropertyField(prop: BoardProperty) {
+    // Person boards: render a single Person picker (active users only), bound to
+    // personId so validation + assignees work. Supersedes builtin-client /
+    // builtin-assignees / custom person fields, and dedupes if several exist.
+    if (isPersonBoard && personFieldIds.includes(prop.id)) {
+      if (prop.id !== primaryPersonFieldId) return null
+      return (
+        <div key={prop.id}>
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Person *</label>
+          <select value={personId} onChange={e => setPersonId(e.target.value)}
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
+          >
+            <option value="">— Select person —</option>
+            {activeUsers.map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
+          </select>
+        </div>
+      )
+    }
+
     // Skip status — tasks always start as 'todo'
     if (prop.id === 'builtin-status') return null
 
@@ -262,6 +291,24 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
 
     // Bucket
     if (prop.id === 'builtin-bucket') {
+      const bucketOpts = prop.options?.map(o => o.label) ?? BOARD_BUCKETS[board.type] ?? []
+      // Person boards have a fixed set of statuses → show a clear dropdown.
+      if (isPersonBoard) {
+        return (
+          <div key={prop.id}>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{prop.name} *</label>
+            <select
+              value={bucket}
+              onChange={e => setBucket(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
+            >
+              <option value="">— Select —</option>
+              {bucketOpts.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+        )
+      }
+      // Planner/custom: free-text with suggestions so new buckets can be typed.
       return (
         <div key={prop.id}>
           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{prop.name} *</label>
@@ -274,9 +321,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
           />
           <datalist id={`buckets-${board.id}`}>
-            {(prop.options?.map(o => o.label) ?? BOARD_BUCKETS[board.type] ?? []).map(b => (
-              <option key={b} value={b} />
-            ))}
+            {bucketOpts.map(b => <option key={b} value={b} />)}
           </datalist>
         </div>
       )
