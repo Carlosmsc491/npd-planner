@@ -72,6 +72,12 @@ export default function TaskDetailModal({ task, board, client, clients, labels, 
     [clients]
   )
 
+  const isPersonBoard = board.type === 'trips' || board.type === 'vacations'
+  const userList = useMemo(
+    () => Object.values(users).filter((u) => u.status === 'active').sort((a, b) => a.name.localeCompare(b.name)),
+    [users]
+  )
+
   const [form, setForm] = useState(() => ({
     title:     task.title,
     notes:     task.notes ?? '',
@@ -79,6 +85,7 @@ export default function TaskDetailModal({ task, board, client, clients, labels, 
     priority:  task.priority,
     bucket:    task.bucket ?? '',
     clientId:  task.clientId ?? '',
+    personId:  task.assignees?.[0] ?? '',
     dateStart: toDateInput(task.dateStart),
     dateEnd:   toDateInput(task.dateEnd),
   }))
@@ -91,6 +98,7 @@ export default function TaskDetailModal({ task, board, client, clients, labels, 
       priority:  task.priority,
       bucket:    task.bucket ?? '',
       clientId:  task.clientId ?? '',
+      personId:  task.assignees?.[0] ?? '',
       dateStart: toDateInput(task.dateStart),
       dateEnd:   toDateInput(task.dateEnd),
     })
@@ -104,25 +112,35 @@ export default function TaskDetailModal({ task, board, client, clients, labels, 
 
   async function handleSave() {
     if (!form.title.trim()) { setError('Title is required'); return }
-    if (!form.clientId)     { setError('Client is required'); return }
+    if (isPersonBoard) {
+      if (!form.personId) { setError('Person is required'); return }
+    } else if (!form.clientId) {
+      setError('Client is required'); return
+    }
     if (bucketOptions.length > 0 && !form.bucket) { setError('Bucket is required'); return }
     if (!user) { setError('Not signed in'); return }
 
     setSaving(true)
     setError('')
     try {
-      await updateDoc(doc(db, 'tasks', task.id), {
+      const updates: Record<string, unknown> = {
         title:     form.title.trim(),
         notes:     form.notes,
         status:    form.status,
         priority:  form.priority,
         bucket:    form.bucket,
-        clientId:  form.clientId,
         dateStart: form.dateStart ? Timestamp.fromDate(new Date(form.dateStart + 'T12:00:00')) : null,
         dateEnd:   form.dateEnd ? Timestamp.fromDate(new Date(form.dateEnd + 'T12:00:00')) : null,
         updatedAt: serverTimestamp(),
         updatedBy: user.uid,
-      })
+      }
+      if (isPersonBoard) {
+        updates.clientId = ''
+        updates.assignees = form.personId ? [form.personId] : []
+      } else {
+        updates.clientId = form.clientId
+      }
+      await updateDoc(doc(db, 'tasks', task.id), updates)
       setEditing(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save changes')
@@ -155,17 +173,26 @@ export default function TaskDetailModal({ task, board, client, clients, labels, 
                 <input value={form.title} onChange={(e) => setField('title', e.target.value)} className={INPUT} />
               </EditField>
 
-              <EditField label="Client *">
-                <select value={form.clientId} onChange={(e) => setField('clientId', e.target.value)} className={INPUT}>
-                  <option value="">— Select client —</option>
-                  {clientList.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </EditField>
+              {isPersonBoard ? (
+                <EditField label="Person *">
+                  <select value={form.personId} onChange={(e) => setField('personId', e.target.value)} className={INPUT}>
+                    <option value="">— Select person —</option>
+                    {userList.map((u) => <option key={u.uid} value={u.uid}>{u.name}</option>)}
+                  </select>
+                </EditField>
+              ) : (
+                <EditField label="Client *">
+                  <select value={form.clientId} onChange={(e) => setField('clientId', e.target.value)} className={INPUT}>
+                    <option value="">— Select client —</option>
+                    {clientList.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </EditField>
+              )}
 
               {bucketOptions.length > 0 && (
-                <EditField label="Bucket *">
+                <EditField label={isPersonBoard ? 'Status *' : 'Bucket *'}>
                   <select value={form.bucket} onChange={(e) => setField('bucket', e.target.value)} className={INPUT}>
-                    <option value="">— Select bucket —</option>
+                    <option value="">— Select {isPersonBoard ? 'status' : 'bucket'} —</option>
                     {bucketOptions.map((b) => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </EditField>
@@ -250,9 +277,11 @@ export default function TaskDetailModal({ task, board, client, clients, labels, 
                     {STATUS_LABELS[task.status]}
                   </span>
                 </Meta>
-                <Meta label="Client">
-                  <span className="text-sm text-gray-900 font-medium uppercase">{client?.name ?? '—'}</span>
-                </Meta>
+                {!isPersonBoard && (
+                  <Meta label="Client">
+                    <span className="text-sm text-gray-900 font-medium uppercase">{client?.name ?? '—'}</span>
+                  </Meta>
+                )}
                 {dueStr && (
                   <Meta label="Due date">
                     <span className={`text-sm font-medium ${overdue ? 'text-red-500' : 'text-gray-900'}`}>
