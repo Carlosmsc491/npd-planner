@@ -22,7 +22,6 @@ import { normalizeBoardProperties } from '../../lib/boardProperties'
 import { timestampToDateInput, dateStringToTimestamp, toLocalDateString } from '../../utils/dateUtils'
 import { useDateTypeStore } from '../../store/dateTypeStore'
 import type { TaskDate } from '../../types'
-import SubtaskList from './SubtaskList'
 import FollowUpList from './FollowUpList'
 import AttachmentPanel from './AttachmentPanel'
 import TaskReportModal from './TaskReportModal'
@@ -1254,21 +1253,15 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
               />
             </div>
 
-            {/* Subtasks */}
-            <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Subtasks</h4>
-              <SubtaskList task={task} readOnly={readOnly} />
-            </div>
-
             {/* Follow-ups — open items block completing the task */}
             <div>
               <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Follow-ups</h4>
               <FollowUpList task={task} readOnly={readOnly} />
             </div>
 
-            {/* Files */}
+            {/* Attachments — files + emails together */}
             <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Files</h4>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Attachments</h4>
               <AttachmentPanel task={task} readOnly={readOnly} />
             </div>
           </>
