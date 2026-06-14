@@ -4,7 +4,7 @@ import { updateBoard, updateBoardProperties } from '../../lib/firestore'
 import { useTaskStore } from '../../store/taskStore'
 import { useAuthStore } from '../../store/authStore'
 import { DynamicIcon, PROPERTY_TYPE_LABELS, OPTION_COLORS } from '../../utils/propertyUtils'
-import { BOARD_BUCKETS } from '../../utils/colorUtils'
+import { normalizeBoardProperties, PRIORITY_OPTIONS } from '../../lib/boardProperties'
 import IconPickerPopover from './IconPickerPopover'
 import AddPropertyModal from './AddPropertyModal'
 import type { Board, BoardProperty, PropertyType, SelectOption } from '../../types'
@@ -17,20 +17,6 @@ const PRESET_COLORS = [
 const PROPERTY_TYPES: PropertyType[] = [
   'text', 'number', 'select', 'multiselect', 'date', 'daterange',
   'person', 'checkbox', 'url', 'attachment', 'tags', 'email', 'phone',
-]
-
-const STATUS_OPTIONS: SelectOption[] = [
-  { id: 'status-todo',       label: 'To Do',       color: '#9CA3AF' },
-  { id: 'status-inprogress', label: 'In Progress', color: '#F59E0B' },
-  { id: 'status-review',     label: 'Review',      color: '#378ADD' },
-  { id: 'status-done',       label: 'Done',        color: '#1D9E75' },
-]
-
-const PRIORITY_OPTIONS: SelectOption[] = [
-  { id: 'priority-low',    label: 'Low',    color: '#9CA3AF', icon: 'ArrowDown'    },
-  { id: 'priority-normal', label: 'Normal', color: '#6B7280', icon: 'Minus'        },
-  { id: 'priority-high',   label: 'High',   color: '#F59E0B', icon: 'AlertCircle'  },
-  { id: 'priority-urgent', label: 'Urgent', color: '#EF4444', icon: 'AlertCircle'  },
 ]
 
 // Suggest an icon based on option label/name
@@ -49,130 +35,10 @@ function getSuggestedIcon(label: string): string {
   return 'CircleDot'
 }
 
-// Allowlist of which builtin properties are valid per board type.
-// Any builtin NOT in a board's allowlist is stripped automatically.
-// User-added custom properties (non-"builtin-" prefix) always pass through.
-const ALLOWED_BUILTINS: Record<string, Set<string>> = {
-  planner: new Set([
-    'builtin-client', 'builtin-status', 'builtin-priority',
-    'builtin-date', 'builtin-assignees', 'builtin-bucket',
-    'builtin-awb', 'builtin-po', 'builtin-division', 'builtin-labels',
-  ]),
-  trips: new Set([
-    'builtin-client', 'builtin-status', 'builtin-priority',
-    'builtin-date', 'builtin-bucket', 'builtin-labels',
-  ]),
-  vacations: new Set([
-    'builtin-client', 'builtin-status',
-    'builtin-date', 'builtin-bucket', 'builtin-type', 'builtin-labels',
-  ]),
-  custom: new Set([
-    'builtin-client', 'builtin-status', 'builtin-priority',
-    'builtin-date', 'builtin-assignees', 'builtin-bucket', 'builtin-labels',
-  ]),
-}
-
-// Strip builtin properties that don't belong to this board type.
-// Custom (user-created) properties always pass through unchanged.
-function stripForeignBuiltins(props: BoardProperty[], boardType: string): BoardProperty[] {
-  const allowed = ALLOWED_BUILTINS[boardType] ?? ALLOWED_BUILTINS.custom
-  return props
-    .filter((p) => !p.id.startsWith('builtin-') || allowed.has(p.id))
-    .map((p, i) => ({ ...p, order: i }))
-}
-
-// Patch any builtin select property that is missing its default options
-function patchBuiltinOptions(props: BoardProperty[], boardType: string): BoardProperty[] {
-  const buckets = BOARD_BUCKETS[boardType] ?? []
-  return props.map((p) => {
-    if (p.id === 'builtin-status' && (!p.options || p.options.length === 0))
-      return { ...p, options: STATUS_OPTIONS }
-    // Patch priority: seed if empty, or add missing Low/Urgent if only has 2 options
-    if (p.id === 'builtin-priority') {
-      if (!p.options || p.options.length === 0) return { ...p, options: PRIORITY_OPTIONS }
-      const hasLow    = p.options.some(o => o.label.toLowerCase() === 'low')
-      const hasUrgent = p.options.some(o => o.label.toLowerCase() === 'urgent')
-      if (!hasLow || !hasUrgent) return { ...p, options: PRIORITY_OPTIONS }
-    }
-    if (p.id === 'builtin-bucket' && (!p.options || p.options.length === 0) && buckets.length > 0)
-      return { ...p, options: buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] })) }
-    // Patch builtin-type for vacations: add default options if missing
-    if (p.id === 'builtin-type' && boardType === 'vacations' && (!p.options || p.options.length === 0))
-      return {
-        ...p, display: p.display ?? true,
-        options: [
-          { id: 'type-vacation',     label: 'Vacation',     color: '#378ADD' },
-          { id: 'type-sick',         label: 'Sick Day',     color: '#EF4444' },
-          { id: 'type-birthday',     label: 'Birthday',     color: '#EC4899' },
-          { id: 'type-compensation', label: 'Compensation', color: '#F59E0B' },
-        ],
-      }
-    return p
-  })
-}
-
-// Default properties seeded when a board has none yet — mirrors exactly what TaskPage renders per board type
-function getDefaultProperties(boardType: string): BoardProperty[] {
-  const buckets = BOARD_BUCKETS[boardType] ?? []
-  const bucketOptions = buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] }))
-
-  // ── PLANNER: matches TaskPage order exactly
-  // Customer → Bucket → Status → Assigned To → Priority → Date → Order Status (AWB + PO)
-  if (boardType === 'planner') {
-    return [
-      { id: 'builtin-client',    name: 'Customer',      icon: 'User',          type: 'text',      order: 0 },
-      { id: 'builtin-bucket',    name: 'Bucket',        icon: 'Layers',        type: 'select',    order: 1, options: bucketOptions },
-      { id: 'builtin-status',    name: 'Status',        icon: 'CircleDot',     type: 'select',    order: 2, options: STATUS_OPTIONS },
-      { id: 'builtin-assignees', name: 'Assigned To',   icon: 'Users',         type: 'person',    order: 3 },
-      { id: 'builtin-priority',  name: 'Priority',      icon: 'Zap',           type: 'select',    order: 4, options: PRIORITY_OPTIONS },
-      { id: 'builtin-date',      name: 'Date',          icon: 'CalendarRange', type: 'daterange', order: 5 },
-      { id: 'builtin-awb',       name: 'Order Status',  icon: 'Plane',         type: 'text',      order: 6 },
-      { id: 'builtin-po',        name: 'P.O. Number',   icon: 'Hash',          type: 'text',      order: 7 },
-    ]
-  }
-
-  // ── TRIPS: Person · Status · Priority · Date · Bucket
-  // (Person is stored as assignees[0]; builtin-assignees multi-picker not shown)
-  if (boardType === 'trips') {
-    return [
-      { id: 'builtin-client',   name: 'Person',   icon: 'User',          type: 'text',      order: 0 },
-      { id: 'builtin-status',   name: 'Status',   icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
-      { id: 'builtin-priority', name: 'Priority', icon: 'Zap',           type: 'select',    order: 2, options: PRIORITY_OPTIONS },
-      { id: 'builtin-date',     name: 'Date',     icon: 'CalendarRange', type: 'daterange', order: 3 },
-      { id: 'builtin-bucket',   name: 'Bucket',   icon: 'Layers',        type: 'select',    order: 4, options: bucketOptions },
-    ]
-  }
-
-  // ── VACATIONS: Person · Status · Date · Bucket · Type
-  // (No Priority — not shown in TaskPage for vacations)
-  if (boardType === 'vacations') {
-    return [
-      { id: 'builtin-client',  name: 'Person', icon: 'User',          type: 'text',      order: 0 },
-      { id: 'builtin-status',  name: 'Status', icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
-      { id: 'builtin-date',    name: 'Date',   icon: 'CalendarRange', type: 'daterange', order: 2 },
-      { id: 'builtin-bucket',  name: 'Bucket', icon: 'Layers',        type: 'select',    order: 3, options: bucketOptions },
-      {
-        id: 'builtin-type', name: 'Type', icon: 'Tag', type: 'select', order: 4, display: true,
-        options: [
-          { id: 'type-vacation',     label: 'Vacation',     color: '#378ADD' },
-          { id: 'type-sick',         label: 'Sick Day',     color: '#EF4444' },
-          { id: 'type-birthday',     label: 'Birthday',     color: '#EC4899' },
-          { id: 'type-compensation', label: 'Compensation', color: '#F59E0B' },
-        ],
-      },
-    ]
-  }
-
-  // ── CUSTOM boards: Person · Status · Priority · Date · Assigned To · Bucket
-  return [
-    { id: 'builtin-client',    name: 'Client',      icon: 'User',          type: 'text',      order: 0 },
-    { id: 'builtin-status',    name: 'Status',       icon: 'CircleDot',     type: 'select',    order: 1, options: STATUS_OPTIONS },
-    { id: 'builtin-priority',  name: 'Priority',     icon: 'Zap',           type: 'select',    order: 2, options: PRIORITY_OPTIONS },
-    { id: 'builtin-date',      name: 'Date',         icon: 'CalendarRange', type: 'daterange', order: 3 },
-    { id: 'builtin-assignees', name: 'Assigned To',  icon: 'Users',         type: 'person',    order: 4 },
-    { id: 'builtin-bucket',    name: 'Bucket',       icon: 'Layers',        type: 'select',    order: 5, options: bucketOptions },
-  ]
-}
+// Property templates + normalization now live in lib/boardProperties.ts (single
+// source of truth). The editor consumes getDefaultBoardProperties /
+// normalizeBoardProperties so settings, the create modal and the task detail all
+// agree on the same bind-aware model.
 
 interface Props {
   board: Board
@@ -185,22 +51,11 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   const { user } = useAuthStore()
   const isOwner = user?.role === 'owner'
   // Note: Clients and labels subscriptions removed - they are managed elsewhere
-  const [properties, setProperties] = useState<BoardProperty[]>(() => {
-    const existing = board.customProperties ?? []
-    if (existing.length === 0) return getDefaultProperties(board.type)
-    const stripped = stripForeignBuiltins([...existing].sort((a, b) => a.order - b.order), board.type)
-    return patchBuiltinOptions(stripped, board.type)
-  })
+  const [properties, setProperties] = useState<BoardProperty[]>(() => normalizeBoardProperties(board))
 
   // Sync local properties state when board.customProperties changes from Firestore
   useEffect(() => {
-    const existing = board.customProperties ?? []
-    if (existing.length === 0) {
-      setProperties(getDefaultProperties(board.type))
-    } else {
-      const stripped = stripForeignBuiltins([...existing].sort((a, b) => a.order - b.order), board.type)
-      setProperties(patchBuiltinOptions(stripped, board.type))
-    }
+    setProperties(normalizeBoardProperties(board))
   }, [board.customProperties, board.type])
   const [showAddModal, setShowAddModal]       = useState(false)
   const [renamingId, setRenamingId]           = useState<string | null>(null)
@@ -214,50 +69,16 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   const dragIndex = useRef<number | null>(null)
   const [dragOverIdx, setDragOverIdx]         = useState<number | null>(null)
 
-  // Seed defaults or patch missing builtin options in Firestore on first open
+  // On first open, persist the normalized template (adds bind, seeds options,
+  // strips foreign builtins, fills defaults) so the rest of the app reads a
+  // clean, bind-aware template from Firestore. Idempotent — only writes if it
+  // actually differs from what is stored.
   useEffect(() => {
+    const normalized = normalizeBoardProperties(board)
     const existing = board.customProperties ?? []
-    if (existing.length === 0) {
-      const defaults = getDefaultProperties(board.type)
-      setProperties(defaults)
-      updateBoardProperties(board.id, defaults).catch(console.error)
-    } else {
-      let updated = [...existing]
-
-      // 1. Strip properties that don't belong to this board type
-      updated = stripForeignBuiltins(updated, board.type)
-
-      // 2. Patch missing options for existing properties
-      updated = patchBuiltinOptions(updated, board.type)
-
-      // 3. Add missing required builtins for each board type
-      const buckets = BOARD_BUCKETS[board.type] ?? []
-      const bucketOptions = buckets.map((b, i) => ({ id: `bucket-${i}`, label: b, color: OPTION_COLORS[i % OPTION_COLORS.length] }))
-
-      if (!updated.some(p => p.id === 'builtin-bucket')) {
-        updated = [...updated, { id: 'builtin-bucket', name: 'Bucket', icon: 'Layers', type: 'select' as const, order: updated.length, options: bucketOptions }]
-      }
-      if (board.type === 'vacations' && !updated.some(p => p.id === 'builtin-type')) {
-        updated = [
-          ...updated,
-          {
-            id: 'builtin-type', name: 'Type', icon: 'Tag', type: 'select' as const,
-            order: updated.length, display: true,
-            options: [
-              { id: 'type-vacation',     label: 'Vacation',     color: '#378ADD' },
-              { id: 'type-sick',         label: 'Sick Day',     color: '#EF4444' },
-              { id: 'type-birthday',     label: 'Birthday',     color: '#EC4899' },
-              { id: 'type-compensation', label: 'Compensation', color: '#F59E0B' },
-            ],
-          },
-        ]
-      }
-
-      // 4. Save if anything changed
-      if (JSON.stringify(updated) !== JSON.stringify(existing)) {
-        setProperties(updated)
-        updateBoardProperties(board.id, updated).catch(console.error)
-      }
+    if (JSON.stringify(normalized) !== JSON.stringify(existing)) {
+      setProperties(normalized)
+      updateBoardProperties(board.id, normalized).catch(console.error)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board.id])
@@ -275,6 +96,13 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   async function handleAddProperty(data: Omit<BoardProperty, 'id' | 'order'>) {
     const newProp: BoardProperty = { ...data, id: crypto.randomUUID(), order: properties.length }
     await saveProperties([...properties, newProp])
+  }
+
+  async function handleAddSection() {
+    const newSection: BoardProperty = {
+      id: `sec_${crypto.randomUUID()}`, name: 'New Section', type: 'section', icon: 'Minus', order: properties.length,
+    }
+    await saveProperties([...properties, newSection])
   }
 
   async function handleDelete(id: string) {
@@ -426,6 +254,59 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
         </div>
 
         {properties.map((prop, i) => {
+          // ── Section heading / page break ──
+          if (prop.type === 'section') {
+            return (
+              <div
+                key={prop.id}
+                draggable
+                onDragStart={() => handleDragStart(i)}
+                onDragOver={(e) => handleDragOver(e, i)}
+                onDrop={(e) => handleDrop(e, i)}
+                onDragEnd={handleDragEnd}
+                className={`group/prop relative flex items-center gap-2 rounded-lg px-2 pt-5 pb-1 ${dragOverIdx === i ? 'bg-green-50 dark:bg-green-900/10' : ''}`}
+              >
+                <div className="opacity-0 group-hover/prop:opacity-100 transition-opacity cursor-grab active:cursor-grabbing">
+                  <GripVertical size={14} className="text-gray-300 dark:text-gray-600" />
+                </div>
+                {renamingId === prop.id ? (
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={() => handleRename(prop.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleRename(prop.id); if (e.key === 'Escape') setRenamingId(null) }}
+                    className="rounded border border-green-500 bg-white dark:bg-gray-700 dark:text-white px-2 py-0.5 text-xs font-bold uppercase tracking-wide focus:outline-none"
+                  />
+                ) : (
+                  <button
+                    onClick={() => { setRenamingId(prop.id); setRenameValue(prop.name) }}
+                    className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 transition-colors"
+                    title="Click to rename section"
+                  >
+                    {prop.name}
+                  </button>
+                )}
+                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                {deletingId === prop.id ? (
+                  <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 rounded px-1.5 py-0.5">
+                    <span className="text-[10px] text-red-600 dark:text-red-400">Delete?</span>
+                    <button onClick={() => handleDelete(prop.id)} className="text-[10px] font-semibold text-red-600 dark:text-red-400">Yes</button>
+                    <button onClick={() => setDeletingId(null)} className="text-[10px] text-gray-400">No</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setDeletingId(prop.id)}
+                    className="opacity-0 group-hover/prop:opacity-100 p-1 rounded text-gray-300 hover:text-red-500 dark:text-gray-600 transition-all"
+                    title="Delete section"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
+            )
+          }
+
           const isOptionType = ['select', 'multiselect', 'tags'].includes(prop.type)
           const isBuiltin = prop.id.startsWith('builtin-')
           const isPriority = prop.id === 'builtin-priority'
@@ -678,14 +559,24 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
           )
         })}
 
-        {/* Add property */}
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hover:border-green-500 hover:text-green-600 dark:hover:border-green-600 dark:hover:text-green-400 transition-all hover:bg-green-50 dark:hover:bg-green-900/10"
-        >
-          <Plus size={16} />
-          Add Field
-        </button>
+        {/* Add field / section */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hover:border-green-500 hover:text-green-600 dark:hover:border-green-600 dark:hover:text-green-400 transition-all hover:bg-green-50 dark:hover:bg-green-900/10"
+          >
+            <Plus size={16} />
+            Add Field
+          </button>
+          <button
+            onClick={handleAddSection}
+            className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hover:border-green-500 hover:text-green-600 dark:hover:border-green-600 dark:hover:text-green-400 transition-all hover:bg-green-50 dark:hover:bg-green-900/10"
+            title="Add a section heading / page break"
+          >
+            <Plus size={16} />
+            Add Section
+          </button>
+        </div>
       </div>
 
       {showAddModal && (
