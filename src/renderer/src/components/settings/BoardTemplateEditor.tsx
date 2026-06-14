@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { ArrowLeft, Trash2, GripVertical, Plus, Star, X } from 'lucide-react'
+import {
+  ArrowLeft, Trash2, GripVertical, Plus, Star, X,
+  CalendarRange, FileText, CheckSquare, Flag, Paperclip, Mail, Lock,
+} from 'lucide-react'
 import { updateBoard, updateBoardProperties } from '../../lib/firestore'
 import { useTaskStore } from '../../store/taskStore'
 import { useAuthStore } from '../../store/authStore'
@@ -559,6 +562,25 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
           )
         })}
 
+        {/* System sections — always present on every task, rendered by the task
+            view itself (not template fields), shown here so Settings mirrors the
+            real task panel. Not removable/reorderable (yet). */}
+        <div className="mt-4 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 px-4 py-3">
+          <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2.5">
+            <Lock size={10} /> Always on every task
+          </p>
+          <div className="space-y-1.5">
+            {properties.some((p) => p.bind === 'dates') && (
+              <SystemRow icon={<CalendarRange size={13} />} label="Event Dates" hint="Preparation · Ship · Show day…" />
+            )}
+            <SystemRow icon={<FileText size={13} />} label="Description" />
+            <SystemRow icon={<CheckSquare size={13} />} label="Subtasks" />
+            <SystemRow icon={<Flag size={13} />} label="Follow-ups" />
+            <SystemRow icon={<Paperclip size={13} />} label="Files" />
+            <SystemRow icon={<Mail size={13} />} label="Emails" />
+          </div>
+        </div>
+
         {/* Add field / section */}
         <div className="flex gap-2">
           <button
@@ -582,6 +604,18 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
       {showAddModal && (
         <AddPropertyModal onAdd={handleAddProperty} onClose={() => setShowAddModal(false)} />
       )}
+    </div>
+  )
+}
+
+// Read-only row representing a system section that always appears on tasks
+function SystemRow({ icon, label, hint }: { icon: React.ReactNode; label: string; hint?: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200/70 dark:border-gray-700/70 px-3 py-2 opacity-70">
+      <span className="text-gray-400 shrink-0">{icon}</span>
+      <span className="text-xs font-medium text-gray-600 dark:text-gray-300">{label}</span>
+      {hint && <span className="text-[10px] text-gray-400 truncate">· {hint}</span>}
+      <span className="ml-auto text-[10px] text-gray-300 dark:text-gray-600">system</span>
     </div>
   )
 }
