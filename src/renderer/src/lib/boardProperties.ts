@@ -84,6 +84,21 @@ export const BUILTIN_REGISTRY: Record<string, BuiltinDef> = {
   'builtin-notes':     { name: 'Notes',        type: 'text',      icon: 'StickyNote',    bind: 'notes' },
   // Vacations "Type" is a builtin id but has no Task column — stored in customFields.
   'builtin-type':      { name: 'Type',         type: 'select',    icon: 'Tag',           options: () => VACATION_TYPE_OPTIONS },
+  // System sections — rendered by dedicated components in the task detail. They
+  // live in the template so they can be reordered / hidden, but are not generic
+  // user fields (no type picker, no options).
+  'builtin-description': { name: 'Description', type: 'richtext',    icon: 'FileText',  bind: 'description' },
+  'builtin-followups':   { name: 'Follow-ups',  type: 'followups',   icon: 'Flag',      bind: 'followUps' },
+  'builtin-attachments': { name: 'Attachments', type: 'attachments', icon: 'Paperclip', bind: 'attachments' },
+}
+
+// System sections: always present on every board (appended by normalize if
+// missing), rendered by dedicated components, reorderable + hideable but not
+// type-editable.
+export const SYSTEM_PROPERTY_IDS = ['builtin-description', 'builtin-followups', 'builtin-attachments'] as const
+
+export function isSystemProperty(id: string): boolean {
+  return (SYSTEM_PROPERTY_IDS as readonly string[]).includes(id)
 }
 
 export function isBuiltin(id: string): boolean {
@@ -101,23 +116,25 @@ export function resolveBind(id: string, boardType: string): PropertyBind | undef
 
 // ── Allowed builtins per board type ─────────────────────────────────────────
 // Builtins not in a board's allowlist are stripped. Custom props always pass.
+const SYSTEM_IDS_ARR = ['builtin-description', 'builtin-followups', 'builtin-attachments']
+
 const ALLOWED_BUILTINS: Record<string, Set<string>> = {
   planner: new Set([
     'builtin-client', 'builtin-status', 'builtin-priority', 'builtin-date',
     'builtin-assignees', 'builtin-bucket', 'builtin-awb', 'builtin-po',
-    'builtin-division', 'builtin-labels', 'builtin-notes',
+    'builtin-division', 'builtin-labels', 'builtin-notes', ...SYSTEM_IDS_ARR,
   ]),
   trips: new Set([
     'builtin-client', 'builtin-status', 'builtin-priority', 'builtin-date',
-    'builtin-bucket', 'builtin-labels', 'builtin-notes',
+    'builtin-bucket', 'builtin-labels', 'builtin-notes', ...SYSTEM_IDS_ARR,
   ]),
   vacations: new Set([
     'builtin-client', 'builtin-status', 'builtin-date', 'builtin-bucket',
-    'builtin-type', 'builtin-labels', 'builtin-notes',
+    'builtin-type', 'builtin-labels', 'builtin-notes', ...SYSTEM_IDS_ARR,
   ]),
   custom: new Set([
     'builtin-client', 'builtin-status', 'builtin-priority', 'builtin-date',
-    'builtin-assignees', 'builtin-bucket', 'builtin-labels', 'builtin-notes',
+    'builtin-assignees', 'builtin-bucket', 'builtin-labels', 'builtin-notes', ...SYSTEM_IDS_ARR,
   ]),
 }
 
@@ -143,9 +160,16 @@ function mk(id: string, boardType: string, order: number, overrides: Partial<Boa
   }
 }
 
+// The system sections that every board ends with (Description, Follow-ups,
+// Attachments), in order. Always appended after the type-specific fields.
+function systemDefaults(startOrder: number, boardType: BoardType): BoardProperty[] {
+  return SYSTEM_PROPERTY_IDS.map((id, i) => mk(id, boardType, startOrder + i))
+}
+
 export function getDefaultBoardProperties(boardType: BoardType): BoardProperty[] {
+  let base: BoardProperty[]
   if (boardType === 'planner') {
-    return [
+    base = [
       mk('builtin-client', boardType, 0, { name: 'Customer' }),
       mk('builtin-bucket', boardType, 1),
       mk('builtin-status', boardType, 2),
@@ -155,34 +179,33 @@ export function getDefaultBoardProperties(boardType: BoardType): BoardProperty[]
       mk('builtin-awb', boardType, 6, { name: 'Order Status' }),
       mk('builtin-po', boardType, 7),
     ]
-  }
-  if (boardType === 'trips') {
-    return [
+  } else if (boardType === 'trips') {
+    base = [
       mk('builtin-client', boardType, 0, { name: 'Person', icon: 'User' }),
       mk('builtin-status', boardType, 1),
       mk('builtin-priority', boardType, 2),
       mk('builtin-date', boardType, 3),
       mk('builtin-bucket', boardType, 4),
     ]
-  }
-  if (boardType === 'vacations') {
-    return [
+  } else if (boardType === 'vacations') {
+    base = [
       mk('builtin-client', boardType, 0, { name: 'Person', icon: 'User' }),
       mk('builtin-status', boardType, 1),
       mk('builtin-date', boardType, 2),
       mk('builtin-bucket', boardType, 3),
       mk('builtin-type', boardType, 4, { display: true }),
     ]
+  } else {
+    base = [
+      mk('builtin-client', boardType, 0, { name: 'Client' }),
+      mk('builtin-status', boardType, 1),
+      mk('builtin-priority', boardType, 2),
+      mk('builtin-date', boardType, 3),
+      mk('builtin-assignees', boardType, 4),
+      mk('builtin-bucket', boardType, 5),
+    ]
   }
-  // custom
-  return [
-    mk('builtin-client', boardType, 0, { name: 'Client' }),
-    mk('builtin-status', boardType, 1),
-    mk('builtin-priority', boardType, 2),
-    mk('builtin-date', boardType, 3),
-    mk('builtin-assignees', boardType, 4),
-    mk('builtin-bucket', boardType, 5),
-  ]
+  return [...base, ...systemDefaults(base.length, boardType)]
 }
 
 // Build a fresh template from a set of selected builtin ids (used by the New
@@ -251,7 +274,14 @@ export function normalizeBoardProperties(board: Pick<Board, 'type' | 'customProp
       return merged
     })
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    .map((p, i) => ({ ...p, order: i }))
 
-  return normalized
+  // Ensure system sections always exist (append any missing) so the task detail
+  // keeps rendering Description / Follow-ups / Attachments even on older
+  // templates. If a board already has one (reordered or hidden), it is kept as-is
+  // and never duplicated.
+  const present = new Set(normalized.map((p) => p.id))
+  const missing = SYSTEM_PROPERTY_IDS.filter((id) => !present.has(id))
+  const withSystem = [...normalized, ...missing.map((id) => mk(id, boardType, 0))]
+
+  return withSystem.map((p, i) => ({ ...p, order: i }))
 }

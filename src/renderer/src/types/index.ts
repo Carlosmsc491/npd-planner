@@ -74,6 +74,8 @@ export type PropertyType =
   | 'text' | 'number' | 'select' | 'multiselect' | 'date' | 'daterange'
   | 'person' | 'checkbox' | 'url' | 'attachment' | 'tags' | 'email' | 'phone'
   | 'multidate' | 'section'
+  // System widgets — rendered by dedicated components, not user-pickable
+  | 'richtext' | 'followups' | 'attachments'
 
 // Where a property's value is stored. Builtins bind to a top-level Task column
 // (so views, calendar, filters keep working regardless of the property's id,
@@ -84,6 +86,7 @@ export type PropertyBind =
   | 'clientId' | 'divisionId' | 'status' | 'priority' | 'bucket'
   | 'assignees' | 'labelIds' | 'dates' | 'taskDates'
   | 'poEntries' | 'awbs' | 'notes'
+  | 'description' | 'followUps' | 'attachments'
 
 export interface SelectOption {
   id: string
@@ -102,6 +105,7 @@ export interface BoardProperty {
   required?: boolean
   display?: boolean   // shown as subtitle on task cards (only one per board)
   bind?: PropertyBind // top-level Task column this maps to; absent = customFields[id]
+  hidden?: boolean    // system property hidden from this board (kept so normalize won't re-add)
 }
 
 export interface Board {

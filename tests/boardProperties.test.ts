@@ -115,7 +115,33 @@ describe('normalizeBoardProperties', () => {
       { id: 'builtin-bucket', name: 'Bucket', type: 'select', icon: 'Layers', order: 12 },
     ] as BoardProperty[]
     const out = normalizeBoardProperties(board('trips', props))
-    expect(out.map((p) => p.order)).toEqual([0, 1])
+    // orders are always 0..n-1
+    expect(out.map((p) => p.order)).toEqual(out.map((_, i) => i))
+    // AWB stripped; the non-system fields keep their order
+    const nonSystem = out.filter((p) => !['builtin-description', 'builtin-followups', 'builtin-attachments'].includes(p.id))
+    expect(nonSystem.map((p) => p.id)).toEqual(['builtin-client', 'builtin-bucket'])
+  })
+
+  it('appends the system sections (description/follow-ups/attachments) if missing', () => {
+    const out = normalizeBoardProperties(board('planner', [
+      { id: 'builtin-bucket', name: 'Bucket', type: 'select', icon: 'Layers', order: 0 },
+    ] as BoardProperty[]))
+    const ids = out.map((p) => p.id)
+    expect(ids).toContain('builtin-description')
+    expect(ids).toContain('builtin-followups')
+    expect(ids).toContain('builtin-attachments')
+    // bound to their Task columns
+    expect(out.find((p) => p.id === 'builtin-description')?.bind).toBe('description')
+    expect(out.find((p) => p.id === 'builtin-attachments')?.bind).toBe('attachments')
+  })
+
+  it('does not duplicate or unhide a hidden system section', () => {
+    const out = normalizeBoardProperties(board('planner', [
+      { id: 'builtin-attachments', name: 'Attachments', type: 'attachments', icon: 'Paperclip', order: 0, bind: 'attachments', hidden: true },
+    ] as BoardProperty[]))
+    const attach = out.filter((p) => p.id === 'builtin-attachments')
+    expect(attach.length).toBe(1)        // not re-added
+    expect(attach[0].hidden).toBe(true)  // stays hidden
   })
 
   it('person-board client field is rebound to assignees on normalize', () => {

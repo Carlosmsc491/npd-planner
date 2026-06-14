@@ -640,6 +640,8 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
         <>
             {(board ? normalizeBoardProperties(board) : [])
               .map((prop) => {
+                // Hidden system/property — not shown on this board
+                if (prop.hidden) return null
                 // Section heading / page break (Phase 3 templates)
                 if (prop.type === 'section') {
                   return (
@@ -1225,6 +1227,36 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                     // Notes field removed - not needed
                     return null
 
+                  // ── System sections (reorderable/hideable via the template) ──
+                  case 'builtin-description':
+                    return (
+                      <div key={prop.id} className="col-span-full border-t border-gray-100 dark:border-gray-800 pt-4">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">{prop.name}</p>
+                        <RichTextEditor
+                          key={task.id + '-description'}
+                          content={task.description ?? ''}
+                          onBlur={saveDescription}
+                          onUpdate={saveDescription}
+                        />
+                      </div>
+                    )
+
+                  case 'builtin-followups':
+                    return (
+                      <div key={prop.id} className="col-span-full">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">{prop.name}</h4>
+                        <FollowUpList task={task} readOnly={readOnly} />
+                      </div>
+                    )
+
+                  case 'builtin-attachments':
+                    return (
+                      <div key={prop.id} className="col-span-full border-t border-gray-100 dark:border-gray-800 pt-4">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">{prop.name}</h4>
+                        <AttachmentPanel task={task} readOnly={readOnly} />
+                      </div>
+                    )
+
                   default:
                     return (
                       <CustomFieldInput
@@ -1238,32 +1270,6 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                 }
               })
             }
-
-            {/* Divider */}
-            <div className="border-t border-gray-100 dark:border-gray-800" />
-
-            {/* Description — full width rich text */}
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Description</p>
-              <RichTextEditor
-                key={task.id + '-description'}
-                content={task.description ?? ''}
-                onBlur={saveDescription}
-                onUpdate={saveDescription}
-              />
-            </div>
-
-            {/* Follow-ups — open items block completing the task */}
-            <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Follow-ups</h4>
-              <FollowUpList task={task} readOnly={readOnly} />
-            </div>
-
-            {/* Attachments — files + emails together */}
-            <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Attachments</h4>
-              <AttachmentPanel task={task} readOnly={readOnly} />
-            </div>
           </>
 
 

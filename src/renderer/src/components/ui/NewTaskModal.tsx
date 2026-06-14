@@ -155,6 +155,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
   const INPUT = 'w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500'
 
   function renderField(prop: BoardProperty) {
+    if (prop.hidden) return null
     // Section heading / page break
     if (prop.type === 'section') {
       return (
@@ -168,7 +169,9 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
     // Status is always 'todo' at creation — skip
     if (prop.bind === 'status') return null
     // These are managed in the task detail, not at creation
-    if (prop.bind === 'labelIds' || prop.bind === 'taskDates' || prop.bind === 'poEntries' || prop.bind === 'awbs') return null
+    if (prop.bind === 'labelIds' || prop.bind === 'taskDates' || prop.bind === 'poEntries' ||
+        prop.bind === 'awbs' || prop.bind === 'description' || prop.bind === 'followUps' ||
+        prop.bind === 'attachments') return null
 
     // Client (+ division) — planner/custom
     if (prop.bind === 'clientId') {

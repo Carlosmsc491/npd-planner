@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import {
   ArrowLeft, Trash2, GripVertical, Plus, Star, X,
-  CalendarRange, FileText, CheckSquare, Flag, Paperclip, Mail, Lock,
+  CalendarRange, Lock, Eye, EyeOff,
 } from 'lucide-react'
 import { updateBoard, updateBoardProperties } from '../../lib/firestore'
 import { useTaskStore } from '../../store/taskStore'
 import { useAuthStore } from '../../store/authStore'
 import { DynamicIcon, PROPERTY_TYPE_LABELS, OPTION_COLORS } from '../../utils/propertyUtils'
-import { normalizeBoardProperties, PRIORITY_OPTIONS } from '../../lib/boardProperties'
+import { normalizeBoardProperties, isSystemProperty, PRIORITY_OPTIONS } from '../../lib/boardProperties'
 import IconPickerPopover from './IconPickerPopover'
 import AddPropertyModal from './AddPropertyModal'
 import type { Board, BoardProperty, PropertyType, SelectOption } from '../../types'
@@ -99,6 +99,10 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
   async function handleAddProperty(data: Omit<BoardProperty, 'id' | 'order'>) {
     const newProp: BoardProperty = { ...data, id: crypto.randomUUID(), order: properties.length }
     await saveProperties([...properties, newProp])
+  }
+
+  async function handleToggleHidden(id: string) {
+    await saveProperties(properties.map((p) => p.id === id ? { ...p, hidden: !p.hidden } : p))
   }
 
   async function handleAddSection() {
@@ -306,6 +310,56 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                     <Trash2 size={12} />
                   </button>
                 )}
+              </div>
+            )
+          }
+
+          // ── System property (Description / Follow-ups / Attachments) ──
+          // Reorderable + renamable + hideable, but no type/options (rendered by
+          // dedicated components in the task detail).
+          if (isSystemProperty(prop.id)) {
+            return (
+              <div
+                key={prop.id}
+                draggable
+                onDragStart={() => handleDragStart(i)}
+                onDragOver={(e) => handleDragOver(e, i)}
+                onDrop={(e) => handleDrop(e, i)}
+                onDragEnd={handleDragEnd}
+                className={`group/prop relative flex items-center gap-2 rounded-xl bg-white dark:bg-gray-800 border px-4 py-3 pl-6 transition-all ${
+                  dragOverIdx === i ? 'border-green-500 border-2 shadow-sm' : 'border-gray-200 dark:border-gray-700'
+                } ${prop.hidden ? 'opacity-50' : ''}`}
+              >
+                <div className="absolute left-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover/prop:opacity-100 transition-opacity cursor-grab active:cursor-grabbing">
+                  <GripVertical size={14} className="text-gray-300 dark:text-gray-600" />
+                </div>
+                {renamingId === prop.id ? (
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={() => handleRename(prop.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleRename(prop.id); if (e.key === 'Escape') setRenamingId(null) }}
+                    className="rounded border border-green-500 bg-white dark:bg-gray-700 dark:text-white px-2 py-0.5 text-xs font-medium focus:outline-none"
+                  />
+                ) : (
+                  <button
+                    onClick={() => { setRenamingId(prop.id); setRenameValue(prop.name) }}
+                    className="text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-green-600 dark:hover:text-green-400 transition-colors"
+                    title="Click to rename"
+                  >
+                    {prop.name}
+                  </button>
+                )}
+                <span className="text-[10px] text-gray-300 dark:text-gray-600">system</span>
+                <div className="flex-1" />
+                <button
+                  onClick={() => handleToggleHidden(prop.id)}
+                  title={prop.hidden ? 'Hidden — click to show' : 'Shown — click to hide'}
+                  className={`p-1 rounded transition-colors ${prop.hidden ? 'text-gray-400 hover:text-green-600' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'}`}
+                >
+                  {prop.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
+                </button>
               </div>
             )
           }
@@ -562,24 +616,16 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
           )
         })}
 
-        {/* System sections — always present on every task, rendered by the task
-            view itself (not template fields), shown here so Settings mirrors the
-            real task panel. Not removable/reorderable (yet). */}
-        <div className="mt-4 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 px-4 py-3">
-          <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2.5">
-            <Lock size={10} /> Always on every task
-          </p>
-          <div className="space-y-1.5">
-            {properties.some((p) => p.bind === 'dates') && (
-              <SystemRow icon={<CalendarRange size={13} />} label="Event Dates" hint="Preparation · Ship · Show day…" />
-            )}
-            <SystemRow icon={<FileText size={13} />} label="Description" />
-            <SystemRow icon={<CheckSquare size={13} />} label="Subtasks" />
-            <SystemRow icon={<Flag size={13} />} label="Follow-ups" />
-            <SystemRow icon={<Paperclip size={13} />} label="Files" />
-            <SystemRow icon={<Mail size={13} />} label="Emails" />
+        {/* Event Dates is still rendered within the Date field (not yet its own
+            property — Phase 4). Shown here so the template reflects the task. */}
+        {properties.some((p) => p.bind === 'dates') && (
+          <div className="mt-4 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 px-4 py-3">
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2.5">
+              <Lock size={10} /> Tied to the Date field
+            </p>
+            <SystemRow icon={<CalendarRange size={13} />} label="Event Dates" hint="Preparation · Ship · Show day…" />
           </div>
-        </div>
+        )}
 
         {/* Add field / section */}
         <div className="flex gap-2">
