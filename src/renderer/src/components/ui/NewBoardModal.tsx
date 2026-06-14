@@ -9,7 +9,8 @@ import {
 } from 'lucide-react'
 import { createBoard } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
-import { buildBoardPropertiesFromBuiltins } from '../../lib/boardProperties'
+import { getDefaultBoardProperties } from '../../lib/boardProperties'
+import TemplateBuilder from '../settings/TemplateBuilder'
 import type { BoardProperty, BoardView } from '../../types'
 
 interface Props {
@@ -28,28 +29,6 @@ const BOARD_ICONS: Record<string, LucideIcon> = {
   FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
 }
 
-interface PropertyOption {
-  id: string
-  name: string
-  icon: string
-  type: BoardProperty['type']
-  required: boolean
-  defaultOn: boolean
-}
-
-const PROPERTY_OPTIONS: PropertyOption[] = [
-  { id: 'builtin-client',    name: 'Client',      icon: 'User',          type: 'text',      required: true,  defaultOn: true },
-  { id: 'builtin-status',    name: 'Status',      icon: 'CircleDot',     type: 'select',    required: false, defaultOn: true },
-  { id: 'builtin-priority',  name: 'Priority',    icon: 'Zap',           type: 'select',    required: false, defaultOn: true },
-  { id: 'builtin-date',      name: 'Date',        icon: 'CalendarRange', type: 'daterange', required: false, defaultOn: true },
-  { id: 'builtin-assignees', name: 'Assigned To', icon: 'Users',         type: 'person',    required: false, defaultOn: true },
-  { id: 'builtin-labels',    name: 'Labels',      icon: 'Tag',           type: 'tags',      required: false, defaultOn: true },
-  { id: 'builtin-bucket',    name: 'Bucket',      icon: 'Layers',        type: 'select',    required: false, defaultOn: true },
-  { id: 'builtin-awb',       name: 'AWB',         icon: 'Plane',         type: 'text',      required: false, defaultOn: false },
-  { id: 'builtin-po',        name: 'P.O. Number', icon: 'Hash',          type: 'text',      required: false, defaultOn: false },
-  { id: 'builtin-notes',     name: 'Notes',       icon: 'StickyNote',    type: 'text',      required: false, defaultOn: false },
-]
-
 const VIEW_OPTIONS: { value: BoardView; label: string }[] = [
   { value: 'cards',    label: 'Cards' },
   { value: 'list',     label: 'List' },
@@ -59,26 +38,16 @@ const VIEW_OPTIONS: { value: BoardView; label: string }[] = [
 
 export default function NewBoardModal({ onClose }: Props) {
   const { user } = useAuthStore()
+  const isOwner = user?.role === 'owner'
   const [step, setStep] = useState<1 | 2>(1)
   const [name, setName] = useState('')
   const [color, setColor] = useState('#1D9E75')
   const [icon, setIcon] = useState('LayoutDashboard')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [selectedProps, setSelectedProps] = useState<Set<string>>(
-    new Set(PROPERTY_OPTIONS.filter((p) => p.defaultOn).map((p) => p.id))
-  )
+  // Full template the user can build (fields + sections), starts from the custom default
+  const [properties, setProperties] = useState<BoardProperty[]>(() => getDefaultBoardProperties('custom'))
   const [defaultView, setDefaultView] = useState<BoardView>('cards')
-
-  function toggleProp(id: string, required: boolean) {
-    if (required) return
-    setSelectedProps((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
 
   function handleStep1(e: React.FormEvent) {
     e.preventDefault()
@@ -91,11 +60,6 @@ export default function NewBoardModal({ onClose }: Props) {
     if (!user) return
     setSaving(true)
     try {
-      // Build a bind-aware template from the selected builtins (keeps wizard order)
-      const selectedIds = PROPERTY_OPTIONS.filter((p) => selectedProps.has(p.id)).map((p) => p.id)
-      const customProperties = buildBoardPropertiesFromBuiltins(selectedIds, 'custom')
-        .map((p) => ({ ...p, required: PROPERTY_OPTIONS.find((o) => o.id === p.id)?.required }))
-
       await createBoard({
         name: name.trim(),
         color,
@@ -104,7 +68,7 @@ export default function NewBoardModal({ onClose }: Props) {
         order: 99,
         createdBy: user.uid,
         createdAt: Timestamp.now(),
-        customProperties,
+        customProperties: properties.map((p, i) => ({ ...p, order: i })),
         defaultView,
       })
       onClose()
@@ -117,8 +81,8 @@ export default function NewBoardModal({ onClose }: Props) {
   const PreviewIcon = BOARD_ICONS[icon] ?? LayoutDashboard
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl dark:bg-gray-800 p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className={`w-full rounded-2xl bg-white shadow-2xl dark:bg-gray-800 p-6 max-h-[90vh] overflow-y-auto ${step === 1 ? 'max-w-sm' : 'max-w-2xl'}`}>
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
@@ -130,7 +94,7 @@ export default function NewBoardModal({ onClose }: Props) {
               </button>
             )}
             <h3 className="text-base font-bold text-gray-900 dark:text-white">
-              {step === 1 ? 'New Board' : 'Choose Properties'}
+              {step === 1 ? 'New Board' : 'Build the template'}
             </h3>
             <span className="text-xs text-gray-400">{step}/2</span>
           </div>
@@ -144,8 +108,6 @@ export default function NewBoardModal({ onClose }: Props) {
         {step === 1 ? (
           /* ── Step 1: Name + Color + Icon ── */
           <form onSubmit={handleStep1} className="space-y-4">
-
-            {/* Live preview */}
             <div className="flex items-center gap-2.5 rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 px-3 py-2.5">
               <PreviewIcon size={18} style={{ color }} strokeWidth={2} />
               <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
@@ -183,14 +145,14 @@ export default function NewBoardModal({ onClose }: Props) {
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Icon</label>
               <div className="flex flex-wrap gap-2">
-                {Object.entries(BOARD_ICONS).map(([name, Icon]) => (
+                {Object.entries(BOARD_ICONS).map(([n, Icon]) => (
                   <button
-                    key={name}
+                    key={n}
                     type="button"
-                    onClick={() => setIcon(name)}
-                    title={name}
+                    onClick={() => setIcon(n)}
+                    title={n}
                     className={`h-8 w-8 flex items-center justify-center rounded-lg border-2 transition-colors ${
-                      icon === name
+                      icon === n
                         ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
                         : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
                     }`}
@@ -215,36 +177,13 @@ export default function NewBoardModal({ onClose }: Props) {
             </div>
           </form>
         ) : (
-          /* ── Step 2: Properties + Default View ── */
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Select which properties to include in this board</p>
-              <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
-                {PROPERTY_OPTIONS.map((p) => {
-                  const checked = selectedProps.has(p.id)
-                  return (
-                    <label
-                      key={p.id}
-                      className={`flex items-center gap-3 rounded-lg px-3 py-2 cursor-pointer transition-colors ${
-                        checked ? 'bg-green-50 dark:bg-green-900/10' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={p.required}
-                        onChange={() => toggleProp(p.id, p.required)}
-                        className="h-4 w-4 rounded border-gray-300 text-green-500 focus:ring-green-500 disabled:opacity-50"
-                      />
-                      <span className={`text-sm ${checked ? 'text-gray-900 dark:text-white font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
-                        {p.name}
-                      </span>
-                      {p.required && <span className="ml-auto text-[10px] text-gray-400">required</span>}
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
+          /* ── Step 2: Full template builder ── */
+          <div className="space-y-5">
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              Add, rename, reorder and group the properties for this board. You can change all of this later in Settings.
+            </p>
+
+            <TemplateBuilder properties={properties} onChange={setProperties} isOwner={isOwner} />
 
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Default View</label>
