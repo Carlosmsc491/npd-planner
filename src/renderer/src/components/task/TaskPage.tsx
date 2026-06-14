@@ -780,21 +780,22 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
 
                   case 'builtin-date':
                     return (
-                      <>
-                        {/* Main Date field */}
-                        <PropRow key={prop.id} icon={<Calendar size={14} />} label={prop.name}>
-                          <div className="flex items-center gap-2 flex-1">
-                            <DateInput value={timestampToDateInput(task.dateStart)} onChange={(value) => handleDateChange('dateStart', value)} />
-                            <span className="text-gray-400 text-xs">→</span>
-                            <DateInput value={timestampToDateInput(task.dateEnd)} onChange={(value) => handleDateChange('dateEnd', value)} />
-                          </div>
-                        </PropRow>
-                        
-                        {/* Event Dates - right after Date */}
-                        {dateTypes.length > 0 && (
-                          <div className="mt-2" key="event-dates-section">
+                      <PropRow key={prop.id} icon={<Calendar size={14} />} label={prop.name}>
+                        <div className="flex items-center gap-2 flex-1">
+                          <DateInput value={timestampToDateInput(task.dateStart)} onChange={(value) => handleDateChange('dateStart', value)} />
+                          <span className="text-gray-400 text-xs">→</span>
+                          <DateInput value={timestampToDateInput(task.dateEnd)} onChange={(value) => handleDateChange('dateEnd', value)} />
+                        </div>
+                      </PropRow>
+                    )
+
+                  // Event Dates — the multidate property (typed dates: preparation/ship/show day…)
+                  case 'builtin-eventdates':
+                    if (dateTypes.length === 0) return null
+                    return (
+                          <div className="col-span-full" key={prop.id}>
                             <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-                              Event Dates
+                              {prop.name}
                             </p>
 
                             {/* Lista de taskDates existentes */}
@@ -1022,8 +1023,6 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                               )}
                             </div>
                           </div>
-                        )}
-                      </>
                     )
 
                   case 'builtin-assignees':

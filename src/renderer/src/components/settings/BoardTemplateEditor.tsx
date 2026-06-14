@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import {
-  ArrowLeft, Trash2, GripVertical, Plus, Star, X,
-  CalendarRange, Lock, Eye, EyeOff,
+  ArrowLeft, Trash2, GripVertical, Plus, Star, X, Eye, EyeOff,
 } from 'lucide-react'
 import { updateBoard, updateBoardProperties } from '../../lib/firestore'
 import { useTaskStore } from '../../store/taskStore'
@@ -616,17 +615,6 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
           )
         })}
 
-        {/* Event Dates is still rendered within the Date field (not yet its own
-            property — Phase 4). Shown here so the template reflects the task. */}
-        {properties.some((p) => p.bind === 'dates') && (
-          <div className="mt-4 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 px-4 py-3">
-            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2.5">
-              <Lock size={10} /> Tied to the Date field
-            </p>
-            <SystemRow icon={<CalendarRange size={13} />} label="Event Dates" hint="Preparation · Ship · Show day…" />
-          </div>
-        )}
-
         {/* Add field / section */}
         <div className="flex gap-2">
           <button
@@ -650,18 +638,6 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
       {showAddModal && (
         <AddPropertyModal onAdd={handleAddProperty} onClose={() => setShowAddModal(false)} />
       )}
-    </div>
-  )
-}
-
-// Read-only row representing a system section that always appears on tasks
-function SystemRow({ icon, label, hint }: { icon: React.ReactNode; label: string; hint?: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200/70 dark:border-gray-700/70 px-3 py-2 opacity-70">
-      <span className="text-gray-400 shrink-0">{icon}</span>
-      <span className="text-xs font-medium text-gray-600 dark:text-gray-300">{label}</span>
-      {hint && <span className="text-[10px] text-gray-400 truncate">· {hint}</span>}
-      <span className="ml-auto text-[10px] text-gray-300 dark:text-gray-600">system</span>
     </div>
   )
 }

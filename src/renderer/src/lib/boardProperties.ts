@@ -87,15 +87,16 @@ export const BUILTIN_REGISTRY: Record<string, BuiltinDef> = {
   // System sections — rendered by dedicated components in the task detail. They
   // live in the template so they can be reordered / hidden, but are not generic
   // user fields (no type picker, no options).
+  'builtin-eventdates':  { name: 'Event Dates', type: 'multidate',   icon: 'CalendarRange', bind: 'taskDates' },
   'builtin-description': { name: 'Description', type: 'richtext',    icon: 'FileText',  bind: 'description' },
-  'builtin-followups':   { name: 'Follow-ups',  type: 'followups',   icon: 'Flag',      bind: 'followUps' },
+  'builtin-followups':   { name: 'Follow up',   type: 'followups',   icon: 'Flag',      bind: 'followUps' },
   'builtin-attachments': { name: 'Attachments', type: 'attachments', icon: 'Paperclip', bind: 'attachments' },
 }
 
 // System sections: always present on every board (appended by normalize if
 // missing), rendered by dedicated components, reorderable + hideable but not
-// type-editable.
-export const SYSTEM_PROPERTY_IDS = ['builtin-description', 'builtin-followups', 'builtin-attachments'] as const
+// type-editable. Order here = default order at the bottom of a board.
+export const SYSTEM_PROPERTY_IDS = ['builtin-eventdates', 'builtin-description', 'builtin-followups', 'builtin-attachments'] as const
 
 export function isSystemProperty(id: string): boolean {
   return (SYSTEM_PROPERTY_IDS as readonly string[]).includes(id)
@@ -116,7 +117,7 @@ export function resolveBind(id: string, boardType: string): PropertyBind | undef
 
 // ── Allowed builtins per board type ─────────────────────────────────────────
 // Builtins not in a board's allowlist are stripped. Custom props always pass.
-const SYSTEM_IDS_ARR = ['builtin-description', 'builtin-followups', 'builtin-attachments']
+const SYSTEM_IDS_ARR: string[] = [...SYSTEM_PROPERTY_IDS]
 
 const ALLOWED_BUILTINS: Record<string, Set<string>> = {
   planner: new Set([

@@ -6,6 +6,7 @@ import {
   normalizeBoardProperties,
   pickCustomFields,
   buildBoardPropertiesFromBuiltins,
+  isSystemProperty,
 } from '../src/renderer/src/lib/boardProperties'
 import type { Board, BoardProperty } from '../src/renderer/src/types'
 
@@ -118,7 +119,7 @@ describe('normalizeBoardProperties', () => {
     // orders are always 0..n-1
     expect(out.map((p) => p.order)).toEqual(out.map((_, i) => i))
     // AWB stripped; the non-system fields keep their order
-    const nonSystem = out.filter((p) => !['builtin-description', 'builtin-followups', 'builtin-attachments'].includes(p.id))
+    const nonSystem = out.filter((p) => !isSystemProperty(p.id))
     expect(nonSystem.map((p) => p.id)).toEqual(['builtin-client', 'builtin-bucket'])
   })
 
@@ -127,12 +128,15 @@ describe('normalizeBoardProperties', () => {
       { id: 'builtin-bucket', name: 'Bucket', type: 'select', icon: 'Layers', order: 0 },
     ] as BoardProperty[]))
     const ids = out.map((p) => p.id)
+    expect(ids).toContain('builtin-eventdates')
     expect(ids).toContain('builtin-description')
     expect(ids).toContain('builtin-followups')
     expect(ids).toContain('builtin-attachments')
     // bound to their Task columns
+    expect(out.find((p) => p.id === 'builtin-eventdates')?.bind).toBe('taskDates')
     expect(out.find((p) => p.id === 'builtin-description')?.bind).toBe('description')
     expect(out.find((p) => p.id === 'builtin-attachments')?.bind).toBe('attachments')
+    expect(isSystemProperty('builtin-eventdates')).toBe(true)
   })
 
   it('does not duplicate or unhide a hidden system section', () => {

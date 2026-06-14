@@ -26,6 +26,11 @@ export const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = {
   tags:        'Tags',
   email:       'Email',
   phone:       'Phone',
+  multidate:   'Multiple Dates',
+  section:     'Section',
+  richtext:    'Rich Text',
+  followups:   'Follow up',
+  attachments: 'Attachments',
 }
 
 export const DEFAULT_ICONS: Record<PropertyType, string> = {
@@ -42,6 +47,11 @@ export const DEFAULT_ICONS: Record<PropertyType, string> = {
   tags:        'Tags',
   email:       'Mail',
   phone:       'Phone',
+  multidate:   'CalendarRange',
+  section:     'Minus',
+  richtext:    'FileText',
+  followups:   'Flag',
+  attachments: 'Paperclip',
 }
 
 export const ICON_CATEGORIES: { label: string; icons: string[] }[] = [
