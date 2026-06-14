@@ -29,7 +29,7 @@ export const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = {
   multidate:   'Multiple Dates',
   section:     'Section',
   richtext:    'Rich Text',
-  followups:   'Follow up',
+  followups:   'Follow-ups',
   attachments: 'Attachments',
 }
 

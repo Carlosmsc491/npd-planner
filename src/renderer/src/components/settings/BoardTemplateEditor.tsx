@@ -9,6 +9,7 @@ import { DynamicIcon, PROPERTY_TYPE_LABELS, OPTION_COLORS } from '../../utils/pr
 import { normalizeBoardProperties, isSystemProperty, PRIORITY_OPTIONS } from '../../lib/boardProperties'
 import IconPickerPopover from './IconPickerPopover'
 import AddPropertyModal from './AddPropertyModal'
+import RichTextEditor from '../task/RichTextEditor'
 import type { Board, BoardProperty, PropertyType, SelectOption } from '../../types'
 
 const PRESET_COLORS = [
@@ -19,6 +20,7 @@ const PRESET_COLORS = [
 const PROPERTY_TYPES: PropertyType[] = [
   'text', 'number', 'select', 'multiselect', 'date', 'daterange',
   'person', 'checkbox', 'url', 'attachment', 'tags', 'email', 'phone',
+  'richtext', 'multidate', 'followups',
 ]
 
 // Suggest an icon based on option label/name
@@ -508,7 +510,14 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
                   <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2.5 pointer-events-none">
                     <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">P.O. / ORDER # · AWB</p>
                   </div>
-                ) : prop.id === 'builtin-po' ? null /* rendered inside Order Status */ : (
+                ) : prop.id === 'builtin-po' ? null /* rendered inside Order Status */
+                : prop.type === 'richtext' ? (
+                  <div className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 px-3 py-3 text-sm text-gray-400 pointer-events-none">Rich text…</div>
+                ) : prop.type === 'multidate' ? (
+                  <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-600 px-3 py-2 text-xs text-gray-400 pointer-events-none flex items-center gap-1"><Plus size={12} /> Add date</div>
+                ) : prop.type === 'followups' ? (
+                  <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-600 px-3 py-2 text-xs text-gray-400 pointer-events-none flex items-center gap-2"><span className="h-3.5 w-3.5 rounded border-2 border-gray-300 inline-block" /> Checklist item</div>
+                ) : (
                   /* All others: generic input or select preview */
                   isOptionType ? (
                     <div className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-400 flex items-center justify-between pointer-events-none">
@@ -854,6 +863,24 @@ export function CustomFieldInput({
       break
     }
 
+    case 'richtext':
+      input = (
+        <RichTextEditor
+          content={(value as string) ?? ''}
+          onBlur={(html) => onChange(html)}
+          onUpdate={(html) => onChange(html)}
+        />
+      )
+      break
+
+    case 'multidate':
+      input = <MultiDateField value={(value as MultiDateEntry[]) ?? []} onChange={onChange} />
+      break
+
+    case 'followups':
+      input = <ChecklistField value={(value as ChecklistEntry[]) ?? []} onChange={onChange} />
+      break
+
     default:
       input = <span className="text-xs text-gray-400">Field type coming soon</span>
   }
@@ -865,6 +892,64 @@ export function CustomFieldInput({
       </span>
       <span className="mt-1.5 w-28 shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400">{prop.name}</span>
       <div className="flex-1">{input}</div>
+    </div>
+  )
+}
+
+// ─── Generic custom-field widgets for the new property types ─────────────────
+
+const MINI_INPUT = 'rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs dark:text-white focus:outline-none focus:border-green-500'
+
+interface MultiDateEntry { id: string; label: string; date: string }
+
+function MultiDateField({ value, onChange }: { value: MultiDateEntry[]; onChange: (v: MultiDateEntry[]) => void }) {
+  const [label, setLabel] = useState('')
+  const [date, setDate]   = useState('')
+  function add() {
+    if (!date) return
+    onChange([...value, { id: crypto.randomUUID(), label: label.trim(), date }])
+    setLabel(''); setDate('')
+  }
+  return (
+    <div className="space-y-1.5">
+      {value.map((e) => (
+        <div key={e.id} className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2 py-1 text-xs">
+          <span className="flex-1 text-gray-700 dark:text-gray-300">{e.label || 'Date'}</span>
+          <span className="text-gray-500">{e.date}</span>
+          <button type="button" onClick={() => onChange(value.filter((x) => x.id !== e.id))} className="text-gray-300 hover:text-red-500"><X size={12} /></button>
+        </div>
+      ))}
+      <div className="flex gap-1.5">
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label" className={`flex-1 ${MINI_INPUT}`} />
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={MINI_INPUT} />
+        <button type="button" onClick={add} className="rounded-lg bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300">Add</button>
+      </div>
+    </div>
+  )
+}
+
+interface ChecklistEntry { id: string; text: string; done: boolean }
+
+function ChecklistField({ value, onChange }: { value: ChecklistEntry[]; onChange: (v: ChecklistEntry[]) => void }) {
+  const [text, setText] = useState('')
+  function add() {
+    if (!text.trim()) return
+    onChange([...value, { id: crypto.randomUUID(), text: text.trim(), done: false }])
+    setText('')
+  }
+  return (
+    <div className="space-y-1.5">
+      {value.map((e) => (
+        <div key={e.id} className="flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={e.done} onChange={() => onChange(value.map((x) => x.id === e.id ? { ...x, done: !x.done } : x))} className="rounded" />
+          <span className={`flex-1 ${e.done ? 'line-through text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}>{e.text}</span>
+          <button type="button" onClick={() => onChange(value.filter((x) => x.id !== e.id))} className="text-gray-300 hover:text-red-500"><X size={12} /></button>
+        </div>
+      ))}
+      <div className="flex gap-1.5">
+        <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }} placeholder="Add item…" className={`flex-1 ${MINI_INPUT}`} />
+        <button type="button" onClick={add} className="rounded-lg bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300">Add</button>
+      </div>
     </div>
   )
 }

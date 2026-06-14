@@ -89,7 +89,7 @@ export const BUILTIN_REGISTRY: Record<string, BuiltinDef> = {
   // user fields (no type picker, no options).
   'builtin-eventdates':  { name: 'Event Dates', type: 'multidate',   icon: 'CalendarRange', bind: 'taskDates' },
   'builtin-description': { name: 'Description', type: 'richtext',    icon: 'FileText',  bind: 'description' },
-  'builtin-followups':   { name: 'Follow up',   type: 'followups',   icon: 'Flag',      bind: 'followUps' },
+  'builtin-followups':   { name: 'Follow-ups',  type: 'followups',   icon: 'Flag',      bind: 'followUps' },
   'builtin-attachments': { name: 'Attachments', type: 'attachments', icon: 'Paperclip', bind: 'attachments' },
 }
 

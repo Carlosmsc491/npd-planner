@@ -7,6 +7,7 @@ import type { PropertyType, BoardProperty, SelectOption } from '../../types'
 const PROPERTY_TYPES: PropertyType[] = [
   'text', 'number', 'select', 'multiselect', 'date', 'daterange',
   'person', 'checkbox', 'url', 'attachment', 'tags', 'email', 'phone',
+  'richtext', 'multidate', 'followups',
 ]
 const NEEDS_OPTIONS: PropertyType[] = ['select', 'multiselect', 'tags']
 
