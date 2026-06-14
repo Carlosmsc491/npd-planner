@@ -49,7 +49,8 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
   const [users, setUsers] = useState<AppUser[]>([])
 
   // Bucket & priority (builtins with special UI)
-  const [bucket, setBucket] = useState(defaultBucket ?? '')
+  // Person boards (trips/vacations) start at "Pending" — the natural initial status
+  const [bucket, setBucket] = useState(defaultBucket ?? (isPersonBoard ? 'Pending' : ''))
   const [priority, setPriority] = useState<TaskPriority>('normal')
 
   // Date (builtin-date)
@@ -121,6 +122,9 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
     if (!isPersonBoard && !clientId) { setError('Client is required'); return }
     if (isPersonBoard && !personId) { setError('Person is required'); return }
     if (!bucket.trim()) { setError('Bucket is required'); return }
+    if (isPersonBoard && !dateStart) {
+      setError(board.type === 'trips' ? 'Trip dates are required' : 'Vacation dates are required'); return
+    }
     if (!user) return
 
     setSaving(true)
@@ -428,10 +432,13 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
                   ))}
                 </div>
               </div>
-              {/* Date (shown in fallback if no template and a defaultDate was given) */}
-              {defaultDate && !hasDateProp && (
+              {/* Date — always shown for person boards (trips/vacations are date-based);
+                  for planner fallback only when a calendar date was clicked */}
+              {(isPersonBoard || (defaultDate && !hasDateProp)) && (
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Date</label>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    {isPersonBoard ? (board.type === 'trips' ? 'Trip dates *' : 'Vacation dates *') : 'Date'}
+                  </label>
                   <div className="flex items-center gap-2">
                     <input type="date" value={dateStart} onChange={e => { setDateStart(e.target.value); if (!dateEnd) setDateEnd(e.target.value) }}
                       className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
