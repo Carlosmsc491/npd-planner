@@ -73,6 +73,17 @@ export type BoardView = 'cards' | 'list' | 'gantt' | 'calendar'
 export type PropertyType =
   | 'text' | 'number' | 'select' | 'multiselect' | 'date' | 'daterange'
   | 'person' | 'checkbox' | 'url' | 'attachment' | 'tags' | 'email' | 'phone'
+  | 'multidate' | 'section'
+
+// Where a property's value is stored. Builtins bind to a top-level Task column
+// (so views, calendar, filters keep working regardless of the property's id,
+// name or order). Properties with no bind are stored in Task.customFields[id].
+// Decoupling widget (type), storage (bind) and label (name) is what lets users
+// rename / reorder / retype a property without breaking the app.
+export type PropertyBind =
+  | 'clientId' | 'divisionId' | 'status' | 'priority' | 'bucket'
+  | 'assignees' | 'labelIds' | 'dates' | 'taskDates'
+  | 'poEntries' | 'awbs' | 'notes'
 
 export interface SelectOption {
   id: string
@@ -90,6 +101,7 @@ export interface BoardProperty {
   order: number
   required?: boolean
   display?: boolean   // shown as subtitle on task cards (only one per board)
+  bind?: PropertyBind // top-level Task column this maps to; absent = customFields[id]
 }
 
 export interface Board {
