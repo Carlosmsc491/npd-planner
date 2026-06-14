@@ -4,10 +4,11 @@ import { createTask, createDivision, subscribeToUsers } from '../../lib/firestor
 import { useAuthStore } from '../../store/authStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useDivisions } from '../../hooks/useDivisions'
-import { BOARD_BUCKETS } from '../../utils/colorUtils'
 import { toFirestoreDate } from '../../utils/dateUtils'
 import { DynamicIcon } from '../../utils/propertyUtils'
 import { CustomFieldInput } from '../settings/BoardTemplateEditor'
+import { normalizeBoardProperties, pickCustomFields } from '../../lib/boardProperties'
+import { getInitials, getInitialsColor } from '../../utils/colorUtils'
 import type { Board, TaskStatus, TaskPriority, AppUser, BoardProperty } from '../../types'
 
 interface Props {
@@ -18,123 +19,86 @@ interface Props {
   onCreated?: (taskId: string) => void
 }
 
-// Builtin properties that need special-cased rendering (not generic CustomFieldInput)
-const SPECIAL_BUILTINS = new Set([
-  'builtin-client',
-  'builtin-status',
-  'builtin-assignees',
-  'builtin-bucket',
-  'builtin-priority',
-  'builtin-date',
-])
-
 export default function NewTaskModal({ board, defaultBucket, defaultDate, onClose, onCreated }: Props) {
   const { user } = useAuthStore()
   const { clients, setClients } = useSettingsStore()
   const isPersonBoard = board.type === 'trips' || board.type === 'vacations'
 
-  // ── Base required fields ──────────────────────────────────────────────────
-  const [title, setTitle] = useState('')
+  // Template, normalized so every property is bind-aware (rename/reorder/custom
+  // and missing bind all handled). This is the single code path — no fallback.
+  const properties: BoardProperty[] = normalizeBoardProperties(board)
 
-  // Client (planner)
+  // ── Field state ─────────────────────────────────────────────────────────
+  const [title, setTitle] = useState('')
   const [clientId, setClientId] = useState('')
+  const [divisionId, setDivisionId] = useState('')
   const [newClientName, setNewClientName] = useState('')
   const [showNewClient, setShowNewClient] = useState(false)
-  const [divisionId, setDivisionId] = useState('')
   const [newDivisionName, setNewDivisionName] = useState('')
   const [showNewDivision, setShowNewDivision] = useState(false)
-
-  // Person (trips / vacations)
-  const [personId, setPersonId] = useState('')
-  const [users, setUsers] = useState<AppUser[]>([])
-
-  // Bucket & priority (builtins with special UI)
-  // Person boards (trips/vacations) start at "Pending" — the natural initial status
+  const [assignees, setAssignees] = useState<string[]>([])
   const [bucket, setBucket] = useState(defaultBucket ?? (isPersonBoard ? 'Pending' : ''))
   const [priority, setPriority] = useState<TaskPriority>('normal')
-
-  // Date (builtin-date)
   const [dateStart, setDateStart] = useState(defaultDate ? defaultDate.toISOString().split('T')[0] : '')
   const [dateEnd, setDateEnd] = useState(defaultDate ? defaultDate.toISOString().split('T')[0] : '')
-
-  // All other custom / non-special-builtin fields
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({})
-
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
+  const [users, setUsers] = useState<AppUser[]>([])
   const { divisions } = useDivisions(clientId)
 
-  useEffect(() => {
-    if (!isPersonBoard) return
-    const unsub = subscribeToUsers(setUsers)
-    return unsub
-  }, [isPersonBoard])
-
-  // ── Sorted properties from the board template ─────────────────────────────
-  const properties: BoardProperty[] = (board.customProperties ?? [])
-    .slice()
-    .sort((a, b) => a.order - b.order)
-
-  // Has date property in template?
-  const hasDateProp = properties.some(p => p.id === 'builtin-date')
-
-  // Person boards: only active users are selectable, and we render exactly ONE
-  // Person picker bound to personId (templates vary — the person field may be
-  // builtin-client, builtin-assignees, or a custom person-type property).
+  useEffect(() => subscribeToUsers(setUsers), [])
   const activeUsers = users.filter(u => u.status === 'active')
-  const personFieldIds = isPersonBoard
-    ? properties
-        .filter(p => p.id === 'builtin-client' || p.id === 'builtin-assignees' || p.type === 'person')
-        .map(p => p.id)
-    : []
-  const primaryPersonFieldId = personFieldIds[0]
 
   const setField = useCallback((id: string, value: unknown) => {
     setCustomFieldValues(prev => ({ ...prev, [id]: value }))
   }, [])
 
-  // ── Client creation ───────────────────────────────────────────────────────
+  // Which binds appear in this template (drives validation + payload)
+  const hasBind = (b: string) => properties.some(p => p.bind === b)
+
+  // ── Client / division inline creation ────────────────────────────────────
   async function handleCreateClient() {
     if (!newClientName.trim() || !user) return
     const { createClient } = await import('../../lib/firestore')
     const id = await createClient(newClientName.trim(), user.uid)
-    const newClient: import('../../types').Client = {
-      id,
-      name: newClientName.trim(),
-      active: true,
-      createdBy: user.uid,
+    setClients([...clients, {
+      id, name: newClientName.trim(), active: true, createdBy: user.uid,
       createdAt: Timestamp.now() as unknown as import('firebase/firestore').Timestamp,
-    }
-    setClients([...clients, newClient].sort((a, b) => a.name.localeCompare(b.name)))
-    setClientId(id)
-    setDivisionId('')
-    setNewClientName('')
-    setShowNewClient(false)
+    }].sort((a, b) => a.name.localeCompare(b.name)))
+    setClientId(id); setDivisionId(''); setNewClientName(''); setShowNewClient(false)
   }
 
   async function handleCreateDivision() {
     if (!newDivisionName.trim() || !clientId || !user) return
     const id = await createDivision({
-      clientId,
-      name: newDivisionName.trim().toUpperCase(),
-      active: true,
-      createdBy: user.uid,
+      clientId, name: newDivisionName.trim().toUpperCase(), active: true, createdBy: user.uid,
     })
-    setDivisionId(id)
-    setNewDivisionName('')
-    setShowNewDivision(false)
+    setDivisionId(id); setNewDivisionName(''); setShowNewDivision(false)
+  }
+
+  function toggleAssignee(uid: string) {
+    setAssignees(prev => prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid])
   }
 
   // ── Submit ────────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim()) { setError('Title is required'); return }
-    if (!isPersonBoard && !clientId) { setError('Client is required'); return }
-    if (isPersonBoard && !personId) { setError('Person is required'); return }
-    if (!bucket.trim()) { setError('Bucket is required'); return }
-    if (isPersonBoard && !dateStart) {
+    if (hasBind('clientId') && !clientId) { setError('Client is required'); return }
+    if (hasBind('assignees') && isPersonBoard && assignees.length === 0) { setError('Person is required'); return }
+    if (hasBind('bucket') && !bucket.trim()) { setError('Bucket is required'); return }
+    if (hasBind('dates') && isPersonBoard && !dateStart) {
       setError(board.type === 'trips' ? 'Trip dates are required' : 'Vacation dates are required'); return
+    }
+    // Generic required custom/unbound props
+    for (const p of properties) {
+      if (!p.required || p.bind || p.type === 'section') continue
+      const v = customFieldValues[p.id]
+      if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) {
+        setError(`${p.name} is required`); return
+      }
     }
     if (!user) return
 
@@ -143,27 +107,22 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
       const now = Timestamp.now()
       const startTs = dateStart ? toFirestoreDate(new Date(dateStart + 'T12:00:00')) : (defaultDate ? toFirestoreDate(defaultDate) : null)
       const endTs   = dateEnd   ? toFirestoreDate(new Date(dateEnd   + 'T12:00:00')) : startTs
-
-      // Separate custom fields from builtin overrides stored in customFieldValues
-      const customFields: Record<string, unknown> = {}
-      for (const [k, v] of Object.entries(customFieldValues)) {
-        if (!SPECIAL_BUILTINS.has(k)) customFields[k] = v
-      }
+      const customFields = pickCustomFields(properties, customFieldValues)
 
       const id = await createTask({
         boardId:    board.id,
         title:      title.trim(),
-        clientId:   isPersonBoard ? '' : clientId,
-        divisionId: isPersonBoard ? null : (divisionId || null),
+        clientId:   hasBind('clientId') ? clientId : '',
+        divisionId: hasBind('clientId') ? (divisionId || null) : null,
         bucket,
         status:     'todo' as TaskStatus,
         priority,
-        assignees:  isPersonBoard && personId ? [personId] : [],
+        assignees,
         labelIds:   [],
         dateStart:  startTs,
         dateEnd:    endTs,
         description: '',
-        notes:      '',
+        notes:      typeof customFieldValues['__notes__'] === 'string' ? customFieldValues['__notes__'] as string : '',
         poNumber:   '',
         poNumbers:  [],
         poEntries:  [],
@@ -191,77 +150,59 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
     }
   }
 
-  // ── Render a single property field ───────────────────────────────────────
-  function renderPropertyField(prop: BoardProperty) {
-    // Person boards: render a single Person picker (active users only), bound to
-    // personId so validation + assignees work. Supersedes builtin-client /
-    // builtin-assignees / custom person fields, and dedupes if several exist.
-    if (isPersonBoard && personFieldIds.includes(prop.id)) {
-      if (prop.id !== primaryPersonFieldId) return null
+  // ── Render a field by BIND/TYPE (never by literal id) ─────────────────────
+  const LABEL = 'block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1'
+  const INPUT = 'w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500'
+
+  function renderField(prop: BoardProperty) {
+    // Section heading / page break
+    if (prop.type === 'section') {
       return (
-        <div key={prop.id}>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Person *</label>
-          <select value={personId} onChange={e => setPersonId(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-          >
-            <option value="">— Select person —</option>
-            {activeUsers.map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
-          </select>
+        <div key={prop.id} className="flex items-center gap-2 pt-2">
+          <span className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{prop.name}</span>
+          <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
         </div>
       )
     }
 
-    // Skip status — tasks always start as 'todo'
-    if (prop.id === 'builtin-status') return null
+    // Status is always 'todo' at creation — skip
+    if (prop.bind === 'status') return null
+    // These are managed in the task detail, not at creation
+    if (prop.bind === 'labelIds' || prop.bind === 'taskDates' || prop.bind === 'poEntries' || prop.bind === 'awbs') return null
 
-    // Client field (planner)
-    if (prop.id === 'builtin-client') {
-      if (isPersonBoard) return null
+    // Client (+ division) — planner/custom
+    if (prop.bind === 'clientId') {
       return (
         <div key={prop.id}>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-            {prop.name} {prop.required !== false ? '*' : ''}
-          </label>
+          <label className={LABEL}>{prop.name} {prop.required !== false ? '*' : ''}</label>
           {showNewClient ? (
             <div className="flex gap-2">
               <input autoFocus value={newClientName} onChange={e => setNewClientName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleCreateClient() } if (e.key === 'Escape') setShowNewClient(false) }}
-                placeholder="New client name"
-                className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-              />
+                placeholder="New client name" className={`flex-1 ${INPUT}`} />
               <button type="button" onClick={handleCreateClient} className="rounded-lg bg-green-500 px-3 py-2 text-sm font-medium text-white hover:bg-green-600">Add</button>
               <button type="button" onClick={() => setShowNewClient(false)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500">Cancel</button>
             </div>
           ) : (
-            <select value={clientId} onChange={e => {
-              if (e.target.value === '__new__') { setShowNewClient(true) }
-              else { setClientId(e.target.value); setDivisionId('') }
-            }}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-            >
+            <select value={clientId} onChange={e => { if (e.target.value === '__new__') setShowNewClient(true); else { setClientId(e.target.value); setDivisionId('') } }} className={INPUT}>
               <option value="">— Select client —</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               <option value="__new__">+ New Client</option>
             </select>
           )}
-          {/* Division — appears once client is selected */}
           {clientId && (
             <div className="mt-2">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Division</label>
+              <label className={LABEL}>Division</label>
               {showNewDivision ? (
                 <div className="flex gap-2">
                   <input autoFocus value={newDivisionName} onChange={e => setNewDivisionName(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleCreateDivision() } if (e.key === 'Escape') setShowNewDivision(false) }}
-                    placeholder="New division name"
-                    className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-                  />
+                    placeholder="New division name" className={`flex-1 ${INPUT}`} />
                   <button type="button" onClick={handleCreateDivision} className="rounded-lg bg-green-500 px-3 py-2 text-sm font-medium text-white hover:bg-green-600">Add</button>
                   <button type="button" onClick={() => setShowNewDivision(false)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500">Cancel</button>
                 </div>
               ) : (
-                <select value={divisionId} onChange={e => { if (e.target.value === '__new__') setShowNewDivision(true); else setDivisionId(e.target.value) }}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-                >
+                <select value={divisionId} onChange={e => { if (e.target.value === '__new__') setShowNewDivision(true); else setDivisionId(e.target.value) }} className={INPUT}>
                   <option value="">— Select division —</option>
                   {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                   <option value="__new__">+ New Division</option>
@@ -273,120 +214,133 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
       )
     }
 
-    // Person field (trips / vacations)
-    if (prop.id === 'builtin-assignees') {
-      if (!isPersonBoard) return null
+    // Assignees / Person
+    if (prop.bind === 'assignees') {
+      if (isPersonBoard) {
+        // Single person picker (active users only)
+        return (
+          <div key={prop.id}>
+            <label className={LABEL}>Person *</label>
+            <select value={assignees[0] ?? ''} onChange={e => setAssignees(e.target.value ? [e.target.value] : [])} className={INPUT}>
+              <option value="">— Select person —</option>
+              {activeUsers.map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
+            </select>
+          </div>
+        )
+      }
+      // Multi assignees (optional)
       return (
         <div key={prop.id}>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Person *</label>
-          <select value={personId} onChange={e => setPersonId(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-          >
-            <option value="">— Select person —</option>
-            {users.filter(u => u.status === 'active').map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
-          </select>
+          <label className={LABEL}>{prop.name}</label>
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {assignees.map(uid => {
+              const u = activeUsers.find(x => x.uid === uid); if (!u) return null
+              return (
+                <span key={uid} className="inline-flex items-center gap-1.5 rounded-full border border-green-500 bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 dark:bg-green-900/20 dark:text-green-400">
+                  <span className="h-4 w-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white" style={{ backgroundColor: getInitialsColor(u.name) }}>{getInitials(u.name)}</span>
+                  {u.name}
+                  <button type="button" onClick={() => toggleAssignee(uid)} className="text-green-600 hover:text-green-800">✕</button>
+                </span>
+              )
+            })}
+            <select value="" onChange={e => { if (e.target.value) toggleAssignee(e.target.value) }} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-500 focus:outline-none focus:border-green-500">
+              <option value="">+ Add</option>
+              {activeUsers.filter(u => !assignees.includes(u.uid)).map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
+            </select>
+          </div>
         </div>
       )
     }
 
     // Bucket
-    if (prop.id === 'builtin-bucket') {
-      const bucketOpts = prop.options?.map(o => o.label) ?? BOARD_BUCKETS[board.type] ?? []
-      // Person boards have a fixed set of statuses → show a clear dropdown.
+    if (prop.bind === 'bucket') {
+      const opts = prop.options?.map(o => o.label) ?? []
       if (isPersonBoard) {
         return (
           <div key={prop.id}>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{prop.name} *</label>
-            <select
-              value={bucket}
-              onChange={e => setBucket(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-            >
+            <label className={LABEL}>{prop.name} *</label>
+            <select value={bucket} onChange={e => setBucket(e.target.value)} className={INPUT}>
               <option value="">— Select —</option>
-              {bucketOpts.map(b => <option key={b} value={b}>{b}</option>)}
+              {opts.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>
         )
       }
-      // Planner/custom: free-text with suggestions so new buckets can be typed.
       return (
         <div key={prop.id}>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{prop.name} *</label>
-          <input
-            type="text"
-            list={`buckets-${board.id}`}
-            value={bucket}
-            onChange={e => setBucket(e.target.value)}
-            placeholder="Select or type a bucket"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-          />
-          <datalist id={`buckets-${board.id}`}>
-            {bucketOpts.map(b => <option key={b} value={b} />)}
-          </datalist>
+          <label className={LABEL}>{prop.name} *</label>
+          <input type="text" list={`buckets-${board.id}`} value={bucket} onChange={e => setBucket(e.target.value)} placeholder="Select or type a bucket" className={INPUT} />
+          <datalist id={`buckets-${board.id}`}>{opts.map(b => <option key={b} value={b} />)}</datalist>
         </div>
       )
     }
 
     // Priority
-    if (prop.id === 'builtin-priority') {
+    if (prop.bind === 'priority') {
+      const opts = prop.options ?? [{ id: 'normal', label: 'Normal', color: '' }, { id: 'high', label: 'High', color: '' }]
       return (
         <div key={prop.id}>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{prop.name}</label>
+          <label className={LABEL}>{prop.name}</label>
           <div className="flex gap-2">
-            {(prop.options ?? [{ id: 'normal', label: 'Normal' }, { id: 'high', label: 'High' }]).map(opt => (
-              <button type="button" key={opt.id}
-                onClick={() => setPriority((opt.label.toLowerCase() === 'high' ? 'high' : 'normal') as TaskPriority)}
-                className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${
-                  priority === (opt.label.toLowerCase() === 'high' ? 'high' : 'normal')
-                    ? (opt.label.toLowerCase() === 'high' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300')
-                    : 'border border-gray-200 text-gray-400 hover:bg-gray-50 dark:border-gray-600'
-                }`}
-              >
-                {opt.label.toLowerCase() === 'high' ? '! High' : 'Normal'}
-              </button>
-            ))}
+            {opts.map(opt => {
+              const isHigh = opt.label.toLowerCase() === 'high' || opt.label.toLowerCase() === 'urgent'
+              const val: TaskPriority = isHigh ? 'high' : 'normal'
+              return (
+                <button type="button" key={opt.id} onClick={() => setPriority(val)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${
+                    priority === val
+                      ? (isHigh ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300')
+                      : 'border border-gray-200 text-gray-400 hover:bg-gray-50 dark:border-gray-600'
+                  }`}>
+                  {isHigh ? '! High' : 'Normal'}
+                </button>
+              )
+            })}
           </div>
         </div>
       )
     }
 
-    // Date range (builtin-date)
-    if (prop.id === 'builtin-date') {
+    // Task date range (the board's main Date — bind 'dates'). Custom date props
+    // fall through to the generic input and keep their own value in customFields.
+    if (prop.bind === 'dates') {
+      const dateLabel = isPersonBoard ? (board.type === 'trips' ? 'Trip dates *' : 'Vacation dates *') : prop.name
       return (
         <div key={prop.id}>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{prop.name}</label>
+          <label className={LABEL}>{dateLabel}</label>
           <div className="flex items-center gap-2">
-            <input type="date" value={dateStart} onChange={e => { setDateStart(e.target.value); if (!dateEnd) setDateEnd(e.target.value) }}
-              className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-            />
+            <input type="date" value={dateStart} onChange={e => { setDateStart(e.target.value); if (!dateEnd) setDateEnd(e.target.value) }} className={`flex-1 ${INPUT}`} />
             <span className="text-gray-400 text-xs shrink-0">→</span>
-            <input type="date" value={dateEnd} min={dateStart} onChange={e => setDateEnd(e.target.value)}
-              className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-            />
+            <input type="date" value={dateEnd} min={dateStart} onChange={e => setDateEnd(e.target.value)} className={`flex-1 ${INPUT}`} />
           </div>
         </div>
       )
     }
 
-    // All other properties (custom fields + unrecognized builtins like builtin-type, builtin-awb, builtin-po, builtin-notes…)
+    // Notes (bind 'notes') — plain textarea stored in task.notes
+    if (prop.bind === 'notes') {
+      return (
+        <div key={prop.id}>
+          <label className={LABEL}>{prop.name}</label>
+          <textarea
+            value={typeof customFieldValues['__notes__'] === 'string' ? customFieldValues['__notes__'] as string : ''}
+            onChange={e => setField('__notes__', e.target.value)}
+            rows={3} className={`${INPUT} resize-none`} />
+        </div>
+      )
+    }
+
+    // Everything else (custom / unbound builtins like builtin-type) → generic input
     return (
       <div key={prop.id}>
         <label className="flex items-center gap-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
           <DynamicIcon name={prop.icon} size={12} className="text-gray-400" />
           {prop.name}{prop.required ? ' *' : ''}
         </label>
-        <CustomFieldInput
-          prop={prop}
-          value={customFieldValues[prop.id]}
-          users={users}
-          onChange={v => setField(prop.id, v)}
-        />
+        <CustomFieldInput prop={prop} value={customFieldValues[prop.id]} users={users} onChange={v => setField(prop.id, v)} />
       </div>
     )
   }
-
-  // ── If board has no customProperties, fall back to hardcoded layout ────────
-  const hasTemplate = properties.length > 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -401,114 +355,22 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Title — always first */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Title *</label>
-            <input
-              autoFocus
-              type="text"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              placeholder="Task title"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-            />
+            <label className={LABEL}>Title *</label>
+            <input autoFocus type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Task title" className={INPUT} />
           </div>
 
-          {hasTemplate ? (
-            // Template-driven fields
-            properties.map(prop => renderPropertyField(prop))
-          ) : (
-            // Fallback hardcoded layout (board has no customProperties yet)
-            <>
-              {isPersonBoard ? (
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Person *</label>
-                  <select value={personId} onChange={e => setPersonId(e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-                  >
-                    <option value="">— Select person —</option>
-                    {users.filter(u => u.status === 'active').map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
-                  </select>
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client *</label>
-                  {showNewClient ? (
-                    <div className="flex gap-2">
-                      <input autoFocus value={newClientName} onChange={e => setNewClientName(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleCreateClient() } if (e.key === 'Escape') setShowNewClient(false) }}
-                        placeholder="New client name"
-                        className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-                      />
-                      <button type="button" onClick={handleCreateClient} className="rounded-lg bg-green-500 px-3 py-2 text-sm font-medium text-white hover:bg-green-600">Add</button>
-                      <button type="button" onClick={() => setShowNewClient(false)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500">Cancel</button>
-                    </div>
-                  ) : (
-                    <select value={clientId} onChange={e => {
-                      if (e.target.value === '__new__') setShowNewClient(true)
-                      else { setClientId(e.target.value); setDivisionId('') }
-                    }}
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-                    >
-                      <option value="">— Select client —</option>
-                      {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      <option value="__new__">+ New Client</option>
-                    </select>
-                  )}
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Bucket *</label>
-                <input type="text" list={`buckets-${board.id}`} value={bucket} onChange={e => setBucket(e.target.value)}
-                  placeholder="Select or type a bucket"
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-                />
-                <datalist id={`buckets-${board.id}`}>
-                  {(BOARD_BUCKETS[board.type] ?? []).map(b => <option key={b} value={b} />)}
-                </datalist>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
-                <div className="flex gap-2">
-                  {(['normal', 'high'] as TaskPriority[]).map(p => (
-                    <button type="button" key={p} onClick={() => setPriority(p)}
-                      className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${priority === p ? (p === 'high' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300') : 'border border-gray-200 text-gray-400 hover:bg-gray-50 dark:border-gray-600'}`}
-                    >{p === 'high' ? '! High' : 'Normal'}</button>
-                  ))}
-                </div>
-              </div>
-              {/* Date — always shown for person boards (trips/vacations are date-based);
-                  for planner fallback only when a calendar date was clicked */}
-              {(isPersonBoard || (defaultDate && !hasDateProp)) && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    {isPersonBoard ? (board.type === 'trips' ? 'Trip dates *' : 'Vacation dates *') : 'Date'}
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input type="date" value={dateStart} onChange={e => { setDateStart(e.target.value); if (!dateEnd) setDateEnd(e.target.value) }}
-                      className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-                    />
-                    <span className="text-gray-400 text-xs shrink-0">→</span>
-                    <input type="date" value={dateEnd} min={dateStart} onChange={e => setDateEnd(e.target.value)}
-                      className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:border-green-500"
-                    />
-                  </div>
-                </div>
-              )}
-            </>
-          )}
+          {properties.map(prop => renderField(prop))}
 
           {error && <p className="text-sm text-red-500">{error}</p>}
 
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose}
-              className="flex-1 rounded-lg border border-gray-200 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
-            >
+              className="flex-1 rounded-lg border border-gray-200 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors">
               Cancel
             </button>
             <button type="submit" disabled={saving}
-              className="flex-1 rounded-lg bg-green-500 py-2 text-sm font-semibold text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
-            >
+              className="flex-1 rounded-lg bg-green-500 py-2 text-sm font-semibold text-white hover:bg-green-600 disabled:opacity-50 transition-colors">
               {saving ? 'Creating…' : 'Create Task'}
             </button>
           </div>

@@ -195,6 +195,23 @@ function needsOptions(type: PropertyType): boolean {
   return type === 'select' || type === 'multiselect'
 }
 
+// Route a draft of property values into Task.customFields: only properties with
+// NO bind land here (a bound builtin is stored in its Task column instead).
+// builtin-type (a builtin with no bind) correctly stays in customFields.
+export function pickCustomFields(
+  props: BoardProperty[],
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const p of props) {
+    if (p.bind || p.type === 'section') continue
+    const v = values[p.id]
+    const empty = v === undefined || v === '' || (Array.isArray(v) && v.length === 0)
+    if (!empty) out[p.id] = v
+  }
+  return out
+}
+
 export function normalizeBoardProperties(board: Pick<Board, 'type' | 'customProperties'>): BoardProperty[] {
   const boardType = board.type
   const source = (board.customProperties && board.customProperties.length > 0)

@@ -4,6 +4,7 @@ import {
   resolveBind,
   getDefaultBoardProperties,
   normalizeBoardProperties,
+  pickCustomFields,
 } from '../src/renderer/src/lib/boardProperties'
 import type { Board, BoardProperty } from '../src/renderer/src/types'
 
@@ -130,5 +131,29 @@ describe('normalizeBoardProperties', () => {
       expect(def.type, `${id} type`).toBeTruthy()
       expect(def.icon, `${id} icon`).toBeTruthy()
     }
+  })
+})
+
+describe('pickCustomFields', () => {
+  const props = [
+    { id: 'builtin-bucket', name: 'Bucket', type: 'select', icon: 'Layers', order: 0, bind: 'bucket' },
+    { id: 'builtin-type',   name: 'Type',   type: 'select', icon: 'Tag',    order: 1 },               // no bind
+    { id: 'fld_fabric',     name: 'Fabric', type: 'text',   icon: 'Box',    order: 2 },               // custom
+    { id: 'sec_1',          name: 'Group',  type: 'section', icon: 'Minus',  order: 3 },              // section
+  ] as unknown as import('../src/renderer/src/types').BoardProperty[]
+
+  it('keeps only unbound, non-section, non-empty values', () => {
+    const out = pickCustomFields(props, {
+      'builtin-bucket': 'FedEx',     // bound → excluded
+      'builtin-type': 'Vacation',    // unbound builtin → kept
+      'fld_fabric': 'Cotton',        // custom → kept
+      'sec_1': 'whatever',           // section → excluded
+    })
+    expect(out).toEqual({ 'builtin-type': 'Vacation', 'fld_fabric': 'Cotton' })
+  })
+
+  it('omits empty values (empty string / empty array / undefined)', () => {
+    const out = pickCustomFields(props, { 'builtin-type': '', 'fld_fabric': [] })
+    expect(out).toEqual({})
   })
 })
