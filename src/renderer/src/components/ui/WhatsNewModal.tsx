@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import {
-  X, Mail, FileText, Table2, FolderOpen, Printer, Wrench, Sparkles,
+  X, FileText, FolderOpen, Sparkles, LayoutGrid, Table2, Bell, Layers,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.8.0'
+const CURRENT_VERSION = '1.9.0'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Feature {
@@ -16,112 +16,64 @@ interface Feature {
 
 const FEATURES: Feature[] = [
   {
-    icon: Sparkles,
-    color: '#D97706',
-    title: 'Follow-ups — Nothing Slips Through',
-    description:
-      'Tasks now have a Follow-ups section next to Subtasks. Unlike subtasks, ' +
-      'open follow-ups BLOCK completing the task: the checkbox refuses with a ' +
-      'clear message until every follow-up is checked off.',
-  },
-  {
-    icon: Mail,
-    color: '#378ADD',
-    title: 'Emails Render Clean — RTF Parser Rebuilt',
-    description:
-      'Outlook emails stored as RTF now convert to proper HTML: no more \\par tokens, ' +
-      'no font lists ("Arial; Courier New;...") at the top, and smart quotes/apostrophes ' +
-      'display correctly. Email card previews are clean text too.',
-  },
-  {
-    icon: FileText,
+    icon: LayoutGrid,
     color: '#1D9E75',
-    title: 'Task Fields Never Lose Your Text',
+    title: 'Build Any Board From Scratch',
     description:
-      'PO, AWB and Description now save reliably — closing the task right after typing ' +
-      'flushes your changes instead of discarding them, and live updates from teammates ' +
-      'no longer wipe what you are typing. Placeholders disappear as soon as you write.',
-  },
-  {
-    icon: FolderOpen,
-    color: '#F59E0B',
-    title: 'No More Duplicate Attachments',
-    description:
-      'Files and emails attach exactly once: drops are guarded against double-firing, ' +
-      're-attaching the same email is detected, and dropping a file now attaches that ' +
-      'file directly instead of opening a file picker.',
-  },
-  {
-    icon: Wrench,
-    color: '#8B5CF6',
-    title: 'Quieter, Smarter Updates',
-    description:
-      'Temporary network hiccups no longer show a red "Update check failed" banner — ' +
-      'the app retries on its own. On Mac, the update banner now offers a Download ' +
-      'button that takes you to the new version. Windows installs are deferred during ' +
-      'system shutdown so an interrupted update can never break the app.',
-  },
-  {
-    icon: Mail,
-    color: '#8B5CF6',
-    title: 'Reply & Forward — Choose Your Email App',
-    description:
-      'Reply and Forward now ask which Outlook you use: New Outlook, Classic Outlook, or ' +
-      'default email app. Your choice is remembered. You can change it anytime from the ' +
-      'bottom bar of any email. Body is trimmed to avoid Windows URL length limits.',
+      'New Board now opens a blank template builder — add your own fields and sections, ' +
+      'rename and drag to reorder, and shape the New Task form however your team works. ' +
+      'No code, no presets you can\'t change.',
   },
   {
     icon: Table2,
-    color: '#1D9E75',
-    title: 'Tables in Task Description',
+    color: '#378ADD',
+    title: 'Smart Fields — Columns, Calendar & Grouping',
     description:
-      'The description editor now supports tables. Click the table icon in the toolbar ' +
-      'to insert a 3×3 table, then add/remove rows and columns from the inline menu. ' +
-      'Pasting HTML tables from emails also works.',
+      'Add Bucket, Status, Priority, Date, Assignees or Labels to ANY board from the ' +
+      '"Smart fields" picker. Bucket powers the board columns, Date powers the calendar & ' +
+      'timeline, and Group By works off all of them.',
+  },
+  {
+    icon: Layers,
+    color: '#8B5CF6',
+    title: 'Sections & New Field Types',
+    description:
+      'Group fields under section headings (drag them anywhere). New property types: ' +
+      'Rich Text, Multiple Dates and Follow-ups — add them to any board. Description, ' +
+      'Event Dates, Follow-ups and Attachments are now reorderable/hideable too.',
   },
   {
     icon: FolderOpen,
     color: '#F59E0B',
-    title: 'Open / Finder / Print on Every Attachment',
+    title: 'Every Board Knows Where Files Go',
     description:
-      'All file attachments — PDFs, images, Excel, Word — now show three action buttons: ' +
-      'Open (default app), Finder/Explorer (reveal in folder), and Print. ' +
-      'Buttons also appear inside the image lightbox, PDF preview, and email viewer.',
+      'Attachments, emails and reports from non-Planner boards now save under ' +
+      '{year}/{Board}/{task} on SharePoint instead of an "Unknown" folder. Planner keeps ' +
+      'its client-based layout.',
   },
   {
-    icon: Mail,
-    color: '#8B5CF6',
-    title: 'Reply & Forward with Full Context',
+    icon: Bell,
+    color: '#EF4444',
+    title: 'Per-Board Notifications',
     description:
-      'Reply now opens your email client with the correct To: address and the full quoted ' +
-      'original below your cursor. Forward includes a complete header block (From/Date/Subject/To) ' +
-      'with the entire message — no more 500-character truncation.',
+      'Desktop notifications are no longer Planner-only. Each board has a toggle in its ' +
+      'settings to notify assignees on assignment, changes, completion and @mentions.',
+  },
+  {
+    icon: Sparkles,
+    color: '#14B8A6',
+    title: 'Quick Board Settings',
+    description:
+      'Every board has a ⚙️ Settings button in its top bar that jumps straight to its ' +
+      'template editor — add or remove buckets, fields and sections in one click.',
   },
   {
     icon: FileText,
-    color: '#EF4444',
-    title: 'Mac Compatibility Fixes',
-    description:
-      'Fixed a startup crash caused by the Outlook Add-in certificate generator on Mac. ' +
-      'Fixed "process is not defined" error in SharePoint path handling. ' +
-      'Auto-updater now works correctly on Mac (.dmg flow).',
-  },
-  {
-    icon: Printer,
-    color: '#1D9E75',
-    title: 'Print Support',
-    description:
-      'Print any attached file directly from the task — PDFs, images, and Office documents ' +
-      'open in their native print dialog with a single click.',
-  },
-  {
-    icon: Wrench,
     color: '#6B7280',
-    title: 'Bug Fixes',
+    title: 'Cleanups',
     description:
-      'Fixed app crash on first Mac launch (Outlook Add-in removed — was Windows-only). ' +
-      'Fixed tasks not loading after app restart on Mac. ' +
-      'Fixed SharePoint path sync overwriting Mac paths from Windows machines.',
+      'Files and Emails are merged into one "Attachments" section, Subtasks removed, and ' +
+      'creating a task now requires a bucket so nothing lands uncategorized.',
   },
 ]
 
