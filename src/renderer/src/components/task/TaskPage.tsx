@@ -1252,7 +1252,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
                     return (
                       <div key={prop.id} className="col-span-full border-t border-gray-100 dark:border-gray-800 pt-4">
                         <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">{prop.name}</h4>
-                        <AttachmentPanel task={task} readOnly={readOnly} />
+                        <AttachmentPanel task={task} readOnly={readOnly} board={board} />
                       </div>
                     )
 

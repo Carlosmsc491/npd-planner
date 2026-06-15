@@ -14,7 +14,7 @@ import { useDivisions } from '../../hooks/useDivisions'
 import { useAuthStore } from '../../store/authStore'
 import { Timestamp } from 'firebase/firestore'
 import * as pdfjsLib from 'pdfjs-dist'
-import type { Task, TaskAttachment, EmailAttachment } from '../../types'
+import type { Task, TaskAttachment, EmailAttachment, Board } from '../../types'
 import { addEmailAttachment, removeEmailAttachment, removeInnerAttachment } from '../../lib/emailAttachments'
 import EmailAttachmentCard from './EmailAttachmentCard'
 import FilePreviewModal from './FilePreviewModal'
@@ -33,6 +33,7 @@ if (import.meta.env.DEV) {
 interface Props {
   task: Task
   readOnly?: boolean
+  board?: Board | null
 }
 
 // ─── File type helpers ────────────────────────────────────────────────────────
@@ -440,7 +441,7 @@ function AttachmentRow({ attachment, sharePointPath, onRemove, onOpen, onPreview
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function AttachmentPanel({ task, readOnly }: Props) {
+export default function AttachmentPanel({ task, readOnly, board }: Props) {
   const { clients } = useSettingsStore()
   const { user } = useAuthStore()
   const {
@@ -469,13 +470,20 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
     ? divisions.find((d) => d.id === task.divisionId)?.name
     : undefined
 
+  // Folder grouping: Planner groups by client; every other board groups by its
+  // own name → files land in {root}/{year}/{BoardName}/{task}/ instead of an
+  // "Unknown Client" folder. Custom boards have no divisions.
+  const isPlannerBoard = !board || board.type === 'planner'
+  const groupName = isPlannerBoard ? clientName : board.name
+  const groupDivision = isPlannerBoard ? divisionName : undefined
+
   async function handleAttach() {
     if (busyRef.current) return
     busyRef.current = true
     setAttaching(true)
     setFeedback(null)
     try {
-      const result = await attachFile(task, clientName, divisionName)
+      const result = await attachFile(task, groupName, groupDivision)
       if (!result.success && result.error) {
         setFeedback({ type: 'error', message: result.error })
       }
@@ -550,7 +558,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
       const common = {
         sharePointRoot: sharePointPath,
         year: new Date().getFullYear().toString(),
-        clientName,
+        clientName: groupName,
         taskTitle: task.title,
       }
       const result = filePath.toLowerCase().endsWith('.eml')
@@ -612,7 +620,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
           await doEmailAttach(f.path)
         } else {
           // Attach the dropped file directly — no file picker dialog
-          const result = await attachFile(task, clientName, divisionName, f.path)
+          const result = await attachFile(task, groupName, groupDivision, f.path)
           if (!result.success && result.error) {
             setFeedback({ type: 'error', message: result.error })
           }
@@ -622,7 +630,7 @@ export default function AttachmentPanel({ task, readOnly }: Props) {
       busyRef.current = false
       setAttaching(false)
     }
-  }, [sharePointPath, user, task, clientName, divisionName])
+  }, [sharePointPath, user, task, groupName, groupDivision])
 
   // ── No SharePoint path configured ──────────────────────────────────────────
   if (isElectron && !sharePointPath) {

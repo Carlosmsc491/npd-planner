@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import AppLayout from '../components/ui/AppLayout'
 import BoardView from '../components/board/BoardView'
 import ListView from '../components/board/ListView'
@@ -17,14 +18,18 @@ import { subscribeToUsers } from '../lib/firestore'
 import { useBoardStore } from '../store/boardStore'
 import { getBoardColor } from '../utils/colorUtils'
 import { exportTasksToCSV, downloadCSV } from '../utils/exportUtils'
-import { Download, Eye } from 'lucide-react'
+import { Download, Eye, Settings2 } from 'lucide-react'
+import { useAuthStore } from '../store/authStore'
 import { useBoardPermission } from '../hooks/useAreaPermission'
 import type { Task, AppUser, RecurringConfig, BoardView as BoardViewType } from '../types'
 
 export default function BoardPage() {
+  const navigate = useNavigate()
   const { activeBoard } = useBoard()
   const { clients } = useClients()
   const { labels } = useLabels()
+  const { user } = useAuthStore()
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner'
   const boardAccess = useBoardPermission(activeBoard?.id ?? '')
 
   const { tasks, selectedTask, setSelectedTask, complete, remove, duplicate, setRecurring } =
@@ -158,6 +163,19 @@ export default function BoardPage() {
               <Download size={13} />
               CSV
             </button>
+            {isAdmin && (
+              <button
+                onClick={() => navigate(`/settings?tab=boards&board=${activeBoard.id}`)}
+                className="flex items-center gap-1 rounded-lg border border-gray-200
+                           dark:border-gray-700 px-2.5 py-1.5 text-xs text-gray-500
+                           hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200
+                           hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                title="Board settings — edit properties, buckets & sections"
+              >
+                <Settings2 size={13} />
+                Settings
+              </button>
+            )}
             {boardAccess === 'edit' && (
               <button
                 onClick={() => { setNewTaskBucket(undefined); setShowNewTask(true) }}

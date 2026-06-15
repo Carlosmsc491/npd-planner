@@ -99,7 +99,11 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
           const board = boards.find(b => b.id === snapshot.boardId) ?? null
           const taskLabels = labels.filter(l => (snapshot.labelIds ?? []).includes(l.id))
           const client = clients.find(c => c.id === snapshot.clientId) ?? null
-          generateAndSaveTaskReport(snapshot, sharePointPath, client?.name ?? 'Unknown', {
+          // Folder grouping: Planner by client; other boards by board name
+          const groupName = (!board || board.type === 'planner')
+            ? (client?.name ?? 'Unknown')
+            : board.name
+          generateAndSaveTaskReport(snapshot, sharePointPath, groupName, {
             client, board, labels: taskLabels, users: [],
           }).catch(() => { /* non-blocking — report failure is silent */ })
         }

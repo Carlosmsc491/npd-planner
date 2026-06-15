@@ -123,6 +123,17 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
   const [editingBoard, setEditingBoard] = useState<Board | null>(null)
 
+  // Deep link from a board's ⚙️ shortcut: ?tab=boards&board=<id> auto-opens that
+  // board's template editor.
+  const boardParam = searchParams.get('board')
+  useEffect(() => {
+    if (boardParam && isAdmin) {
+      const b = boards.find((x) => x.id === boardParam)
+      if (b) { setActiveTab('boards'); setEditingBoard(b) }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardParam, boards.length])
+
   function handleTabChange(tab: SettingsTab) {
     setActiveTab(tab)
     setEditingBoard(null)
