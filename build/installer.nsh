@@ -1,26 +1,26 @@
 ; build/installer.nsh — custom NSIS hooks (auto-included by electron-builder)
 ;
-; Updating could leave the running app — plus its Electron helper processes
-; (main/GPU/renderer are all "npd-planner.exe") and the orphaned Traze Chromium
-; child — holding file locks, so users hit:
-;   "NPD Planner cannot be closed. Please close it manually and click Retry."
-;   "Failed to uninstall old application files. Please try ... again.: 2"
+; Goal: silent auto-updates must never stall on the running app, and must never
+; kill the updater itself.
 ;
-; electron-builder's default guard (_CHECK_APP_RUNNING) kills only
-; "npd-planner.exe" *without* /T, so it leaves the bundled Chromium child alive,
-; then — if any process lingers — falls back to a blocking "cannot be closed /
-; Retry" MessageBox (the 1.9.0 bug). We replace that guard with an
-; unconditional force-kill of the whole process tree, and run the same kill on
-; install/uninstall init so the previous version's uninstaller finds nothing
-; running when it executes during an update.
+; electron-updater launches the new setup.exe as a CHILD of the running
+; npd-planner.exe (which is still alive for a moment while it quits). So we must
+; NOT use `taskkill /T` here: /T kills the whole process tree of npd-planner.exe,
+; and since setup.exe is a child of it, /T terminates the updater mid-install —
+; the previous version gets uninstalled but the new one never installs.
 ;
-; /T takes down child processes too — the bundled Traze Chromium runs as a
-; child of npd-planner.exe and otherwise keeps install files locked.
-; (The installer's own image is "npd-planner-<ver>-setup.exe", not
-; "npd-planner.exe", so /IM never targets the running installer.)
+; Instead force-kill by image name only. That stops the app plus its Electron
+; helper processes (main/GPU/renderer are all "npd-planner.exe") and releases
+; their file locks, WITHOUT touching setup.exe (a different image name) or its
+; descendants. Because customInit runs before the previous version's uninstaller
+; is invoked, the app is already gone by then, so even an older uninstaller that
+; still uses /T finds nothing to kill and leaves the updater alone.
+;
+; (The bundled Traze Chromium is closed by the app's before-quit handler, so it
+; isn't holding install files by the time the updater runs.)
 
 !macro killNpdPlanner
-  nsExec::Exec 'taskkill /F /T /IM "npd-planner.exe"'
+  nsExec::Exec 'taskkill /F /IM "npd-planner.exe"'
   ; Give Windows time to release file locks before touching the install dir.
   Sleep 1500
 !macroend
@@ -35,8 +35,7 @@
 
 ; Replaces electron-builder's default _CHECK_APP_RUNNING. The default shows a
 ; blocking "cannot be closed / Retry" dialog when any npd-planner.exe lingers;
-; we force-kill the whole tree instead so updates never stall on a running
-; instance.
+; we force-kill (no tree, no dialog) so updates never stall on a running instance.
 !macro customCheckAppRunning
   !insertmacro killNpdPlanner
 !macroend
