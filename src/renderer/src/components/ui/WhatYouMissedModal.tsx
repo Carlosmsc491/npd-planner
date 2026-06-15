@@ -170,9 +170,20 @@ export default function WhatYouMissedModal({ onClose }: Props) {
                   <div key={n.id} className="flex items-start gap-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-800/20 px-3 py-2.5">
                     <div className="w-2 h-2 rounded-full bg-amber-400 mt-1.5 shrink-0" />
                     <div className="min-w-0">
-                      <p className="text-sm text-gray-800 dark:text-gray-200 leading-snug">{n.message}</p>
-                      {n.type && (
-                        <p className="text-xs text-gray-400 mt-0.5">{NOTIF_TYPE_LABEL[n.type] ?? n.type}</p>
+                      {n.taskTitle ? (
+                        <>
+                          <p className="text-sm font-medium text-gray-900 dark:text-white leading-snug truncate">{n.taskTitle}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                            {n.message || (n.type ? NOTIF_TYPE_LABEL[n.type] ?? n.type : '')}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm text-gray-800 dark:text-gray-200 leading-snug">{n.message}</p>
+                          {n.type && (
+                            <p className="text-xs text-gray-400 mt-0.5">{NOTIF_TYPE_LABEL[n.type] ?? n.type}</p>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
