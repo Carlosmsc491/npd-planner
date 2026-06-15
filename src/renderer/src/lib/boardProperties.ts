@@ -102,6 +102,21 @@ export function isSystemProperty(id: string): boolean {
   return (SYSTEM_PROPERTY_IDS as readonly string[]).includes(id)
 }
 
+// "Smart" builtins a user can add to ANY board from Add Property. Each binds to a
+// fixed Task column (so Board columns, Calendar and Group By work), and can be
+// added at most once per board. (Client/AWB/PO stay Planner-only.)
+export const ADDABLE_BUILTIN_IDS = [
+  'builtin-bucket', 'builtin-status', 'builtin-priority',
+  'builtin-date', 'builtin-assignees', 'builtin-labels',
+] as const
+
+/** The addable builtins not yet present on this board, with their label + icon. */
+export function availableBuiltins(presentIds: Set<string>): { id: string; name: string; icon: string }[] {
+  return ADDABLE_BUILTIN_IDS
+    .filter((id) => !presentIds.has(id))
+    .map((id) => ({ id, name: BUILTIN_REGISTRY[id].name, icon: BUILTIN_REGISTRY[id].icon }))
+}
+
 export function isBuiltin(id: string): boolean {
   return id.startsWith('builtin-')
 }

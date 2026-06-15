@@ -14,9 +14,11 @@ const NEEDS_OPTIONS: PropertyType[] = ['select', 'multiselect', 'tags']
 interface Props {
   onAdd: (property: Omit<BoardProperty, 'id' | 'order'>) => void
   onClose: () => void
+  availableBuiltins?: { id: string; name: string; icon: string }[]
+  onAddBuiltin?: (id: string) => void
 }
 
-export default function AddPropertyModal({ onAdd, onClose }: Props) {
+export default function AddPropertyModal({ onAdd, onClose, availableBuiltins = [], onAddBuiltin }: Props) {
   const [name, setName]             = useState('')
   const [type, setType]             = useState<PropertyType>('text')
   const [icon, setIcon]             = useState(DEFAULT_ICONS.text)
@@ -58,6 +60,33 @@ export default function AddPropertyModal({ onAdd, onClose }: Props) {
         </div>
 
         <div className="space-y-4">
+          {/* Smart fields — builtins bound to the task engine (columns/calendar/group by) */}
+          {availableBuiltins.length > 0 && onAddBuiltin && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Smart fields <span className="text-gray-400 font-normal">— power columns, calendar & grouping</span>
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {availableBuiltins.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => onAddBuiltin(b.id)}
+                    className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:border-green-500 hover:text-green-600 dark:hover:border-green-500 transition-colors"
+                  >
+                    <DynamicIcon name={b.icon} size={13} className="text-gray-400" />
+                    {b.name}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4 mb-1 flex items-center gap-2">
+                <div className="flex-1 h-px bg-gray-100 dark:bg-gray-700" />
+                <span className="text-[10px] uppercase tracking-wider text-gray-400">or a custom field</span>
+                <div className="flex-1 h-px bg-gray-100 dark:bg-gray-700" />
+              </div>
+            </div>
+          )}
+
           {/* Name + Icon */}
           <div>
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">

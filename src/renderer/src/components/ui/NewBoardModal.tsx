@@ -184,7 +184,7 @@ export default function NewBoardModal({ onClose }: Props) {
               Add, rename, reorder and group the properties for this board. You can change all of this later in Settings.
             </p>
 
-            <TemplateBuilder properties={properties} onChange={setProperties} isOwner={isOwner} />
+            <TemplateBuilder properties={properties} onChange={setProperties} isOwner={isOwner} boardType="custom" />
 
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Default View</label>

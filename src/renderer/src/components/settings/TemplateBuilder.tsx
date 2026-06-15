@@ -9,11 +9,11 @@
 import { useState, useRef } from 'react'
 import { Trash2, GripVertical, Plus, Star, X, Eye, EyeOff } from 'lucide-react'
 import { DynamicIcon, PROPERTY_TYPE_LABELS, OPTION_COLORS } from '../../utils/propertyUtils'
-import { PRIORITY_OPTIONS, isSystemProperty } from '../../lib/boardProperties'
+import { PRIORITY_OPTIONS, isSystemProperty, availableBuiltins, buildBoardPropertiesFromBuiltins } from '../../lib/boardProperties'
 import { useTaskStore } from '../../store/taskStore'
 import IconPickerPopover from './IconPickerPopover'
 import AddPropertyModal from './AddPropertyModal'
-import type { BoardProperty, PropertyType, SelectOption } from '../../types'
+import type { BoardProperty, BoardType, PropertyType, SelectOption } from '../../types'
 
 const PROPERTY_TYPES: PropertyType[] = [
   'text', 'number', 'select', 'multiselect', 'date', 'daterange',
@@ -41,9 +41,10 @@ interface Props {
   properties: BoardProperty[]
   onChange: (properties: BoardProperty[]) => void
   isOwner: boolean
+  boardType: BoardType
 }
 
-export default function TemplateBuilder({ properties, onChange, isOwner }: Props) {
+export default function TemplateBuilder({ properties, onChange, isOwner, boardType }: Props) {
   const setToast = useTaskStore((s) => s.setToast)
   const [showAddModal, setShowAddModal]     = useState(false)
   const [renamingId, setRenamingId]         = useState<string | null>(null)
@@ -57,6 +58,17 @@ export default function TemplateBuilder({ properties, onChange, isOwner }: Props
   function handleAddProperty(data: Omit<BoardProperty, 'id' | 'order'>) {
     onChange([...properties, { ...data, id: crypto.randomUUID(), order: properties.length }])
   }
+
+  // Add a "smart" builtin (Bucket/Status/Priority/Date/Assignees/Labels), bound
+  // to its Task column so columns/calendar/Group By work. At most once per board.
+  function handleAddBuiltin(id: string) {
+    if (properties.some((p) => p.id === id)) return
+    const [bp] = buildBoardPropertiesFromBuiltins([id], boardType)
+    if (bp) onChange([...properties, { ...bp, order: properties.length }])
+    setShowAddModal(false)
+  }
+
+  const builtinChoices = availableBuiltins(new Set(properties.map((p) => p.id)))
 
   function handleAddSection() {
     onChange([...properties, { id: `sec_${crypto.randomUUID()}`, name: 'New Section', type: 'section', icon: 'Minus', order: properties.length }])
@@ -470,7 +482,14 @@ export default function TemplateBuilder({ properties, onChange, isOwner }: Props
         </button>
       </div>
 
-      {showAddModal && <AddPropertyModal onAdd={handleAddProperty} onClose={() => setShowAddModal(false)} />}
+      {showAddModal && (
+        <AddPropertyModal
+          availableBuiltins={builtinChoices}
+          onAddBuiltin={handleAddBuiltin}
+          onAdd={handleAddProperty}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
     </div>
   )
 }

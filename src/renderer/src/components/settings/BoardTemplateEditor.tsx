@@ -126,7 +126,7 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
       )}
 
       {/* The reusable field builder (shared with the New Board wizard) */}
-      <TemplateBuilder properties={properties} onChange={saveProperties} isOwner={isOwner} />
+      <TemplateBuilder properties={properties} onChange={saveProperties} isOwner={isOwner} boardType={localBoard.type} />
     </div>
   )
 }

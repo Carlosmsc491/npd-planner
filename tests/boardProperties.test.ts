@@ -7,6 +7,7 @@ import {
   pickCustomFields,
   buildBoardPropertiesFromBuiltins,
   isSystemProperty,
+  availableBuiltins,
 } from '../src/renderer/src/lib/boardProperties'
 import type { Board, BoardProperty } from '../src/renderer/src/types'
 
@@ -187,6 +188,25 @@ describe('buildBoardPropertiesFromBuiltins', () => {
   it('ignores unknown ids', () => {
     const props = buildBoardPropertiesFromBuiltins(['builtin-bucket', 'not-a-builtin'], 'custom')
     expect(props.map((p) => p.id)).toEqual(['builtin-bucket'])
+  })
+})
+
+describe('availableBuiltins', () => {
+  it('offers the smart builtins not already on the board', () => {
+    const all = availableBuiltins(new Set())
+    expect(all.map((b) => b.id)).toEqual([
+      'builtin-bucket', 'builtin-status', 'builtin-priority',
+      'builtin-date', 'builtin-assignees', 'builtin-labels',
+    ])
+    all.forEach((b) => { expect(b.name).toBeTruthy(); expect(b.icon).toBeTruthy() })
+  })
+
+  it('hides builtins already present (added at most once)', () => {
+    const out = availableBuiltins(new Set(['builtin-bucket', 'builtin-date']))
+    const ids = out.map((b) => b.id)
+    expect(ids).not.toContain('builtin-bucket')
+    expect(ids).not.toContain('builtin-date')
+    expect(ids).toContain('builtin-status')
   })
 })
 
