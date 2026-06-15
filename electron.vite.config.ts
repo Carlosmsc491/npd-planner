@@ -39,7 +39,9 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        external: ['electron', 'playwright', 'playwright-core'],
+        // sharp ships native .node binaries with dynamic requires — it must stay
+        // external (loaded from node_modules at runtime), never bundled by rollup.
+        external: ['electron', 'playwright', 'playwright-core', 'sharp'],
         output: {
           format: 'cjs',
           interop: 'default'

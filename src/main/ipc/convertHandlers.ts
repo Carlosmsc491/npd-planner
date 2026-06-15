@@ -7,7 +7,7 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import sharp from 'sharp'
+import type { Sharp } from 'sharp'
 import { readPsd, initializeCanvas } from 'ag-psd'
 import {
   CONVERT_IMAGE_EXTS,
@@ -65,7 +65,11 @@ async function fileIsPsd(src: string): Promise<boolean> {
 }
 
 /** Build a sharp pipeline that decodes the source (PSD via ag-psd, else native). */
-async function decode(src: string): Promise<{ pipeline: sharp.Sharp; isPsd: boolean }> {
+async function decode(src: string): Promise<{ pipeline: Sharp; isPsd: boolean }> {
+  // Lazy require so sharp's native binary loads on demand and is left external by
+  // rollup (a top-level import gets bundled and breaks sharp's dynamic requires).
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const sharp = require('sharp') as typeof import('sharp')
   if (await fileIsPsd(src)) {
     const buf = await fs.promises.readFile(src)
     const psd = readPsd(buf, { useImageData: true, skipLayerImageData: true, useRawThumbnail: true })
