@@ -139,6 +139,15 @@ describe('normalizeBoardProperties', () => {
     expect(isSystemProperty('builtin-eventdates')).toBe(true)
   })
 
+  it('a custom board with no template starts blank — only system sections', () => {
+    const out = normalizeBoardProperties(board('custom', []))
+    const ids = out.map((p) => p.id)
+    expect(ids).not.toContain('builtin-bucket')   // no default task fields
+    expect(ids).not.toContain('builtin-status')
+    expect(ids.every((id) => isSystemProperty(id))).toBe(true)
+    expect(ids).toContain('builtin-description')
+  })
+
   it('does not duplicate or unhide a hidden system section', () => {
     const out = normalizeBoardProperties(board('planner', [
       { id: 'builtin-attachments', name: 'Attachments', type: 'attachments', icon: 'Paperclip', order: 0, bind: 'attachments', hidden: true },

@@ -9,7 +9,6 @@ import {
 } from 'lucide-react'
 import { createBoard } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
-import { getDefaultBoardProperties } from '../../lib/boardProperties'
 import TemplateBuilder from '../settings/TemplateBuilder'
 import type { BoardProperty, BoardView } from '../../types'
 
@@ -45,8 +44,10 @@ export default function NewBoardModal({ onClose }: Props) {
   const [icon, setIcon] = useState('LayoutDashboard')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  // Full template the user can build (fields + sections), starts from the custom default
-  const [properties, setProperties] = useState<BoardProperty[]>(() => getDefaultBoardProperties('custom'))
+  // Blank template — the user builds it from scratch (fields + sections).
+  // The always-on system sections (Description, Attachments…) are added
+  // automatically to the board, so they don't clutter the wizard.
+  const [properties, setProperties] = useState<BoardProperty[]>([])
   const [defaultView, setDefaultView] = useState<BoardView>('cards')
 
   function handleStep1(e: React.FormEvent) {

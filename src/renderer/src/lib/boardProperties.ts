@@ -246,9 +246,13 @@ export function pickCustomFields(
 
 export function normalizeBoardProperties(board: Pick<Board, 'type' | 'customProperties'>): BoardProperty[] {
   const boardType = board.type
-  const source = (board.customProperties && board.customProperties.length > 0)
-    ? board.customProperties
-    : getDefaultBoardProperties(boardType)
+  const hasTemplate = !!(board.customProperties && board.customProperties.length > 0)
+  // No template yet: seeded boards (planner/trips/vacations) get their full
+  // default field set; a custom board starts blank (only the always-on system
+  // sections get appended below) so the New Board wizard can build from scratch.
+  const source = hasTemplate
+    ? board.customProperties!
+    : (boardType === 'custom' ? [] : getDefaultBoardProperties(boardType))
 
   const allowed = allowedFor(boardType)
 
