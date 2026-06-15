@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import {
-  X, FileText, FolderOpen, Sparkles, LayoutGrid, Table2, Bell, Layers,
+  X, FileText, FolderOpen, Sparkles, LayoutGrid, Table2, Bell, Layers, DownloadCloud,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.9.0'
+const CURRENT_VERSION = '1.9.1'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Feature {
@@ -15,6 +15,15 @@ interface Feature {
 }
 
 const FEATURES: Feature[] = [
+  {
+    icon: DownloadCloud,
+    color: '#185FA5',
+    title: 'Smoother Updates & Faster Files',
+    description:
+      'Updates now install cleanly without the "NPD Planner cannot be closed" / ' +
+      '"failed to uninstall" errors. Plus a quick tip on opening shows how to keep your ' +
+      'SharePoint folder offline so attachments and photos open instantly.',
+  },
   {
     icon: LayoutGrid,
     color: '#1D9E75',
