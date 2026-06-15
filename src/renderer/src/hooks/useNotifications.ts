@@ -59,7 +59,10 @@ export function useNotifications(): void {
 
         if (notif.read) continue
         if (notif.type === 'new_user_pending') continue
-        if (!notif.boardType || notif.boardType !== 'planner') continue
+        // The notif doc only exists if its board has notifications enabled
+        // (createTask/updateTaskField gate on the per-board flag), so fire for
+        // any board task notification — not just Planner.
+        if (!notif.boardType) continue
         if (!notif.taskId || !notif.taskTitle) continue
 
         window.electronAPI.sendNotification(

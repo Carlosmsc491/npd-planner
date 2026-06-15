@@ -120,6 +120,7 @@ export interface Board {
   defaultView?: BoardView
   icon?: string   // lucide icon name for custom boards
   bucketOrder?: string[]  // ordered list of bucket names, persisted in Firestore
+  notificationsEnabled?: boolean  // desktop notifications for this board (undefined = planner-only legacy)
 }
 
 // ─────────────────────────────────────────

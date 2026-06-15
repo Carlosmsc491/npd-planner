@@ -156,7 +156,7 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     // Update local state instantly (like an Instagram "like")
     setTask((prev) => ({ ...prev, [field]: value }))
     // Persist to Firestore in background — onSnapshot will reconcile
-    updateTaskField(task.id, field, value, user.uid, user.name, old, board?.type).catch(
+    updateTaskField(task.id, field, value, user.uid, user.name, old, board?.type, board?.notificationsEnabled).catch(
       (err) => console.error(`Failed to save ${field}:`, err)
     )
   }
@@ -167,11 +167,11 @@ export default function TaskPage({ task: initialTask, board, users, onClose, onD
     const entries = Array.from(pendingSaves.current.entries())
     pendingSaves.current.clear()
     for (const [field, { value, old }] of entries) {
-      updateTaskField(task.id, field, value, user.uid, user.name, old, board?.type).catch(
+      updateTaskField(task.id, field, value, user.uid, user.name, old, board?.type, board?.notificationsEnabled).catch(
         (err) => console.error(`Failed to save ${field}:`, err)
       )
     }
-  }, [user, task.id, board?.type])
+  }, [user, task.id, board?.type, board?.notificationsEnabled])
 
   useEffect(() => { flushRef.current = flushPendingSaves }, [flushPendingSaves])
   // On unmount (modal close, navigation) FLUSH pending edits — never discard them

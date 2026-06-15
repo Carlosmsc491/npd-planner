@@ -62,7 +62,8 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
         }
 
         const snapshot = { ...task }
-        await completeTask(task.id, user.uid, user.name, boardType)
+        const notifEnabled = boards.find((b) => b.id === task.boardId)?.notificationsEnabled
+        await completeTask(task.id, user.uid, user.name, boardType, notifEnabled)
 
         // Auto-create next recurring instance
         if (task.recurring?.enabled && task.recurring.nextDate) {

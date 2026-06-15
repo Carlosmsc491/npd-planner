@@ -125,6 +125,34 @@ export default function BoardTemplateEditor({ board, onBack, onBoardUpdate }: Pr
         </div>
       )}
 
+      {/* Desktop notifications toggle */}
+      {(() => {
+        const notifOn = localBoard.notificationsEnabled ?? (localBoard.type === 'planner')
+        return (
+          <div className="mb-8 flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-700 px-4 py-3">
+            <div>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Desktop notifications</p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">Notify assignees on assignment, changes, completion & @mentions.</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={notifOn}
+              onClick={async () => {
+                const next = !notifOn
+                await updateBoard(localBoard.id, { notificationsEnabled: next })
+                const updated = { ...localBoard, notificationsEnabled: next }
+                setLocalBoard(updated)
+                onBoardUpdate(updated)
+              }}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${notifOn ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+            >
+              <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${notifOn ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+        )
+      })()}
+
       {/* The reusable field builder (shared with the New Board wizard) */}
       <TemplateBuilder properties={properties} onChange={saveProperties} isOwner={isOwner} boardType={localBoard.type} />
     </div>

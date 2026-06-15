@@ -432,13 +432,16 @@ export async function updateTaskField(
   updatedBy: string,
   updatedByName: string,
   oldValue?: unknown,
-  boardType?: string
+  boardType?: string,
+  notificationsEnabled?: boolean
 ): Promise<ConflictData | null> {
   try {
     let detectedConflict: ConflictData | null = null
     let taskData: Task | null = null
     let shouldNotifyAssignees = false
     let notificationMessage = ''
+    // Per-board notifications; undefined flag falls back to legacy planner-only
+    const notify = notificationsEnabled ?? (boardType === 'planner')
 
     await runTransaction(db, async (transaction) => {
       const taskRef = doc(db, COLLECTIONS.TASKS, taskId)
@@ -469,7 +472,7 @@ export async function updateTaskField(
       }
 
       // Check if we need to notify assignees about specific field changes
-      if (field === 'assignees' && boardType === 'planner') {
+      if (field === 'assignees' && notify) {
         const oldAssignees = (oldValue as string[]) ?? []
         const newAssignees = (value as string[]) ?? []
         const addedAssignees = newAssignees.filter(uid => !oldAssignees.includes(uid))
@@ -481,7 +484,7 @@ export async function updateTaskField(
       }
 
       // Notify on significant field changes for planner boards
-      if (boardType === 'planner' && taskData.assignees?.length > 0) {
+      if (notify && taskData.assignees?.length > 0) {
         const fieldLabels: Record<string, string> = {
           status: 'Status',
           priority: 'Priority',
@@ -519,7 +522,7 @@ export async function updateTaskField(
     })
 
     // Create notifications outside of transaction to avoid affecting the main operation
-    if (shouldNotifyAssignees && taskData && boardType === 'planner') {
+    if (shouldNotifyAssignees && taskData && notify) {
       // Type assertion needed because TypeScript narrows taskData incorrectly
       const t = taskData as Task
       // Determine who should be notified based on field type
@@ -566,7 +569,8 @@ export async function completeTask(
   taskId: string,
   userId: string,
   userName: string,
-  boardType?: string
+  boardType?: string,
+  notificationsEnabled?: boolean
 ): Promise<void> {
   try {
     let taskData: Task | null = null
@@ -600,8 +604,9 @@ export async function completeTask(
       })
     })
 
-    // Notify assignees about task completion (only for planner boards)
-    if (taskData && boardType === 'planner' && (taskData as Task).assignees?.length > 0) {
+    // Notify assignees about task completion (per-board; legacy planner-only)
+    const notify = notificationsEnabled ?? (boardType === 'planner')
+    if (taskData && notify && (taskData as Task).assignees?.length > 0) {
       for (const assigneeUid of (taskData as Task).assignees!) {
         if (assigneeUid === userId) continue // Don't notify the completer
         try {
