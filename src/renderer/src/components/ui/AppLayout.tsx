@@ -18,6 +18,7 @@ import ConnectionStatus from './ConnectionStatus'
 import NewBoardModal from './NewBoardModal'
 import WhatsNewModal from './WhatsNewModal'
 import WhatYouMissedModal from './WhatYouMissedModal'
+import OneDriveTipModal from './OneDriveTipModal'
 import NotificationBell from '../notifications/NotificationBell'
 import { CameraBadge } from './CameraBadge'
 import GlobalSearch from '../search/GlobalSearch'
@@ -79,6 +80,7 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
   const [showSearch, setShowSearch] = useState(false)
   const [showApprovalModal, setShowApprovalModal] = useState(false)
   const [showWhatYouMissed, setShowWhatYouMissed] = useState(false)
+  const [showOneDriveTip, setShowOneDriveTip] = useState(false)
 
   const isAdmin        = user?.role === 'admin' || user?.role === 'owner'
   // Standalone photographer (role=photographer without the add-on flag) is app-restricted
@@ -97,6 +99,18 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
       sessionStorage.setItem(key, '1')
       setShowWhatYouMissed(true)
     }, 1200)
+    return () => clearTimeout(t)
+  }, [user?.uid, user?.status])
+
+  // OneDrive "Always keep on this device" reminder — shown once per launch
+  // until the user confirms they've pinned the planner folder offline.
+  useEffect(() => {
+    if (!user || user.status !== 'active') return
+    try {
+      if (localStorage.getItem('npd:onedrive-pinned-confirmed') === 'true') return
+    } catch { /* ignore */ }
+    // Slightly after "What you missed" so the two never animate in together.
+    const t = setTimeout(() => setShowOneDriveTip(true), 1600)
     return () => clearTimeout(t)
   }, [user?.uid, user?.status])
 
@@ -463,6 +477,17 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
 
       {showWhatYouMissed && (
         <WhatYouMissedModal onClose={() => setShowWhatYouMissed(false)} />
+      )}
+
+      {/* OneDrive offline-pin reminder — waits until "What you missed" is closed */}
+      {showOneDriveTip && !showWhatYouMissed && (
+        <OneDriveTipModal
+          onConfirm={() => {
+            try { localStorage.setItem('npd:onedrive-pinned-confirmed', 'true') } catch { /* ignore */ }
+            setShowOneDriveTip(false)
+          }}
+          onLater={() => setShowOneDriveTip(false)}
+        />
       )}
 
       {/* Approval modal — auto-opens for admin/owner when new users register */}
