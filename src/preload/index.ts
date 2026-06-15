@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/constants'
+import type { ConvertScanResult, ConvertBatchJob, ConvertBatchResult, ConvertProgress, PathStat } from '../shared/convert'
 
 // Allowed channels for generic invoke/on/off/send
 const INVOKE_CHANNELS = [
@@ -256,6 +257,28 @@ const electronAPI = {
 
   convertPngToJpg: (args: { sourcePng: string; destJpg: string; quality?: number }): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('photo:convert-png-to-jpg', args),
+
+  // ── Convert Pictures (PNG → JPG, white bg, resize) ────────────────────────────
+  convertScanFolder: (rootPath: string): Promise<ConvertScanResult> =>
+    ipcRenderer.invoke('convert:scan-folder', rootPath),
+
+  convertStatPaths: (paths: string[]): Promise<PathStat[]> =>
+    ipcRenderer.invoke('convert:stat-paths', paths),
+
+  convertSelectFiles: (): Promise<string[]> =>
+    ipcRenderer.invoke('convert:select-files'),
+
+  convertSelectDest: (): Promise<string | null> =>
+    ipcRenderer.invoke('convert:select-dest'),
+
+  convertRunBatch: (job: ConvertBatchJob): Promise<ConvertBatchResult> =>
+    ipcRenderer.invoke('convert:run-batch', job),
+
+  onConvertProgress: (cb: (p: ConvertProgress) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, p: ConvertProgress) => cb(p)
+    ipcRenderer.on('convert:progress', listener)
+    return () => ipcRenderer.removeListener('convert:progress', listener)
+  },
 
   // ── Excel / Python ──────────────────────────────────────────────────────────
   excelCheckDependencies: (): Promise<{ available: boolean; error?: string }> =>

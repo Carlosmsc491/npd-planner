@@ -108,6 +108,13 @@ interface IElectronAPI {
   copyToSelected: (args: { sourcePath: string; destPath: string }) => Promise<{ success: boolean; error?: string }>
   deleteFromSelected: (args: { filePath: string }) => Promise<{ success: boolean; error?: string }>
   convertPngToJpg: (args: { sourcePng: string; destJpg: string; quality?: number }) => Promise<{ success: boolean; error?: string }>
+  // Convert Pictures (PNG → JPG, white bg, resize)
+  convertScanFolder: (rootPath: string) => Promise<import('../../shared/convert').ConvertScanResult>
+  convertStatPaths: (paths: string[]) => Promise<import('../../shared/convert').PathStat[]>
+  convertSelectFiles: () => Promise<string[]>
+  convertSelectDest: () => Promise<string | null>
+  convertRunBatch: (job: import('../../shared/convert').ConvertBatchJob) => Promise<import('../../shared/convert').ConvertBatchResult>
+  onConvertProgress: (cb: (p: import('../../shared/convert').ConvertProgress) => void) => () => void
   // Excel / Python
   excelCheckDependencies: () => Promise<{ available: boolean; error?: string }>
   insertPhotoInExcel: (args: { excelPath: string; jpgPath: string }) => Promise<{ success: boolean; error?: string }>

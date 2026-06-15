@@ -6,7 +6,7 @@ import {
   MoreHorizontal, ClipboardList, Plane, Umbrella, LayoutGrid, LogOut, Search,
   LayoutDashboard, CheckSquare, Package, Truck, Camera, Users, Calendar,
   Star, Folder, ShoppingCart, FileText, Zap, Globe, Briefcase, Heart, Flag, Coffee, Box, Layers,
-  User, Lock, CalendarDays, FlowerIcon, PanelLeftClose, PanelLeftOpen, BookUser,
+  User, Lock, CalendarDays, FlowerIcon, PanelLeftClose, PanelLeftOpen, BookUser, Images,
   type LucideIcon,
 } from 'lucide-react'
 import { auth } from '../../lib/firebase'
@@ -380,6 +380,17 @@ export default function AppLayout({ children, mainClassName = 'flex-1 overflow-a
               >
                 <FlowerIcon size={14} className="shrink-0" />
                 <span>NPD Projects</span>
+              </Link>
+              <Link
+                to="/convert-pictures"
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm mb-0.5 transition-colors ${
+                  location.pathname.startsWith('/convert-pictures')
+                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                }`}
+              >
+                <Images size={14} className="shrink-0" />
+                <span>Convert Pictures</span>
               </Link>
             </>
           )}

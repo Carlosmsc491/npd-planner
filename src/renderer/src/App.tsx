@@ -29,6 +29,7 @@ const RecipeProjectPage = lazy(() => import('./components/recipes/RecipeProjectP
 const NewRecipeProjectWizard = lazy(() => import('./components/recipes/wizard/NewRecipeProjectWizard'))
 const CapturePage = lazy(() => import('./pages/CapturePage'))
 const DirectoryPage = lazy(() => import('./pages/DirectoryPage'))
+const ConvertPicturesPage = lazy(() => import('./pages/ConvertPicturesPage'))
 
 function RouteFallback() {
   return (
@@ -230,6 +231,7 @@ export default function App() {
           <Route path="/recipes/new" element={<NewRecipeProjectWizard />} />
           <Route path="/recipes/:projectId" element={<RecipeProjectPage />} />
           <Route path="/capture/:recipeId" element={<CapturePage />} />
+          <Route path="/convert-pictures" element={<ConvertPicturesPage />} />
         </Route>
         <Route element={<ProtectedRoute areaId="directory" />}>
           <Route path="/directory" element={<DirectoryPage />} />

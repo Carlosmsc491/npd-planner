@@ -13,6 +13,7 @@ import { startTrashCleanupService, registerTrashCleanupHandlers } from './servic
 import { registerRecipeHandlers } from './ipc/recipeIpcHandlers'
 import { registerPhotoManifestHandlers } from './ipc/photoManifestHandlers'
 import { registerCameraHandlers } from './ipc/cameraHandlers'
+import { registerConvertHandlers } from './ipc/convertHandlers'
 import { registerExcelHandlers } from './ipc/excelHandlers'
 import { registerCrashReportHandlers } from './ipc/crashReportHandlers'
 import { registerEmailHandlers } from './ipc/emailHandlers'
@@ -290,6 +291,7 @@ app.whenReady().then(() => {
   registerEmailHandlers()
   registerReportHandlers()
   registerCameraHandlers()
+  registerConvertHandlers()
   startTrashCleanupService()
   errorReporter.log('App started')
 
