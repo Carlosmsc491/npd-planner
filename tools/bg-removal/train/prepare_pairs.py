@@ -25,6 +25,7 @@ skipped (bad alignment would poison training — review those by hand).
 
 import argparse
 import csv
+import os
 import sys
 from pathlib import Path
 
@@ -65,6 +66,25 @@ def load_pairs(originals: Path, cutouts: Path, map_csv: Path | None) -> list[tup
             if op.suffix in IMG_EXTS and op.stem in cuts:
                 pairs.append((op.stem, op, cuts[op.stem]))
     return pairs
+
+
+def gather_from_pairs_dir(root: Path) -> tuple[list[tuple[str, Path, Path]], list[str]]:
+    """Each (possibly nested) folder holding exactly one JPG + one PNG is a pair.
+
+    The JPG is the original, the PNG is the cutout, and the label is named after the
+    original's stem (unique photo IDs). Folders with a different count are flagged.
+    """
+    pairs: list[tuple[str, Path, Path]] = []
+    flagged: list[str] = []
+    for dirpath, _, files in os.walk(root):
+        fs = [Path(dirpath) / f for f in files if not f.startswith(".")]
+        jpgs = [f for f in fs if f.suffix.lower() in (".jpg", ".jpeg")]
+        pngs = [f for f in fs if f.suffix.lower() == ".png"]
+        if len(jpgs) == 1 and len(pngs) == 1:
+            pairs.append((jpgs[0].stem, jpgs[0], pngs[0]))
+        elif jpgs or pngs:
+            flagged.append(f"{Path(dirpath).name}: {len(jpgs)} jpg / {len(pngs)} png")
+    return pairs, flagged
 
 
 def align_alpha(orig: Image.Image, cut: Image.Image, work_width: int) -> tuple[np.ndarray | None, int]:
@@ -138,6 +158,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Align Photoshop cutouts to originals -> alpha labels.")
     ap.add_argument("--originals", type=Path, default=ds / "originals")
     ap.add_argument("--cutouts", type=Path, default=ds / "cutouts")
+    ap.add_argument("--pairs-dir", type=Path,
+                    help="folder of subfolders, each holding one original (jpg) + one cutout (png)")
     ap.add_argument("--out", type=Path, default=ds / "labels")
     ap.add_argument("--qc", type=Path, default=ds / "qc")
     ap.add_argument("--map", type=Path, help="CSV mapping for mismatched names")
@@ -145,17 +167,25 @@ def main() -> int:
     ap.add_argument("--min-inliers", type=int, default=60, help="flag/skip pairs below this")
     args = ap.parse_args()
 
-    for d in (args.originals, args.cutouts):
-        if not d.is_dir():
-            sys.exit(f"ERROR: not a folder: {d}")
     args.out.mkdir(parents=True, exist_ok=True)
     args.qc.mkdir(parents=True, exist_ok=True)
 
-    pairs = load_pairs(args.originals, args.cutouts, args.map)
+    if args.pairs_dir:
+        if not args.pairs_dir.is_dir():
+            sys.exit(f"ERROR: not a folder: {args.pairs_dir}")
+        pairs, flagged = gather_from_pairs_dir(args.pairs_dir)
+        for f in flagged:
+            print(f"  ! skipped (not 1 jpg + 1 png): {f}", file=sys.stderr)
+    else:
+        for d in (args.originals, args.cutouts):
+            if not d.is_dir():
+                sys.exit(f"ERROR: not a folder: {d}")
+        pairs = load_pairs(args.originals, args.cutouts, args.map)
     if not pairs:
-        sys.exit("ERROR: no pairs found (check names or pass --map)")
+        sys.exit("ERROR: no pairs found (check names or pass --pairs-dir / --map)")
 
     ok = low = fail = 0
+    manifest: list[dict] = []
     for name, op, cp in pairs:
         orig = Image.open(op).convert("RGB")
         cut = Image.open(cp).convert("RGBA")
@@ -169,12 +199,23 @@ def main() -> int:
         if inl < args.min_inliers:
             low += 1
             continue
-        Image.fromarray(alpha).save(args.out / f"{name}.png")
+        label_path = args.out / f"{name}.png"
+        Image.fromarray(alpha).save(label_path)
         qc_overlay(orig, alpha).save(args.qc / f"{name}.jpg", quality=85)
+        manifest.append({"name": name, "original": str(op), "label": str(label_path),
+                         "inliers": inl})
         ok += 1
 
+    # Manifest lets the training loader pair each label with its original without
+    # copying the (large) originals out of their source folders.
+    manifest_path = args.out.parent / "manifest.csv"
+    with manifest_path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=["name", "original", "label", "inliers"])
+        writer.writeheader()
+        writer.writerows(manifest)
+
     print(f"\nDone: {ok} labels written, {low} flagged LOW (skipped), {fail} failed.")
-    print(f"Labels: {args.out}   QC: {args.qc}")
+    print(f"Labels: {args.out}   QC: {args.qc}   Manifest: {manifest_path}")
     return 0 if ok else 1
 
 
