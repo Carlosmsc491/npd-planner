@@ -118,13 +118,16 @@ def main() -> int:
     ap.add_argument("--margin", type=float, default=0.03)
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--compare", action="store_true")
+    ap.add_argument("--device", choices=["mps", "cpu"], default=None,
+                    help="force device; default mps if available (use cpu to avoid "
+                         "competing with a running MPS training job)")
     args = ap.parse_args()
 
     in_path, out_path = Path(args.input), Path(args.output)
     if not args.checkpoint.exists():
         sys.exit(f"ERROR: checkpoint not found: {args.checkpoint} (train refine_train.py first)")
 
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = args.device or ("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"device={device}  loading models...")
     birefnet = load_birefnet(device=device)
     birefnet.eval()
@@ -153,6 +156,8 @@ def main() -> int:
             cmp_dir.mkdir(exist_ok=True)
             pipeline.make_comparison(Image.open(src).convert("RGB"), result).save(
                 cmp_dir / f"{src.stem}_compare.jpg", quality=90)
+        if device == "mps":  # release cached MPS memory so batch time stays flat
+            torch.mps.empty_cache()
     print("Done.")
     return 0
 
