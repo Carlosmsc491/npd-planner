@@ -1,0 +1,76 @@
+# =============================================================================
+# config.default.yaml — Background removal parameters (versioned defaults).
+#
+# To tune WITHOUT touching code: copy this file to `config.yaml` and edit only
+# the values you want to change. `config.yaml` is merged ON TOP of these
+# defaults at runtime (and is gitignored), so you keep a clean baseline here.
+#
+#   cp config.default.yaml config.yaml   # then edit config.yaml freely
+#
+# CLI flags (--model, --bg, --no-vase) override whatever is set here.
+# =============================================================================
+
+model:
+  # Which rembg segmentation model to use.
+  #   birefnet-general   -> highest quality, crispest edges  [default; ~1GB, slower]
+  #   u2net              -> SOLID mask, 170MB, ~2-4x faster   (use --model u2net for big batches)
+  #   isnet-general-use  -> weak/ghosted mask on bright flowers vs white bg — avoid here
+  #   silueta            -> small/fast u2net variant
+  name: birefnet-general
+
+  # Morphological cleanup of the model mask. TRUE solidifies the subject (kills the
+  # semi-transparent "ghost" look you get on bright flowers) and removes speckle.
+  post_process_mask: true
+
+performance:
+  # Alpha matting is expensive — at full 3600x3600 it can take ~50s/image. We
+  # compute the cutout+matte on a downscaled copy and upscale only the alpha back
+  # to full size; the RGB color stays full resolution. Big speedup, edges a touch
+  # softer. Set 0 to disable the cap (full-res matte, slow) for final hero renders.
+  max_working_px: 1500   # longest side used for segmentation/matting (0 = full res)
+
+alpha_matting:
+  # Refines fuzzy edges (petal tips, thin leaves). DISABLED by default: on a white
+  # background it bleeds bright/pale flowers (yellow lilies, white carnations) into
+  # the background, turning them semi-transparent. Only enable for dark backgrounds.
+  enabled: false
+  foreground_threshold: 240   # alpha >= this is treated as definitely foreground
+  background_threshold: 10    # alpha <= this is treated as definitely background
+  erode_size: 10              # size of the "unknown" band between fg and bg
+
+mask_postprocess:
+  # Cleanup applied to the alpha channel AFTER rembg, BEFORE vase removal.
+  erosion: 1        # px to shrink the mask inward — kills white halos. 0 = off
+  dilation: 0       # px to grow the mask outward. 0 = off
+  median: 0         # median filter window (odd px) to remove speckle. 0 = off
+  feather: 2        # gaussian blur (px) on the alpha edge for a soft cutout. 0 = off
+
+vase_removal:
+  # Second pass that removes the white vase/box at the bottom of the arrangement
+  # while keeping the green foliage. See README for the full algorithm.
+  enabled: true
+  region_bottom_pct: 0.35   # only inspect the bottom 35% of the subject's bbox
+  max_saturation: 40        # HSV S below this = "neutral" (white/cream → vase candidate)
+  min_value: 180            # HSV V above this = "bright"  (white/cream → vase candidate)
+  connect_to_bottom: true   # only remove vase-blobs that touch the subject's bottom edge,
+                            # so a white flower up in the bouquet is never deleted
+  feather: 3                # soften the new cut edge (px)
+
+threshold:
+  # Optionally force the alpha to a hard 0/255 cutout (no semi-transparency).
+  binarize: false
+  cutoff: 128
+
+square_crop:
+  # Trim to the subject and center it on a square transparent canvas, matching the
+  # Photoshop reference format (3600x3600 @ 300 DPI). Disable per run with --no-square.
+  enabled: true
+  canvas_size: 3600   # output is canvas_size x canvas_size px
+  margin_pct: 0.03    # empty margin on each side as a fraction of the canvas
+                      # (references sit ~0.02; raise for more air around the bouquet)
+
+output:
+  background: "transparent"  # "transparent" = keep alpha (PNG). Or a hex like "#000000" to fill.
+  format: png                # png | jpg   (jpg cannot be transparent — needs a bg color)
+  jpg_quality: 95
+  dpi: 300                   # written into the file metadata (PNG pHYs / JPEG)

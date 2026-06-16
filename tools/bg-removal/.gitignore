@@ -1,0 +1,25 @@
+# Local virtualenv — never commit (large, machine-specific)
+.venv/
+
+# User overrides (keep config.default.yaml versioned, ignore the personal copy)
+config.yaml
+
+# Generated artifacts
+output/
+logs/
+
+# Sample/reference images (may be large or client-proprietary) — keep folders, not contents
+samples/**
+!samples/
+!samples/input/
+!samples/reference/
+!samples/**/.gitkeep
+
+# Keep the empty output/logs folders tracked
+!output/.gitkeep
+!logs/.gitkeep
+
+# OS cruft
+.DS_Store
+__pycache__/
+*.pyc

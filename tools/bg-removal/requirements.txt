@@ -1,0 +1,12 @@
+# Background removal tool — dependencies
+# Install:  ./.venv/bin/pip install -r requirements.txt
+#
+# rembg[cpu] pulls onnxruntime + opencv-python-headless + scikit-image + numpy + scipy + pillow.
+# We still list the ones we import directly so intent is explicit.
+
+rembg[cpu]>=2.0.50
+pillow>=10.0.0
+numpy>=1.24
+scipy>=1.10
+pymatting>=1.1.8      # finer edges via alpha matting (used by rembg when enabled)
+pyyaml>=6.0           # config files
