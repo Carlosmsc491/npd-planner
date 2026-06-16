@@ -1,0 +1,8 @@
+# Extra deps for the training subproject (see train/README.md).
+# Install on top of requirements.txt:  ./.venv/bin/pip install -r requirements-train.txt
+
+opencv-python-headless>=4.9   # feature matching + warp for label alignment (prepare_pairs.py)
+
+# Added when Step 2 (fine-tuning) starts:
+# torch>=2.2           # Apple Silicon MPS backend
+# torchvision>=0.17

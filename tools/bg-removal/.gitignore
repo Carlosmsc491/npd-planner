@@ -8,6 +8,11 @@ config.yaml
 output/
 logs/
 
+# Training data + generated labels/checkpoints (large / client-proprietary)
+dataset/
+checkpoints/
+runs/
+
 # Sample/reference images (may be large or client-proprietary) — keep folders, not contents
 samples/**
 !samples/

@@ -1,0 +1,8 @@
+# original_key,cutout_key   (substring match against filename stems)
+# Used when originals and cutouts use different naming (the initial 4 samples).
+# When your archive shares names/folders you don't need this — prepare_pairs.py
+# matches by stem automatically.
+20270751,XL MIX BQT SEPTEMBER A
+20270770,XL MIX BQT JUNE AB
+20270850,XL MIX BQT DECEMBER B
+20270917,L MIX BQT DECEMBER B
