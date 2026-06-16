@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""
+infer.py — high-quality hybrid inference (the deliverable).
+
+Pipeline per image:
+  1. BiRefNet at high res (default 2048)         -> crisp base alpha
+  2. Refiner U-Net (RGB + birefnet_alpha)        -> "remove" mask (the box / strays)
+     corrected = birefnet_alpha * (1 - remove)   -> edges stay BiRefNet-crisp
+  3. Un-letterbox to the original aspect/resolution
+  4. Guided-filter the alpha with the original as guide -> snap edges to the image
+  5. Edge sharpen (crisp, no soft fade) + optional binarize
+  6. Square-crop & center to 3600x3600 @ 300 DPI (transparent PNG)
+
+Usage:
+    python train/infer.py INPUT OUTPUT [--checkpoint checkpoints/refiner_best.pt]
+                          [--bire-size 2048] [--compare]
+"""
+import argparse
+import sys
+import time
+from pathlib import Path
+
+import cv2
+import numpy as np
+import torch
+from PIL import Image
+
+import segmentation_models_pytorch as smp
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))
+from birefnet_model import load_birefnet
+from dataset import letterbox, IMAGENET_MEAN, IMAGENET_STD
+import pipeline  # square_crop, make_comparison
+
+IMG_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+
+
+def _boxf(x: np.ndarray, r: int) -> np.ndarray:
+    return cv2.boxFilter(x, -1, (r, r), borderType=cv2.BORDER_REFLECT)
+
+
+def guided_filter(guide: np.ndarray, src: np.ndarray, r: int, eps: float) -> np.ndarray:
+    """Edge-preserving filter (He et al.): snap `src` (alpha) to `guide` (gray) edges."""
+    I, p = guide.astype(np.float32), src.astype(np.float32)
+    mI, mp = _boxf(I, r), _boxf(p, r)
+    a = (_boxf(I * p, r) - mI * mp) / (_boxf(I * I, r) - mI * mI + eps)
+    b = mp - a * mI
+    return _boxf(a, r) * I + _boxf(b, r)
+
+
+def load_refiner(ckpt: Path, device: str):
+    c = torch.load(ckpt, map_location=device, weights_only=False)
+    m = smp.Unet(c["encoder"], encoder_weights=None, in_channels=c["in_channels"], classes=1)
+    m.load_state_dict(c["state_dict"])
+    return m.to(device).eval(), int(c["img_size"])
+
+
+def _norm_chw(pil: Image.Image) -> np.ndarray:
+    a = (np.asarray(pil, np.float32) / 255.0 - IMAGENET_MEAN) / IMAGENET_STD
+    return a.transpose(2, 0, 1)
+
+
+def unletterbox(alpha_sq: np.ndarray, ow: int, oh: int) -> np.ndarray:
+    """Square (letterboxed) alpha -> original aspect at full resolution."""
+    s = alpha_sq.shape[0]
+    scale = s / max(ow, oh)
+    nw, nh = round(ow * scale), round(oh * scale)
+    x0, y0 = (s - nw) // 2, (s - nh) // 2
+    crop = alpha_sq[y0:y0 + nh, x0:x0 + nw]
+    return cv2.resize(crop, (ow, oh), interpolation=cv2.INTER_LINEAR)
+
+
+@torch.no_grad()
+def process(path: Path, birefnet, refiner, ref_size: int, device: str, args) -> Image.Image:
+    orig = Image.open(path).convert("RGB")
+    ow, oh = orig.size
+
+    # 1) BiRefNet at high res
+    xb = torch.from_numpy(_norm_chw(letterbox(orig, args.bire_size, (255, 255, 255)))).unsqueeze(0).to(device)
+    out = birefnet(xb)
+    pred = out[-1] if isinstance(out, (list, tuple)) else out
+    ba = torch.sigmoid(pred)[0, 0].float().cpu().numpy()
+
+    # 2) Refiner -> remove mask -> corrected (crisp from BiRefNet)
+    rgb_r = _norm_chw(letterbox(orig, ref_size, (255, 255, 255)))
+    ba_r = cv2.resize(ba, (ref_size, ref_size), interpolation=cv2.INTER_LINEAR)
+    xr = torch.from_numpy(np.concatenate([rgb_r, ba_r[None]], 0)).unsqueeze(0).float().to(device)
+    remove = torch.sigmoid(refiner(xr))[0, 0].cpu().numpy()
+    remove = np.clip((remove - 0.3) / 0.7, 0, 1)  # suppress subject-interior noise (no fade)
+    remove = cv2.resize(remove, (args.bire_size, args.bire_size), interpolation=cv2.INTER_LINEAR)
+    corrected = np.clip(ba * (1 - remove), 0, 1)
+
+    # 3) back to original res, 4) guided-filter snap to image edges
+    alpha = unletterbox(corrected, ow, oh)
+    guide = np.asarray(orig.convert("L"), np.float32) / 255.0
+    alpha = np.clip(guided_filter(guide, alpha, args.gf_radius, args.gf_eps), 0, 1)
+
+    # 5) crisp edge (compress the transition band; no soft fade)
+    if args.sharp > 1:
+        alpha = np.clip((alpha - 0.5) * args.sharp + 0.5, 0, 1)
+
+    rgba = Image.fromarray(np.dstack([np.asarray(orig), (alpha * 255).astype(np.uint8)]), "RGBA")
+    return pipeline.square_crop(rgba, {"canvas_size": args.canvas, "margin_pct": args.margin})
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("input")
+    ap.add_argument("output")
+    ap.add_argument("--checkpoint", type=Path, default=HERE.parent / "checkpoints" / "refiner_best.pt")
+    ap.add_argument("--bire-size", type=int, default=2048)
+    ap.add_argument("--gf-radius", type=int, default=8)
+    ap.add_argument("--gf-eps", type=float, default=1e-4)
+    ap.add_argument("--sharp", type=float, default=2.5)
+    ap.add_argument("--canvas", type=int, default=3600)
+    ap.add_argument("--margin", type=float, default=0.03)
+    ap.add_argument("--dpi", type=int, default=300)
+    ap.add_argument("--compare", action="store_true")
+    args = ap.parse_args()
+
+    in_path, out_path = Path(args.input), Path(args.output)
+    if not args.checkpoint.exists():
+        sys.exit(f"ERROR: checkpoint not found: {args.checkpoint} (train refine_train.py first)")
+
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    print(f"device={device}  loading models...")
+    birefnet = load_birefnet(device=device)
+    birefnet.eval()
+    refiner, ref_size = load_refiner(args.checkpoint, device)
+
+    if in_path.is_file():
+        inputs = [in_path]
+        single = True
+    else:
+        inputs = sorted(p for p in in_path.iterdir() if p.suffix.lower() in IMG_EXTS)
+        single = False
+        out_path.mkdir(parents=True, exist_ok=True)
+
+    for i, src in enumerate(inputs, 1):
+        t = time.time()
+        result = process(src, birefnet, refiner, ref_size, device, args)
+        dest = out_path if single and out_path.suffix.lower() == ".png" else \
+            (out_path if single else out_path) / f"{src.stem}.png"
+        if single and out_path.suffix.lower() == ".png":
+            dest = out_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        result.save(dest, dpi=(args.dpi, args.dpi))
+        print(f"[{i}/{len(inputs)}] {src.name} -> {dest.name}  {time.time()-t:.1f}s")
+        if args.compare:
+            cmp_dir = (dest.parent / "_compare")
+            cmp_dir.mkdir(exist_ok=True)
+            pipeline.make_comparison(Image.open(src).convert("RGB"), result).save(
+                cmp_dir / f"{src.stem}_compare.jpg", quality=90)
+    print("Done.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -40,21 +40,41 @@ with too few inliers are flagged `LOW` and skipped.
 
 Validated on the 4 samples: 299–495 inliers, alignment cuts cleanly above the vase.
 
-## Step 2 — Fine-tune  (next, pending ~50 pairs)
+## Step 2 — Hybrid model (BiRefNet + refiner)
 
-- **Compute:** local Apple Silicon (MPS). So: start light, train at moderate
-  resolution (~1024²), small batch. Heavy models (BiRefNet) likely need a cloud GPU.
-- **Model:** start by fine-tuning U2Net / ISNet (lighter, proven training recipe,
-  MPS-feasible); compare against the birefnet baseline. Move to BiRefNet fine-tune if
-  quality demands it and a GPU is available.
-- **Targets:** the aligned alpha labels from Step 1.
-- **Augmentation:** flips, small rotations/scale, brightness — keep backgrounds white.
-- **Eval:** hold out ~20%; report alpha MAE + mask IoU + visual QC montages, and
-  compare against the rembg baseline on the same held-out images.
+We need crisp, high-resolution edges (no soft/fade/pixelated). Fine-tuning BiRefNet
+itself is infeasible locally: its deformable-conv **backward** falls back to CPU on
+MPS (~6 min/step → ~19 days). But BiRefNet **inference** is fine (2s@1024, 10s@2048)
+and already gives crisp edges + keeps white flowers — it only wrongly keeps the white
+vase/box. So:
+
+- **Pretrained BiRefNet (frozen, inference only)** → crisp base alpha.
+- **Small U-Net "refiner"** (4ch: RGB + birefnet_alpha) learns only what to REMOVE
+  (`target = relu(birefnet_alpha - gt)`); `corrected = birefnet_alpha * (1 - remove)`
+  so edges stay exactly as crisp as BiRefNet. Trains fast on MPS.
+- **Full-res edge refinement** at inference: guided filter snaps the alpha to the
+  real image edges, then an edge-sharpen step keeps the boundary crisp (no fade).
+
+BiRefNet code is **vendored + reviewed** in `train/birefnet/` and loaded without
+`trust_remote_code` (see `birefnet/PROVENANCE.md`).
+
+```bash
+python train/precompute_birefnet.py --size 1024     # cache BiRefNet alpha per image
+python train/refine_train.py --epochs 120 --img-size 1024   # train the refiner (MPS)
+python train/infer.py INPUT OUTPUT --compare        # high-quality hybrid inference
+```
+
+`infer.py`: BiRefNet@2048 → refiner → corrected → un-letterbox → guided filter →
+sharpen → square-crop 3600² @ 300 DPI transparent PNG.
+
+If quality ever needs the absolute max, a full BiRefNet fine-tune on a cloud GPU
+(~$2-10, 2-5h; deformable convs run native on CUDA) reuses this same dataset.
 
 ## Status
-- [x] Data-prep / alignment pipeline (`prepare_pairs.py`) — validated on 4 pairs
-- [ ] ~50 paired examples collected (incl. several white-flower bouquets)
-- [ ] Dataset loader + augmentation
-- [ ] Fine-tune script (MPS) + checkpointing
-- [ ] Eval vs baseline + iterate
+- [x] Data-prep / alignment (`prepare_pairs.py`) — 65 labels from the sample set
+- [x] BiRefNet vendored + MPS feasibility probed (inference ok, train infeasible)
+- [x] Precompute BiRefNet alpha + manifest
+- [x] Refiner train script + QC (smoke: corrected IoU 0.90 at 10 ep)
+- [x] High-quality hybrid inference (`infer.py`) with guided-filter edge refine
+- [ ] Full refiner training run + eval vs baseline on held-out
+- [ ] Carlos visual sign-off on quality
