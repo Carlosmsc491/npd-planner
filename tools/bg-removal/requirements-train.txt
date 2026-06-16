@@ -3,6 +3,13 @@
 
 opencv-python-headless>=4.9   # feature matching + warp for label alignment (prepare_pairs.py)
 
-# Added when Step 2 (fine-tuning) starts:
-# torch>=2.2           # Apple Silicon MPS backend
-# torchvision>=0.17
+# Step 2 — fine-tuning (transfer-learning U-Net on Apple Silicon MPS)
+torch>=2.2                    # MPS backend on Apple Silicon
+torchvision>=0.17
+segmentation-models-pytorch>=0.3.4   # U-Net + pretrained encoders (stage-1 / quick baseline)
+albumentations>=1.4           # augmentation (flips, rotate, brightness)
+
+# BiRefNet fine-tuning (high-quality, crisp high-res edges)
+transformers>=4.40            # loads ZhengPeng7/BiRefNet (trust_remote_code)
+einops>=0.7
+kornia>=0.7
