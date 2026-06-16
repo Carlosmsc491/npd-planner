@@ -87,6 +87,36 @@ def gather_from_pairs_dir(root: Path) -> tuple[list[tuple[str, Path, Path]], lis
     return pairs, flagged
 
 
+def count_inliers(orig: Image.Image, cut: Image.Image, work_width: int = 600) -> int:
+    """Fast ORB+RANSAC inlier count between an original and a cutout candidate.
+
+    Used to VISUALLY match loose originals to cutouts when filenames don't align:
+    the true pair has many inliers (same pixels), wrong pairs have ~0.
+    """
+    ow, oh = orig.size
+    cw, ch = cut.size
+    so, sc = work_width / ow, work_width / cw
+    o = np.array(orig.resize((work_width, max(1, round(oh * so))), Image.LANCZOS))
+    c = np.array(cut.resize((work_width, max(1, round(ch * sc))), Image.LANCZOS))
+    rgb = c[:, :, :3].copy()
+    rgb[c[:, :, 3] < 10] = 255
+    og = cv2.cvtColor(o, cv2.COLOR_RGB2GRAY)
+    cg = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    orb = cv2.ORB_create(2000)
+    k1, d1 = orb.detectAndCompute(cg, None)
+    k2, d2 = orb.detectAndCompute(og, None)
+    if d1 is None or d2 is None:
+        return 0
+    matches = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True).match(d1, d2)
+    matches = sorted(matches, key=lambda m: m.distance)[:200]
+    if len(matches) < 4:
+        return 0
+    src = np.float32([k1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+    dst = np.float32([k2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+    _, inliers = cv2.estimateAffinePartial2D(src, dst, method=cv2.RANSAC, ransacReprojThreshold=3)
+    return int(inliers.sum()) if inliers is not None else 0
+
+
 def align_alpha(orig: Image.Image, cut: Image.Image, work_width: int) -> tuple[np.ndarray | None, int]:
     """Warp the cutout's alpha into the original's full-resolution frame.
 
