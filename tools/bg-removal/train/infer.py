@@ -24,6 +24,7 @@ import cv2
 import numpy as np
 import torch
 from PIL import Image
+from scipy import ndimage as ndi
 
 import segmentation_models_pytorch as smp
 
@@ -48,6 +49,39 @@ def guided_filter(guide: np.ndarray, src: np.ndarray, r: int, eps: float) -> np.
     a = (_boxf(I * p, r) - mI * mp) / (_boxf(I * I, r) - mI * mI + eps)
     b = mp - a * mI
     return _boxf(a, r) * I + _boxf(b, r)
+
+
+def decontaminate_white(rgb: np.ndarray, alpha: np.ndarray, sat_thr: int, val_thr: int,
+                        cov_thr: float, win: int) -> np.ndarray:
+    """Remove near-white pixels where local alpha coverage is low (edges / lacy foliage).
+
+    A solid white flower's interior has high local coverage and is spared; the white
+    halo around edges and the white specks between thin foliage strands are removed
+    — the automatic version of the Photoshop "magic eraser on white" along edges.
+    """
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    sat, val = hsv[:, :, 1], hsv[:, :, 2]
+    nearwhite = (sat < sat_thr) & (val > val_thr)
+    coverage = cv2.boxFilter(alpha.astype(np.float32), -1, (win, win))
+    remove = nearwhite & (coverage < cov_thr) & (alpha > 0)
+    out = alpha.copy()
+    out[remove] = 0.0
+    return out
+
+
+def keep_large_components(alpha: np.ndarray, min_frac: float) -> np.ndarray:
+    """Drop small disconnected blobs (floating petals/stems/specks)."""
+    binary = alpha > 0.3
+    labels, n = ndi.label(binary, structure=np.ones((3, 3)))
+    if n <= 1:
+        return alpha
+    sizes = np.bincount(labels.ravel())
+    sizes[0] = 0
+    keep = np.where(sizes >= min_frac * sizes.max())[0]
+    mask = np.isin(labels, keep)
+    out = alpha.copy()
+    out[~mask] = 0.0
+    return out
 
 
 def load_refiner(ckpt: Path, device: str):
@@ -94,14 +128,24 @@ def process(path: Path, birefnet, refiner, ref_size: int, device: str, args) -> 
 
     # 3) back to original res, 4) guided-filter snap to image edges
     alpha = unletterbox(corrected, ow, oh)
+    orig_rgb = np.asarray(orig)
     guide = np.asarray(orig.convert("L"), np.float32) / 255.0
     alpha = np.clip(guided_filter(guide, alpha, args.gf_radius, args.gf_eps), 0, 1)
+
+    # A) white-fringe decontamination (halo on edges + specks in thin foliage)
+    if not args.no_decontam:
+        alpha = decontaminate_white(orig_rgb, alpha, args.decontam_sat, args.decontam_val,
+                                    args.decontam_cov, args.decontam_win)
 
     # 5) crisp edge (compress the transition band; no soft fade)
     if args.sharp > 1:
         alpha = np.clip((alpha - 0.5) * args.sharp + 0.5, 0, 1)
 
-    rgba = Image.fromarray(np.dstack([np.asarray(orig), (alpha * 255).astype(np.uint8)]), "RGBA")
+    # B) drop small disconnected blobs (floating trash)
+    if not args.no_trash:
+        alpha = keep_large_components(alpha, args.min_component)
+
+    rgba = Image.fromarray(np.dstack([orig_rgb, (alpha * 255).astype(np.uint8)]), "RGBA")
     return pipeline.square_crop(rgba, {"canvas_size": args.canvas, "margin_pct": args.margin})
 
 
@@ -113,7 +157,18 @@ def main() -> int:
     ap.add_argument("--bire-size", type=int, default=2048)
     ap.add_argument("--gf-radius", type=int, default=8)
     ap.add_argument("--gf-eps", type=float, default=1e-4)
-    ap.add_argument("--sharp", type=float, default=2.5)
+    ap.add_argument("--sharp", type=float, default=2.0)
+    # A) white decontamination
+    ap.add_argument("--decontam-sat", type=int, default=32, help="HSV S below = neutral")
+    ap.add_argument("--decontam-val", type=int, default=200, help="HSV V above = bright")
+    ap.add_argument("--decontam-cov", type=float, default=0.65,
+                    help="remove near-white only where local alpha coverage is below this")
+    ap.add_argument("--decontam-win", type=int, default=25, help="coverage window (px)")
+    ap.add_argument("--no-decontam", action="store_true")
+    # B) trash removal
+    ap.add_argument("--min-component", type=float, default=0.005,
+                    help="drop blobs smaller than this fraction of the largest")
+    ap.add_argument("--no-trash", action="store_true")
     ap.add_argument("--canvas", type=int, default=3600)
     ap.add_argument("--margin", type=float, default=0.03)
     ap.add_argument("--dpi", type=int, default=300)
