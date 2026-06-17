@@ -117,11 +117,14 @@ def count_inliers(orig: Image.Image, cut: Image.Image, work_width: int = 600) ->
     return int(inliers.sum()) if inliers is not None else 0
 
 
-def align_alpha(orig: Image.Image, cut: Image.Image, work_width: int) -> tuple[np.ndarray | None, int]:
+def align_alpha(orig: Image.Image, cut: Image.Image,
+                work_width: int) -> tuple[np.ndarray | None, int, float]:
     """Warp the cutout's alpha into the original's full-resolution frame.
 
-    Returns (alpha_uint8 same HxW as original, inlier_count), or (None, n) if the
-    transform could not be estimated.
+    Returns (alpha_uint8 same HxW as original, inlier_count, score), or
+    (None, n, 0.0) if the transform could not be estimated. `score` is a
+    color-invariant gradient-NCC of the warped cutout vs the original inside the
+    subject (0..1): high = same photo, low = a different physical unit.
     """
     ow, oh = orig.size
     cw, ch = cut.size
@@ -143,19 +146,43 @@ def align_alpha(orig: Image.Image, cut: Image.Image, work_width: int) -> tuple[n
     k1, d1 = orb.detectAndCompute(cg, None)   # cutout = source
     k2, d2 = orb.detectAndCompute(og, None)   # original = destination
     if d1 is None or d2 is None:
-        return None, 0
+        return None, 0, 0.0
 
     matches = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True).match(d1, d2)
     matches = sorted(matches, key=lambda m: m.distance)[:500]
     if len(matches) < 4:
-        return None, 0
+        return None, 0, 0.0
 
     src = np.float32([k1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
     dst = np.float32([k2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
     M, inliers = cv2.estimateAffinePartial2D(src, dst, method=cv2.RANSAC, ransacReprojThreshold=3)
     if M is None:
-        return None, 0
+        return None, 0, 0.0
     n_inliers = int(inliers.sum()) if inliers is not None else 0
+
+    # Structural check (at work res, COLOR-INVARIANT): warp the cutout onto the
+    # original and correlate gradient/edge maps inside the subject. Same photo ->
+    # edges line up (high NCC) even if Photoshop color-graded the cutout; a different
+    # physical unit -> structure differs (low NCC). Returned as `score` (0..1).
+    oh_s, ow_s = o_small.shape[:2]
+    warp_rgb = cv2.warpAffine(c_rgb, M, (ow_s, oh_s), flags=cv2.INTER_LINEAR)
+    warp_a = cv2.warpAffine(c_rgba[:, :, 3], M, (ow_s, oh_s), flags=cv2.INTER_LINEAR)
+
+    def _gradmag(rgb: np.ndarray) -> np.ndarray:
+        g = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
+        return cv2.magnitude(cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3),
+                             cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3))
+
+    sel = warp_a > 128
+    if int(sel.sum()) > 50:
+        a = _gradmag(warp_rgb)[sel]
+        b = _gradmag(o_small)[sel]
+        a = a - a.mean()
+        b = b - b.mean()
+        denom = float(np.sqrt((a * a).sum()) * np.sqrt((b * b).sum()))
+        score = float((a * b).sum() / denom) if denom > 0 else 0.0
+    else:
+        score = 0.0
 
     # M maps cutout_small -> original_small:  x_orig_small = A @ x_cut_small + t
     # with  x_cut_small = sc * x_cut_full  and  x_orig_full = x_orig_small / so.
@@ -168,7 +195,7 @@ def align_alpha(orig: Image.Image, cut: Image.Image, work_width: int) -> tuple[n
 
     cut_alpha_full = np.array(cut.split()[-1])  # full-res alpha channel
     warped = cv2.warpAffine(cut_alpha_full, M_full, (ow, oh), flags=cv2.INTER_LINEAR)
-    return warped, n_inliers
+    return warped, n_inliers, score
 
 
 def qc_overlay(orig: Image.Image, alpha: np.ndarray, max_width: int = 1100) -> Image.Image:
@@ -219,7 +246,7 @@ def main() -> int:
     for name, op, cp in pairs:
         orig = Image.open(op).convert("RGB")
         cut = Image.open(cp).convert("RGBA")
-        alpha, inl = align_alpha(orig, cut, args.work_width)
+        alpha, inl, _perr = align_alpha(orig, cut, args.work_width)
         if alpha is None:
             print(f"FAIL {name}: could not estimate transform")
             fail += 1

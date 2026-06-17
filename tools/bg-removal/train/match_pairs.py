@@ -74,6 +74,9 @@ def main() -> int:
     ap.add_argument("--work-width", type=int, default=1400)
     ap.add_argument("--min-inliers", type=int, default=60, help="min inliers to accept a pair")
     ap.add_argument("--match-min", type=int, default=25, help="min inliers to consider a candidate match")
+    ap.add_argument("--min-score", type=float, default=0.50,
+                    help="reject pairs whose warped cutout structure doesn't match the "
+                         "original (different physical unit, not the same photo)")
     ap.add_argument("--group-by-folder", action="store_true",
                     help="group candidates by parent folder (use when each subfolder holds "
                          "its own originals + cutouts, e.g. GUID-named cutouts)")
@@ -132,7 +135,7 @@ def main() -> int:
         existing = list(csv.DictReader(args.manifest.open()))
     have = {r["name"] for r in existing}
 
-    ok = low = 0
+    ok = low = badphoto = 0
     new_rows = []
     for n, op, cp in pairs:
         name = ns_name(op, args.name_base)
@@ -140,15 +143,20 @@ def main() -> int:
             continue
         orig = Image.open(op).convert("RGB")
         cut = Image.open(cp).convert("RGBA")
-        alpha, inl = align_alpha(orig, cut, args.work_width)
+        alpha, inl, score = align_alpha(orig, cut, args.work_width)
         if alpha is None or inl < args.min_inliers:
             low += 1
             print(f"LOW  {name[:36]} (align inliers={inl})")
             continue
+        if score < args.min_score:
+            badphoto += 1
+            print(f"DIFF-UNIT  {name[:36]} (score={score:.2f} < {args.min_score}) -> rejected")
+            continue
         label_path = args.out / f"{name}.png"
         Image.fromarray(alpha).save(label_path)
         qc_overlay(orig, alpha).save(args.qc / f"{name}.jpg", quality=85)
-        new_rows.append({"name": name, "original": str(op), "label": str(label_path), "inliers": inl})
+        new_rows.append({"name": name, "original": str(op), "label": str(label_path),
+                         "inliers": inl, "score": round(score, 3), "cutout": str(cp)})
         ok += 1
 
     unmatched = [op for op in originals if op not in used_o]
@@ -167,7 +175,8 @@ def main() -> int:
         w.writerows(all_rows)
     tmp.replace(args.manifest)
 
-    print(f"\nNew pairs added: {ok} | low/skipped: {low} | unmatched originals: {len(unmatched)}")
+    print(f"\nNew pairs added: {ok} | low-inliers: {low} | diff-unit rejected: {badphoto} | "
+          f"unmatched originals: {len(unmatched)}")
     if unmatched:
         print("  unmatched:", ", ".join(p.stem[:20] for p in unmatched[:10]))
     print(f"Manifest total now: {len(all_rows)} pairs -> {args.manifest}")
