@@ -50,15 +50,27 @@ class RefinerDataset(Dataset):
         gt = letterbox(Image.open(r["label"]).convert("L"), s, 0)
 
         if self.train:
+            # geometric — applied identically to img, ba, gt
             if random.random() < 0.5:
                 img, ba, gt = (im.transpose(Image.FLIP_LEFT_RIGHT) for im in (img, ba, gt))
-            if random.random() < 0.6:
-                ang = random.uniform(-10, 10)
+            if random.random() < 0.7:
+                ang = random.uniform(-15, 15)
                 img = img.rotate(ang, Image.BILINEAR, fillcolor=(255, 255, 255))
                 ba = ba.rotate(ang, Image.BILINEAR, fillcolor=0)
                 gt = gt.rotate(ang, Image.BILINEAR, fillcolor=0)
+            if random.random() < 0.5:  # scale jitter (zoom-in crop)
+                sc = random.uniform(0.78, 1.0)
+                nw = nh = int(s * sc)
+                x0, y0 = random.randint(0, s - nw), random.randint(0, s - nh)
+                box = (x0, y0, x0 + nw, y0 + nh)
+                img, ba, gt = (im.crop(box).resize((s, s), Image.BILINEAR) for im in (img, ba, gt))
+            # photometric — RGB only (invariance to lighting / Photoshop grading)
+            if random.random() < 0.6:
+                img = ImageEnhance.Brightness(img).enhance(random.uniform(0.8, 1.2))
             if random.random() < 0.5:
-                img = ImageEnhance.Brightness(img).enhance(random.uniform(0.85, 1.15))
+                img = ImageEnhance.Contrast(img).enhance(random.uniform(0.85, 1.2))
+            if random.random() < 0.5:
+                img = ImageEnhance.Color(img).enhance(random.uniform(0.8, 1.2))
 
         rgb = (np.asarray(img, np.float32) / 255.0 - IMAGENET_MEAN) / IMAGENET_STD
         ba01 = np.asarray(ba, np.float32) / 255.0
