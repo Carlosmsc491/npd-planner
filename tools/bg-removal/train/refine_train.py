@@ -16,6 +16,7 @@ Run after precompute_birefnet.py:
 """
 import argparse
 import csv
+import json
 import random
 import sys
 import time
@@ -150,7 +151,22 @@ def main() -> int:
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs)
 
-    best = -1.0
+    best, last_iou, last_mae, best_ep, latest_qc = -1.0, 0.0, 0.0, 0, ""
+    t_start = time.time()
+    status_path = args.runs / "status.json"
+
+    def write_status(ep: int, loss: float, sec_ep: float, done: bool = False) -> None:
+        elapsed = time.time() - t_start
+        eta = sec_ep * (args.epochs - ep) if not done else 0
+        status_path.write_text(json.dumps({
+            "epoch": ep, "total": args.epochs, "loss": round(loss, 4),
+            "last_iou": round(last_iou, 4), "best_iou": round(best, 4), "best_epoch": best_ep,
+            "last_mae": round(last_mae, 4), "sec_per_epoch": round(sec_ep),
+            "elapsed_s": round(elapsed), "eta_s": round(eta),
+            "encoder": args.encoder, "img_size": args.img_size, "n_train": len(train_rows),
+            "n_val": len(val_rows), "latest_qc": latest_qc, "done": done,
+        }, indent=2))
+
     for ep in range(1, args.epochs + 1):
         model.train()
         t0, run = time.time(), 0.0
@@ -163,22 +179,31 @@ def main() -> int:
             opt.step()
             run += loss.item()
         sched.step()
+        avg = run / max(1, len(tdl))
+        sec_ep = time.time() - t0
+
         if ep % 10 == 0 or ep == args.epochs:
-            mae, iou = evaluate(model, vdl, device)
-            print(f"epoch {ep:3}/{args.epochs} loss={run/max(1,len(tdl)):.4f} "
-                  f"corrected_MAE={mae:.4f} corrected_IoU={iou:.4f} ({time.time()-t0:.0f}s/ep)")
+            last_mae, last_iou = evaluate(model, vdl, device)
             xb, _, bab, gtb = next(iter(vdl))
             with torch.no_grad():
                 rp = torch.sigmoid(model(xb.to(device))).cpu()
-            qc(xb, bab, gtb, rp, args.runs / f"refine_ep{ep:03}.jpg")
-            if iou > best:
-                best = iou
+            latest_qc = f"refine_ep{ep:03}.jpg"
+            qc(xb, bab, gtb, rp, args.runs / latest_qc)
+            print(f"epoch {ep:3}/{args.epochs} loss={avg:.4f} corrected_MAE={last_mae:.4f} "
+                  f"corrected_IoU={last_iou:.4f} ({sec_ep:.0f}s/ep)", flush=True)
+            if last_iou > best:
+                best, best_ep = last_iou, ep
                 torch.save({"state_dict": model.state_dict(), "encoder": args.encoder,
                             "img_size": args.img_size, "in_channels": 4, "arch": "unet-refiner",
-                            "val_iou": iou, "val_mae": mae, "epoch": ep},
+                            "val_iou": last_iou, "val_mae": last_mae, "epoch": ep},
                            args.out / "refiner_best.pt")
-                print(f"   ↳ saved best (corrected IoU={iou:.4f})")
-    print(f"Done. Best corrected IoU={best:.4f}")
+                print(f"   ↳ saved best (corrected IoU={last_iou:.4f})", flush=True)
+        else:
+            print(f"epoch {ep:3}/{args.epochs} loss={avg:.4f} ({sec_ep:.0f}s/ep)", flush=True)
+
+        write_status(ep, avg, sec_ep, done=(ep == args.epochs))
+
+    print(f"Done. Best corrected IoU={best:.4f} (epoch {best_ep})", flush=True)
     return 0
 
 
