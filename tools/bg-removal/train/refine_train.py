@@ -134,6 +134,7 @@ def main() -> int:
     ap.add_argument("--epochs", type=int, default=120)
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--val-frac", type=float, default=0.15)
+    ap.add_argument("--workers", type=int, default=4, help="DataLoader workers (parallel image loading)")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", type=Path, default=ROOT / "checkpoints")
     ap.add_argument("--runs", type=Path, default=ROOT / "runs")
@@ -152,10 +153,13 @@ def main() -> int:
     print(f"device={device} train={len(tr)} val={len(va)} encoder={args.encoder} "
           f"img={args.img_size} batch={args.batch}")
 
+    nw = args.workers
     tdl = DataLoader(RefinerDataset(tr, args.img_size, True), batch_size=args.batch,
-                     shuffle=True, num_workers=0, drop_last=True)
+                     shuffle=True, num_workers=nw, drop_last=True,
+                     persistent_workers=nw > 0, prefetch_factor=2 if nw > 0 else None)
     vdl = DataLoader(RefinerDataset(va, args.img_size, False), batch_size=args.batch,
-                     shuffle=False, num_workers=0)
+                     shuffle=False, num_workers=nw, persistent_workers=nw > 0,
+                     prefetch_factor=2 if nw > 0 else None)
 
     model = smp.Unet(args.encoder, encoder_weights="imagenet", in_channels=4, classes=1).to(device)
     bce = torch.nn.BCEWithLogitsLoss()
@@ -175,8 +179,8 @@ def main() -> int:
             "last_iou": round(last_iou, 4), "best_iou": round(best, 4), "best_epoch": best_ep,
             "last_mae": round(last_mae, 4), "sec_per_epoch": round(sec_ep),
             "elapsed_s": round(elapsed), "eta_s": round(eta),
-            "encoder": args.encoder, "img_size": args.img_size, "n_train": len(train_rows),
-            "n_val": len(val_rows), "latest_qc": latest_qc, "done": done,
+            "encoder": args.encoder, "img_size": args.img_size, "n_train": len(tr),
+            "n_val": len(va), "latest_qc": latest_qc, "done": done,
         }, indent=2))
 
     for ep in range(1, args.epochs + 1):
