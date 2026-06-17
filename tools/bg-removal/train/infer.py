@@ -69,15 +69,24 @@ def decontaminate_white(rgb: np.ndarray, alpha: np.ndarray, sat_thr: int, val_th
     return out
 
 
-def keep_large_components(alpha: np.ndarray, min_frac: float) -> np.ndarray:
-    """Drop small disconnected blobs (floating petals/stems/specks)."""
+def keep_large_components(alpha: np.ndarray, min_frac: float,
+                          largest_only: bool = False) -> np.ndarray:
+    """Drop disconnected blobs that aren't the bouquet.
+
+    largest_only=True keeps just the single biggest connected component (the
+    bouquet) — removes stray studio objects (shears, spray cans, debris) no matter
+    their size, since each photo is one bouquet. Otherwise keeps every component
+    >= min_frac of the largest (only removes small specks)."""
     binary = alpha > 0.3
     labels, n = ndi.label(binary, structure=np.ones((3, 3)))
     if n <= 1:
         return alpha
     sizes = np.bincount(labels.ravel())
     sizes[0] = 0
-    keep = np.where(sizes >= min_frac * sizes.max())[0]
+    if largest_only:
+        keep = [int(sizes.argmax())]
+    else:
+        keep = np.where(sizes >= min_frac * sizes.max())[0]
     mask = np.isin(labels, keep)
     out = alpha.copy()
     out[~mask] = 0.0
