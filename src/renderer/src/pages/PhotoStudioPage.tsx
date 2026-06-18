@@ -10,6 +10,7 @@ import {
   Camera, FolderOpen, Grid3X3, List, Image, Plus, Trash2, RefreshCw,
   CheckCircle2, Loader2, AlertTriangle, ChevronLeft, Scissors, Download,
   FolderInput, MoreVertical, Pencil, X, ArrowLeft, ArrowRight, WifiOff, Wifi, Star, ExternalLink, Wand2,
+  PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 
 // ─── localStorage ────────────────────────────────────────────────────────────
@@ -62,7 +63,7 @@ const PhotoThumb = memo(function PhotoThumb({
       }`}
       onClick={onClick}
     >
-      <div className="aspect-square bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+      <div className="aspect-square flex items-center justify-center bg-gradient-to-b from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800">
         {dataUrl ? (
           <img src={dataUrl} alt={photo.filename} className="w-full h-full object-cover" />
         ) : (
@@ -193,8 +194,10 @@ function Lightbox({ photos, index, onClose, onNav, onApprove, onPhotoshop, onSav
       <div className="max-w-5xl max-h-[90vh] flex flex-col items-center gap-2" onClick={e => e.stopPropagation()}>
         {dataUrl ? (
           photo.state === 'cleaned' || photo.state === 'ready' ? (
-            <div className="relative" style={{ backgroundImage: 'url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABmJLR0QA/wD/AP+gvaeTAAAAI0lEQVQ4jWNgYGD4TxQGAAf4A/1zkmVkAAAAASUVORK5CYII=")', backgroundRepeat: 'repeat', backgroundSize: '16px' }}>
-              <img src={dataUrl} alt={photo.filename} className="max-w-full max-h-[80vh] object-contain rounded" />
+            // Apple-style soft gray backdrop behind the transparent cut-out
+            // (no backdrop-filter blur — that crashes the Electron 25 renderer).
+            <div className="relative rounded-lg overflow-hidden" style={{ background: 'linear-gradient(160deg, #3a3a3c 0%, #2a2a2c 60%, #232325 100%)' }}>
+              <img src={dataUrl} alt={photo.filename} className="max-w-full max-h-[80vh] object-contain" />
             </div>
           ) : (
             <img src={dataUrl} alt={photo.filename} className="max-w-full max-h-[80vh] object-contain rounded" />
@@ -397,6 +400,7 @@ function SessionView({
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [processing, setProcessing] = useState<Set<string>>(new Set())
   const [filterState, setFilterState] = useState<StudioPhoto['state'] | 'all'>('all')
+  const [captureSidebarOpen, setCaptureSidebarOpen] = useState(true)  // floating panel in capture mode
   const lastSelectedRef = useRef<number | null>(null)
 
   // ── Background-removal engine ───────────────────────────────────────────────
@@ -616,6 +620,7 @@ function SessionView({
   useEffect(() => {
     if (view !== 'capture') return
     const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); setView('icons'); return }
       const cur = previewIdxRef.current
       if (cur === null) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -825,14 +830,6 @@ function SessionView({
     window.electronAPI.photoStudioOpenInFinder(sessionDir + '/_ready')
   }
 
-  const stateFilterOptions: Array<{ value: StudioPhoto['state'] | 'all'; label: string }> = [
-    { value: 'all', label: 'All' },
-    { value: 'captured', label: 'Captured' },
-    { value: 'selected', label: 'Selected' },
-    { value: 'cleaned', label: 'Cleaned' },
-    { value: 'ready', label: 'Ready' },
-  ]
-
   const counts = {
     captured: photos.filter(p => p.state === 'captured').length,
     selected: photos.filter(p => p.state === 'selected').length,
@@ -840,107 +837,23 @@ function SessionView({
     ready:    photos.filter(p => p.state === 'ready').length,
   }
 
-  // ── Capture mode — full-screen with sidebar overlay ──────────────────────
+  const stateFilterOptions: Array<{ value: StudioPhoto['state'] | 'all'; label: string; count: number }> = [
+    { value: 'all',      label: 'All',      count: photos.length },
+    { value: 'captured', label: 'Captured', count: counts.captured },
+    { value: 'selected', label: 'Selected', count: counts.selected },
+    { value: 'cleaned',  label: 'Cleaned',  count: counts.cleaned },
+    { value: 'ready',    label: 'Ready',    count: counts.ready },
+  ]
+
+  // ── Capture mode — immersive full-window, floating collapsible panel ──────
   if (view === 'capture') {
+    const activePhoto = previewIdx !== null ? photos[previewIdx] : undefined
     return (
-      <div className="relative h-full bg-black overflow-hidden">
-        {/* Sidebar — absolute overlay on the left, 176px wide */}
-        <div
-          className="absolute left-0 top-0 bottom-0 w-44 flex flex-col bg-black z-10 overflow-y-auto"
-          style={{ scrollbarWidth: 'none' }}
-        >
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1 px-3 pt-3 pb-1 text-xs text-gray-400 hover:text-white shrink-0"
-          >
-            <ChevronLeft size={12} /> Sessions
-          </button>
-          <div className="px-3 pb-2 text-white font-medium text-xs truncate">{session.name}</div>
-
-          {/* Camera status */}
-          <div className={`mx-2 mb-2 px-2 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shrink-0 ${
-            tethering ? 'bg-green-900/40 text-green-400' : 'bg-gray-900 text-gray-500'
-          }`}>
-            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${tethering ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
-            {tethering ? 'Live' : cameraConnected ? 'Camera ready' : 'No camera'}
-          </div>
-
-          {/* Switch to grid/list */}
-          <div className="flex gap-1 px-2 pb-2 shrink-0">
-            {(['icons', 'gallery', 'list'] as const).map(v => (
-              <button
-                key={v}
-                className="flex-1 py-1 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-800 text-xs"
-                onClick={() => { setView(v); localStorage.setItem(LS_VIEW, v) }}
-              >
-                {v === 'icons' ? <Grid3X3 size={11} className="mx-auto" /> : v === 'gallery' ? <Image size={11} className="mx-auto" /> : <List size={11} className="mx-auto" />}
-              </button>
-            ))}
-          </div>
-
-          {/* Filter tabs with counts */}
-          <div className="flex flex-col gap-0.5 px-2 pb-2 shrink-0">
-            {([
-              { value: 'all' as const,      label: 'All',      count: photos.length },
-              { value: 'captured' as const,  label: 'Captured', count: counts.captured },
-              { value: 'selected' as const,  label: 'Selected', count: counts.selected },
-              { value: 'cleaned' as const,   label: 'Cleaned',  count: counts.cleaned },
-              { value: 'ready' as const,     label: 'Ready',    count: counts.ready },
-            ]).map(opt => (
-              <button
-                key={opt.value}
-                className={`flex items-center justify-between px-2 py-1 rounded text-xs transition-colors ${
-                  filterState === opt.value ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'
-                }`}
-                onClick={() => setFilterState(opt.value)}
-              >
-                <span>{opt.label}</span>
-                <span className="text-gray-600 tabular-nums">{opt.count}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Active photo info + star button */}
-          {previewIdx !== null && photos[previewIdx] && (
-            <div className="px-2 pb-2 shrink-0">
-              <div className="text-[10px] text-gray-500 truncate mb-1">{photos[previewIdx].filename}</div>
-              <button
-                className={`w-full py-1.5 rounded text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
-                  photos[previewIdx].state === 'selected'
-                    ? 'bg-blue-700 text-white hover:bg-blue-600'
-                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                }`}
-                onClick={() => starPhoto(photos[previewIdx]!)}
-              >
-                <Star
-                  size={11}
-                  fill={photos[previewIdx].state === 'selected' ? 'currentColor' : 'none'}
-                />
-                {photos[previewIdx].state === 'selected' ? 'Starred' : 'Star (Enter)'}
-              </button>
-            </div>
-          )}
-
-          <div className="flex-1" />
-
-          {/* Import + Refresh */}
-          <div className="flex gap-1 px-2 pb-3 shrink-0">
-            <button
-              onClick={importPhotos}
-              className="flex-1 py-1.5 rounded bg-gray-900 text-gray-400 hover:text-white text-xs flex items-center justify-center gap-1"
-            >
-              <FolderInput size={10} /> Import
-            </button>
-            <button onClick={loadPhotos} className="p-1.5 rounded bg-gray-900 text-gray-400 hover:text-white">
-              <RefreshCw size={10} />
-            </button>
-          </div>
-        </div>
-
-        {/* Photo + filmstrip — 4px black safe zone after 176px sidebar */}
-        <div className="absolute top-0 right-0 bottom-0 flex flex-col" style={{ left: '180px' }}>
+      <div className="fixed inset-0 z-40 bg-black overflow-hidden">
+        {/* Photo + filmstrip fill the whole window; the panel floats on top */}
+        <div className="absolute inset-0 flex flex-col">
           {/* Main preview */}
-          <div className="flex-1 relative flex items-center justify-center bg-black min-h-0">
+          <div className="flex-1 relative flex items-center justify-center min-h-0">
             {previewDataUrl ? (
               <img
                 src={previewDataUrl}
@@ -973,7 +886,7 @@ function SessionView({
           {/* Filmstrip */}
           <div
             ref={filmstripRef}
-            className="flex gap-1.5 px-2 py-2 bg-black shrink-0 overflow-x-auto"
+            className="flex gap-1.5 px-2 py-2 bg-black/60 shrink-0 overflow-x-auto"
             style={{ scrollbarWidth: 'none' }}
           >
             {photos.map((p, i) => (
@@ -987,11 +900,111 @@ function SessionView({
             ))}
           </div>
         </div>
+
+        {/* Collapsed → floating opener button in the top-left corner */}
+        {!captureSidebarOpen && (
+          <button
+            onClick={() => setCaptureSidebarOpen(true)}
+            title="Show panel"
+            className="absolute left-3 top-3 z-20 p-2 rounded-xl bg-black/50 text-white hover:bg-black/70 transition-colors"
+          >
+            <PanelLeftOpen size={16} />
+          </button>
+        )}
+
+        {/* Floating, collapsible, semi-transparent panel */}
+        {captureSidebarOpen && (
+          <div className="absolute left-3 top-3 bottom-3 w-44 flex flex-col rounded-2xl bg-black/50 border border-white/10 z-20 overflow-hidden">
+            {/* Header — back to grid + collapse */}
+            <div className="flex items-center justify-between px-2.5 pt-2.5 pb-1 shrink-0">
+              <button
+                onClick={() => setView('icons')}
+                title="Back to grid"
+                className="flex items-center gap-1 text-xs text-gray-300 hover:text-white"
+              >
+                <ChevronLeft size={12} /> Grid
+              </button>
+              <button
+                onClick={() => setCaptureSidebarOpen(false)}
+                title="Collapse panel"
+                className="p-1 rounded text-gray-400 hover:text-white"
+              >
+                <PanelLeftClose size={13} />
+              </button>
+            </div>
+            <div className="px-3 pb-2 text-white font-medium text-xs truncate shrink-0">{session.name}</div>
+
+            {/* Scrollable middle */}
+            <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
+              {/* Camera status */}
+              <div className={`mx-2 mb-2 px-2 py-1.5 rounded-lg text-xs flex items-center gap-1.5 ${
+                tethering ? 'bg-green-900/40 text-green-400' : 'bg-white/5 text-gray-400'
+              }`}>
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${tethering ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
+                {tethering ? 'Live' : cameraConnected ? 'Camera ready' : 'No camera'}
+              </div>
+
+              {/* Filter pills with counts */}
+              <div className="flex flex-col gap-0.5 px-2 pb-2">
+                {([
+                  { value: 'all' as const,      label: 'All',      count: photos.length },
+                  { value: 'captured' as const,  label: 'Captured', count: counts.captured },
+                  { value: 'selected' as const,  label: 'Selected', count: counts.selected },
+                  { value: 'cleaned' as const,   label: 'Cleaned',  count: counts.cleaned },
+                  { value: 'ready' as const,     label: 'Ready',    count: counts.ready },
+                ]).map(opt => (
+                  <button
+                    key={opt.value}
+                    className={`flex items-center justify-between px-2 py-1 rounded text-xs transition-colors ${
+                      filterState === opt.value ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-gray-200'
+                    }`}
+                    onClick={() => setFilterState(opt.value)}
+                  >
+                    <span>{opt.label}</span>
+                    <span className="text-gray-500 tabular-nums">{opt.count}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Active photo info + star button */}
+              {activePhoto && (
+                <div className="px-2 pb-2">
+                  <div className="text-[10px] text-gray-400 truncate mb-1">{activePhoto.filename}</div>
+                  <button
+                    className={`w-full py-1.5 rounded text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                      activePhoto.state === 'selected'
+                        ? 'bg-blue-600 text-white hover:bg-blue-500'
+                        : 'bg-white/10 text-gray-200 hover:bg-white/20'
+                    }`}
+                    onClick={() => starPhoto(activePhoto)}
+                  >
+                    <Star size={11} fill={activePhoto.state === 'selected' ? 'currentColor' : 'none'} />
+                    {activePhoto.state === 'selected' ? 'Starred' : 'Star (Enter)'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Import + Refresh pinned at bottom */}
+            <div className="flex gap-1 px-2 py-2 shrink-0">
+              <button
+                onClick={importPhotos}
+                className="flex-1 py-1.5 rounded bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 text-xs flex items-center justify-center gap-1"
+              >
+                <FolderInput size={10} /> Import
+              </button>
+              <button onClick={loadPhotos} className="p-1.5 rounded bg-white/5 text-gray-400 hover:text-white hover:bg-white/10">
+                <RefreshCw size={10} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
 
   return (
+    <AppLayout mainClassName="flex-1 overflow-hidden">
     <div className="flex flex-col h-full">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
@@ -1079,37 +1092,35 @@ function SessionView({
         )}
       </div>
 
-      {/* KPI strip */}
-      <div className="flex items-center gap-4 px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 text-xs shrink-0">
-        <span className="text-gray-500">📷 <b className="text-gray-900 dark:text-white">{counts.captured}</b> captured</span>
-        <span className="text-blue-500">⭐ <b>{counts.selected}</b> selected</span>
-        <span className="text-purple-500">✂️ <b>{counts.cleaned}</b> cleaned</span>
-        <span className="text-green-600">✅ <b>{counts.ready}</b> ready</span>
+      {/* Filter pills (label + count, merged from the old KPI strip) + selection toolbar */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
+        <div className="flex gap-1">
+          {stateFilterOptions.map(opt => {
+            const active = filterState === opt.value
+            return (
+              <button
+                key={opt.value}
+                onClick={() => setFilterState(opt.value)}
+                className={`flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 text-xs rounded-full transition-colors ${
+                  active
+                    ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                {opt.label}
+                <span className={`tabular-nums rounded-full px-1.5 min-w-[1.25rem] text-center ${
+                  active ? 'bg-white/25 dark:bg-black/10' : 'bg-gray-200 dark:bg-gray-700 text-gray-500'
+                }`}>{opt.count}</span>
+              </button>
+            )
+          })}
+        </div>
+
         {!engineReady && (
-          <span className="ml-auto flex items-center gap-1 text-amber-600 dark:text-amber-400" title="Star a photo to auto-clean it — but the engine must be installed first">
-            <AlertTriangle size={12} /> Background Removal engine not installed
+          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 text-xs" title="Star a photo to auto-clean it — but the engine must be installed first">
+            <AlertTriangle size={12} /> Engine not installed
           </span>
         )}
-      </div>
-
-      {/* Filter + selection toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
-        {/* State filters */}
-        <div className="flex gap-1">
-          {stateFilterOptions.map(opt => (
-            <button
-              key={opt.value}
-              className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
-                filterState === opt.value
-                  ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200'
-              }`}
-              onClick={() => setFilterState(opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
 
         <div className="flex-1" />
 
@@ -1182,7 +1193,7 @@ function SessionView({
             : 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8'
           }`}>
             {visiblePhotos.map((p, i) => (
-              <div key={p.id} className="relative">
+              <div key={p.id} className="group relative">
                 <PhotoThumb
                   photo={p}
                   selected={selected.has(p.id)}
@@ -1197,33 +1208,33 @@ function SessionView({
                   </div>
                 )}
                 {p.state === 'ready' && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <CheckCircle2 size={28} className="text-green-400 drop-shadow-lg opacity-80" />
+                  <div className="absolute top-1.5 left-1.5 pointer-events-none">
+                    <CheckCircle2 size={16} className="text-green-400 drop-shadow" />
                   </div>
                 )}
-                {/* Cleaned quick actions — Approve · Select Subject · Open in Photoshop */}
+                {/* Cleaned quick actions — hover-reveal, muted so they don't fight the photo */}
                 {p.state === 'cleaned' && (
-                  <div className="absolute bottom-1 inset-x-1 flex gap-1">
+                  <div className="absolute bottom-1.5 inset-x-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={e => { e.stopPropagation(); approvePhoto(p) }}
                       disabled={photoBusy.has(p.id)}
                       title="Approve → Ready"
-                      className="flex-1 flex items-center justify-center gap-1 py-1 rounded bg-green-600/90 text-white text-[10px] font-medium hover:bg-green-500 disabled:opacity-50"
+                      className="flex-1 flex items-center justify-center gap-1 py-1 rounded-md bg-black/55 text-white/90 text-[10px] font-medium hover:bg-black/75 disabled:opacity-50"
                     >
-                      {photoBusy.has(p.id) ? <Loader2 size={10} className="animate-spin" /> : <CheckCircle2 size={10} />} Approve
+                      {photoBusy.has(p.id) ? <Loader2 size={10} className="animate-spin" /> : <CheckCircle2 size={10} className="text-emerald-300" />} Approve
                     </button>
                     <button
                       onClick={e => { e.stopPropagation(); selectSubject(p) }}
                       disabled={photoBusy.has(p.id)}
                       title="Re-cut with Photoshop Select Subject"
-                      className="flex items-center justify-center px-1.5 py-1 rounded bg-purple-600/90 text-white hover:bg-purple-500 disabled:opacity-50"
+                      className="flex items-center justify-center px-1.5 py-1 rounded-md bg-black/55 text-white/90 hover:bg-black/75 disabled:opacity-50"
                     >
                       <Wand2 size={11} />
                     </button>
                     <button
                       onClick={e => { e.stopPropagation(); openInPhotoshop(p) }}
                       title="Open in Photoshop"
-                      className="flex items-center justify-center px-1.5 py-1 rounded bg-black/70 text-white hover:bg-black/90"
+                      className="flex items-center justify-center px-1.5 py-1 rounded-md bg-black/55 text-white/90 hover:bg-black/75"
                     >
                       <ExternalLink size={11} />
                     </button>
@@ -1271,6 +1282,7 @@ function SessionView({
         />
       )}
     </div>
+    </AppLayout>
   )
 }
 
@@ -1330,16 +1342,14 @@ export default function PhotoStudioPage() {
 
   // Session detail view
   if (activeSession && catalog) {
+    // SessionView owns its own layout: AppLayout for grid/list/gallery, and a
+    // full-window immersive view (no app sidebar) for capture mode.
     return (
-      <AppLayout mainClassName="flex-1 overflow-hidden">
-        <div className="flex flex-col h-full bg-white dark:bg-gray-900">
-          <SessionView
-            session={activeSession}
-            catalogDir={catalog}
-            onBack={() => { setActiveSession(null); loadSessions(catalog) }}
-          />
-        </div>
-      </AppLayout>
+      <SessionView
+        session={activeSession}
+        catalogDir={catalog}
+        onBack={() => { setActiveSession(null); loadSessions(catalog) }}
+      />
     )
   }
 

@@ -383,7 +383,16 @@ export function registerBgRemovalHandlers(): void {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const sharp = require('sharp') as typeof import('sharp')
-      const buf = await sharp(absPath).rotate().resize(size, size, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer()
+      // Transparent cut-outs (PNG with alpha) → keep the alpha so the UI can put
+      // its own backdrop behind them (Apple-style gray). Opaque photos stay JPEG
+      // so a 100-thumb grid doesn't balloon in memory.
+      const meta = await sharp(absPath).metadata()
+      const pipeline = sharp(absPath).rotate().resize(size, size, { fit: 'inside', withoutEnlargement: true })
+      if (meta.hasAlpha) {
+        const buf = await pipeline.png({ compressionLevel: 8 }).toBuffer()
+        return `data:image/png;base64,${buf.toString('base64')}`
+      }
+      const buf = await pipeline.jpeg({ quality: 80 }).toBuffer()
       return `data:image/jpeg;base64,${buf.toString('base64')}`
     } catch {
       return null
