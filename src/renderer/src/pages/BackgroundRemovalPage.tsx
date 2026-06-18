@@ -177,6 +177,28 @@ export default function BackgroundRemovalPage() {
     const res = await window.electronAPI.bgRemovalRun({ files, toolDir, retouch })
     setResult(res); setPhase('done')
   }
+  // Re-cut a single result with Photoshop's Select Subject (manual quality escape
+  // hatch). Overwrites the result PNG + refreshes its preview.
+  const [recutting, setRecutting] = useState<string | null>(null)
+  const recut = async (i: number) => {
+    const f = files[i]
+    if (!f || !result?.cutDir) return
+    const bn = baseName(f)
+    const out = `${result.cutDir}/${stemOf(bn)}.png`
+    setRecutting(bn)
+    const r = await window.electronAPI.photoshopSelectSubject(f, out)
+    setRecutting(null)
+    if (r.ok) {
+      const fresh = await window.electronAPI.bgRemovalReadFull(out)
+      if (fresh) {
+        setResultThumbs((m) => ({ ...m, [bn]: fresh }))
+        if (lightbox === i) setLightboxUrl(fresh)
+      }
+    } else {
+      alert(r.error || 'Photoshop Select Subject failed.')
+    }
+  }
+
   const cancel = async () => { await window.electronAPI.bgRemovalCancel(); setPhase('idle'); setStatus(null) }
   const reset = () => {
     setFiles([]); setStatus(null); setResult(null); setResultThumbs({}); setInputThumbs({})
@@ -377,10 +399,12 @@ export default function BackgroundRemovalPage() {
                 const isError = !!item?.error
                 const url = resultThumbs[bn] || inputThumbs[f]
                 return (
-                  <button
+                  <div
                     key={f}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setLightbox(i)}
-                    className="group relative overflow-hidden rounded-lg border border-gray-200 text-left dark:border-gray-700"
+                    className="group relative cursor-pointer overflow-hidden rounded-lg border border-gray-200 text-left dark:border-gray-700"
                   >
                     <div className="aspect-square" style={CHECKER}>
                       {url
@@ -405,6 +429,19 @@ export default function BackgroundRemovalPage() {
                       </div>
                     )}
 
+                    {/* Re-cut with Photoshop — appears on hover over a finished photo */}
+                    {phase === 'done' && (isDone || isError) && result?.cutDir && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); recut(i) }}
+                        disabled={recutting === bn}
+                        title="Re-cut with Photoshop Select Subject"
+                        className="absolute bottom-9 right-1.5 inline-flex items-center gap-1 rounded-md bg-black/55 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity hover:bg-black/75 group-hover:opacity-100 disabled:opacity-100"
+                      >
+                        {recutting === bn ? <Loader2 size={11} className="animate-spin" /> : <Wand2 size={11} />}
+                        Select Subject
+                      </button>
+                    )}
+
                     <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
                       <span className="truncate text-xs text-gray-500 dark:text-gray-400">{stemOf(bn)}</span>
                       {isError
@@ -415,7 +452,7 @@ export default function BackgroundRemovalPage() {
                             ? <span className="text-xs text-gray-400">cleaning…</span>
                             : phase !== 'idle' ? <span className="text-xs text-gray-300 dark:text-gray-600">queued</span> : null}
                     </div>
-                  </button>
+                  </div>
                 )
               })}
             </div>
@@ -445,8 +482,21 @@ export default function BackgroundRemovalPage() {
                 : <div className="flex h-72 w-72 items-center justify-center"><Loader2 size={28} className="animate-spin text-gray-500" /></div>}
             </div>
             <div className="mt-3 flex items-center gap-3 text-sm text-white/80">
-              <span className="truncate max-w-md">{stemOf(baseName(files[lightbox]))}</span>
+              <span className="truncate max-w-xs">{stemOf(baseName(files[lightbox]))}</span>
               <span className="text-white/50">{lightbox + 1} / {files.length}</span>
+              {phase === 'done' && result?.cutDir && (
+                <button
+                  onClick={() => recut(lightbox)}
+                  disabled={recutting === baseName(files[lightbox])}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/30 disabled:opacity-50"
+                  title="Re-cut this photo with Photoshop Select Subject"
+                >
+                  {recutting === baseName(files[lightbox])
+                    ? <Loader2 size={13} className="animate-spin" />
+                    : <Wand2 size={13} />}
+                  Select Subject (Photoshop)
+                </button>
+              )}
             </div>
           </div>
 

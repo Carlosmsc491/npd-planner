@@ -127,6 +127,7 @@ interface IElectronAPI {
   bgRemovalCleanCancelAll: () => Promise<void>
   photoshopOpen: (filePath: string, app?: string) => Promise<{ ok: boolean; error?: string }>
   photoshopSaveReturn: (filePath: string, close?: boolean, app?: string) => Promise<{ ok: boolean; error?: string }>
+  photoshopSelectSubject: (input: string, output: string, opts?: { canvas?: number; margin?: number; app?: string }) => Promise<{ ok: boolean; error?: string }>
   bgRemovalSelectFiles: () => Promise<string[]>
   bgRemovalCheckSetup: (toolDir: string) => Promise<import('../../shared/bgRemoval').BgRemovalSetup>
   bgRemovalRun: (job: import('../../shared/bgRemoval').BgRemovalJob) => Promise<import('../../shared/bgRemoval').BgRemovalResult>

@@ -23,7 +23,7 @@ from PIL import Image
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
-from infer import (guided_filter, decontaminate_white, keep_large_components,
+from infer import (guided_filter, decontaminate_white, defringe_edges, keep_large_components,
                    unletterbox, _norm_chw, load_refiner, IMG_EXTS)
 from birefnet_model import load_birefnet
 from dataset import letterbox
@@ -36,6 +36,7 @@ BIRE = 2048
 GF_R, GF_EPS, SHARP = 8, 1e-4, 2.0
 DEC_SAT, DEC_VAL, DEC_COV, DEC_WIN = 32, 200, 0.65, 25
 MIN_COMP, CANVAS, MARGIN, DPI = 0.005, 3600, 0.03, 300
+EDGE_SHIFT = 2   # anti-halo: contract the matte N px on washed-out edges (thin foliage)
 
 
 def checkerboard(size: int, sq: int = 22) -> Image.Image:
@@ -113,6 +114,7 @@ def process_one(path: Path, birefnet, refiner, ref_size: int, device: str,
     alpha = decontaminate_white(orig_rgb, alpha, DEC_SAT, DEC_VAL, DEC_COV, DEC_WIN)
     if SHARP > 1:
         alpha = np.clip((alpha - 0.5) * SHARP + 0.5, 0, 1)
+    alpha = defringe_edges(orig_rgb, alpha, EDGE_SHIFT)            # anti-halo on thin foliage
     alpha = keep_large_components(alpha, MIN_COMP, largest_only=True)  # keep only the bouquet
 
     st.step(name, idx, "Square crop 3600 & saving…", 95)

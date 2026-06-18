@@ -41,6 +41,48 @@ function runJsx(appName: string, jsx: string, timeoutSec = 600): Promise<{ ok: b
 }
 
 export function registerPhotoshopHandlers(): void {
+  // Re-cut a photo with Photoshop's "Select Subject" (Adobe Sensei) and write a
+  // transparent PNG, square-cropped to `canvas` with `margin`. The user's manual
+  // escape hatch when the local engine's cut-out isn't good enough on a photo.
+  ipcMain.handle(
+    'photoshop:select-subject',
+    async (_e, { input, output, canvas = 3600, margin = 0.03, app }: {
+      input: string; output: string; canvas?: number; margin?: number; app?: string
+    }): Promise<{ ok: boolean; error?: string }> => {
+      if (!IS_MAC) return { ok: false, error: 'Mac only.' }
+      if (!fs.existsSync(input)) return { ok: false, error: 'Source photo not found.' }
+      fs.mkdirSync(path.dirname(output), { recursive: true })
+      const maxDim = Math.round(canvas * (1 - 2 * margin))
+      const jsx = `
+        var prev = app.displayDialogs;
+        app.displayDialogs = DialogModes.NO;
+        try {
+          var doc = app.open(new File('${jsxStr(input)}'));
+          if (doc.activeLayer.isBackgroundLayer) doc.activeLayer.isBackgroundLayer = false;
+          executeAction(stringIDToTypeID("autoCutout"), undefined, DialogModes.NO); // Select Subject
+          doc.selection.invert();
+          doc.selection.clear();
+          doc.selection.deselect();
+          doc.trim(TrimType.TRANSPARENT, true, true, true, true);
+          var w = doc.width.as('px'), h = doc.height.as('px');
+          var scale = Math.min(${maxDim} / w, ${maxDim} / h);
+          doc.resizeImage(UnitValue(Math.round(w * scale), 'px'), UnitValue(Math.round(h * scale), 'px'), null, ResampleMethod.BICUBICSHARPER);
+          doc.resizeCanvas(UnitValue(${canvas}, 'px'), UnitValue(${canvas}, 'px'), AnchorPosition.MIDDLECENTER);
+          doc.resizeImage(undefined, undefined, 300, ResampleMethod.NONE); // tag 300 DPI, no resample
+          var opt = new PNGSaveOptions();
+          doc.saveAs(new File('${jsxStr(output)}'), opt, true, Extension.LOWERCASE);
+          doc.close(SaveOptions.DONOTSAVECHANGES);
+        } finally {
+          app.displayDialogs = prev;
+        }
+      `
+      const res = await runJsx(app || DEFAULT_APP, jsx, 600)
+      if (res.ok && !fs.existsSync(output)) return { ok: false, error: 'Select Subject did not produce a file.' }
+      return res
+    },
+  )
+
+
   // Open a file in Photoshop for the user to edit by hand.
   ipcMain.handle(
     'photoshop:open',

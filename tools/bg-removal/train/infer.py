@@ -69,6 +69,29 @@ def decontaminate_white(rgb: np.ndarray, alpha: np.ndarray, sat_thr: int, val_th
     return out
 
 
+def defringe_edges(rgb: np.ndarray, alpha: np.ndarray, shift_px: int,
+                   val_thr: int = 165) -> np.ndarray:
+    """Kill the white halo on thin foliage by contracting the matte at washed-out
+    edges.
+
+    The studio-white background bleeds into thin stems/leaves as a green↔white
+    *blend* — too saturated for the HSV white test in decontaminate_white, so it
+    survives as a bright fringe (visible as a halo on dark backgrounds). Here we
+    erode the matte inward, but ONLY on partial-alpha edge pixels that are bright
+    (washed toward white). Saturated flower edges keep their full matte.
+    """
+    if shift_px <= 0:
+        return alpha
+    edge = (alpha > 0.02) & (alpha < 0.98)
+    val = rgb.max(axis=2).astype(np.float32)               # ~HSV Value
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (shift_px * 2 + 1, shift_px * 2 + 1))
+    eroded = cv2.erode(alpha, k)
+    bright_edge = edge & (val > val_thr)
+    out = alpha.copy()
+    out[bright_edge] = np.minimum(out[bright_edge], eroded[bright_edge])
+    return out
+
+
 def keep_large_components(alpha: np.ndarray, min_frac: float,
                           largest_only: bool = False) -> np.ndarray:
     """Drop disconnected blobs that aren't the bouquet.
@@ -150,6 +173,9 @@ def process(path: Path, birefnet, refiner, ref_size: int, device: str, args) -> 
     if args.sharp > 1:
         alpha = np.clip((alpha - 0.5) * args.sharp + 0.5, 0, 1)
 
+    # C) anti-halo defringe — contract the matte at washed-out edges (thin foliage)
+    alpha = defringe_edges(orig_rgb, alpha, args.edge_shift)
+
     # B) drop small disconnected blobs (floating trash)
     if not args.no_trash:
         alpha = keep_large_components(alpha, args.min_component)
@@ -174,6 +200,9 @@ def main() -> int:
                     help="remove near-white only where local alpha coverage is below this")
     ap.add_argument("--decontam-win", type=int, default=25, help="coverage window (px)")
     ap.add_argument("--no-decontam", action="store_true")
+    # C) anti-halo defringe — contract the matte at bright/washed edges (px @ full res)
+    ap.add_argument("--edge-shift", type=int, default=2,
+                    help="contract the matte by N px on washed-out edges (0 = off) — kills the white halo on thin foliage")
     # B) trash removal
     ap.add_argument("--min-component", type=float, default=0.005,
                     help="drop blobs smaller than this fraction of the largest")

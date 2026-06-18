@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Camera, Star, Upload, ImageOff, Loader2, AlertTriangle,
-  ExternalLink, CheckCircle2, Check, Trash2, FolderDown, Archive, Scissors,
+  ExternalLink, CheckCircle2, Check, Trash2, FolderDown, Archive, Scissors, Wand2,
 } from 'lucide-react'
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
@@ -1042,6 +1042,14 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
                       const r = await window.electronAPI.photoshopSaveReturn(resolvePhotoPath(path, effectiveRootPath))
                       if (!r.ok) setCleanedErrors(e => [...e, `${recipe.displayName}: ${r.error || 'save failed'}`])
                     } : undefined}
+                    onSelectSubject={isMac ? async path => {
+                      const cleanedAbs = resolvePhotoPath(path, effectiveRootPath)
+                      const stem = (path.split(/[\\/]/).pop() ?? '').replace(/\.[^.]+$/, '')
+                      const orig = recipe.capturedPhotos?.find(p => p.filename.replace(/\.[^.]+$/, '') === stem)
+                      if (!orig) { setCleanedErrors(e => [...e, `${recipe.displayName}: original photo not found for re-cut`]); return }
+                      const r = await window.electronAPI.photoshopSelectSubject(resolvePhotoPath(orig.picturePath, effectiveRootPath), cleanedAbs)
+                      if (!r.ok) setCleanedErrors(e => [...e, `${recipe.displayName}: ${r.error || 'Select Subject failed'}`])
+                    } : undefined}
                     onWarningClick={() => setNotesModal({ recipeId: recipe.id, projectId: project.id, recipeName: recipe.recipeName || recipe.displayName })}
                   />
                 ))
@@ -1308,15 +1316,17 @@ function KpiCard({ label, value, total, subtitle, color, alert }: {
 
 // ── CLEANED recipe row ─────────────────────────────────────────────────────────
 
-function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onOpenPhotoshop, onSaveReturn, onWarningClick }: {
+function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onOpenPhotoshop, onSaveReturn, onSelectSubject, onWarningClick }: {
   recipe: RecipeFile; isProcessing: boolean
   canEdit: boolean
   onDrop: (file: File) => void; onOpenPhotoshop: (path: string) => void
   onSaveReturn?: (path: string) => Promise<void>   // Mac scripted save-back to same path
+  onSelectSubject?: (path: string) => Promise<void> // Mac re-cut with Photoshop Select Subject
   onWarningClick?: () => void
 }) {
   const [dragOver, setDragOver] = useState(false)
   const [saving, setSaving]     = useState(false)
+  const [recut, setRecut]       = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const hasCleaned   = (recipe.cleanedPhotoPaths?.length ?? 0) > 0
   const isDone       = recipe.cleanedPhotoStatus === 'done'
@@ -1351,6 +1361,16 @@ function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onOpenPhotosh
         <button onClick={() => onOpenPhotoshop(recipe.cleanedPhotoPaths![0])} title="Open in Photoshop"
           className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 transition-colors">
           <ExternalLink size={10} /><span className="hidden sm:inline">Open in Photoshop</span>
+        </button>
+      )}
+      {hasCleaned && recipe.cleanedPhotoPaths![0] && onSelectSubject && canEdit && (
+        <button
+          disabled={recut}
+          onClick={async () => { setRecut(true); try { await onSelectSubject(recipe.cleanedPhotoPaths![0]) } finally { setRecut(false) } }}
+          title="Re-cut this photo with Photoshop Select Subject"
+          className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400 transition-colors disabled:opacity-50">
+          {recut ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
+          <span className="hidden sm:inline">Select Subject</span>
         </button>
       )}
       {hasCleaned && recipe.cleanedPhotoPaths![0] && onSaveReturn && canEdit && (
