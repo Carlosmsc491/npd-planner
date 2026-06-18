@@ -5,7 +5,7 @@
 // in the Python tool via bgRemovalHandlers; thumbnails are downscaled in main
 // (sharp) so big batches never freeze the renderer.
 
-import { useEffect, useState, useRef, useCallback, memo } from 'react'
+import { useEffect, useState, useRef, useCallback, memo, CSSProperties } from 'react'
 import {
   Scissors, Upload, FolderOpen, Loader2, CheckCircle2, AlertTriangle,
   X, Play, Wand2, Download, FileImage, ChevronLeft, ChevronRight,
@@ -23,6 +23,25 @@ type ElectronFile = File & { path: string }
 const RETOUCH_KEY = 'npd:bgremoval_retouch'
 const DEST_KEY = 'npd:bgremoval_dest'
 const ACCENT = '#1D9E75'
+
+// Stable style reference — declaring inline `style={{ color: ACCENT }}` creates a new
+// object on EVERY render. React sees a changed prop reference, applies a DOM style
+// mutation, and Chromium resets the CSS animation. Hoisting to module-level prevents this.
+const ACCENT_STYLE: CSSProperties = { color: ACCENT }
+
+// Memoized spinner — keeps the SVG DOM element untouched across parent re-renders so
+// the `animate-spin` CSS animation never gets interrupted by status-tick re-renders.
+const ProcessingSpinner = memo(function ProcessingSpinner({ size = 16 }: { size?: number }) {
+  return (
+    <Loader2
+      size={size}
+      // will-change-transform promotes the element to the GPU compositor layer so
+      // the rotation runs independent of the JS/layout thread.
+      className="animate-spin will-change-transform shrink-0"
+      style={ACCENT_STYLE}
+    />
+  )
+})
 
 const slash = (p: string): string => p.replace(/\\/g, '/')
 
@@ -95,7 +114,7 @@ const PhotoTile = memo(function PhotoTile({
       <div className="aspect-square" style={CHECKER}>
         {url
           ? <img src={url} alt={label} loading="lazy" className="h-full w-full object-cover" />
-          : <div className="flex h-full items-center justify-center"><Loader2 size={18} className="animate-spin text-gray-400" /></div>}
+          : <div className="flex h-full items-center justify-center"><Loader2 size={18} className="animate-spin will-change-transform text-gray-400" /></div>}
       </div>
 
       {kind === 'done' && (
@@ -105,7 +124,7 @@ const PhotoTile = memo(function PhotoTile({
       )}
       {kind === 'current' && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-          <Loader2 size={34} className="animate-spin text-white drop-shadow" />
+          <Loader2 size={34} className="animate-spin will-change-transform text-white drop-shadow" />
         </div>
       )}
       {kind === 'error' && (
@@ -121,7 +140,7 @@ const PhotoTile = memo(function PhotoTile({
           title="Re-cut with Photoshop Select Subject"
           className="absolute bottom-9 right-1.5 inline-flex items-center gap-1 rounded-md bg-black/55 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity hover:bg-black/75 group-hover:opacity-100 disabled:opacity-100"
         >
-          {recutting ? <Loader2 size={11} className="animate-spin" /> : <Wand2 size={11} />}
+          {recutting ? <Loader2 size={11} className="animate-spin will-change-transform" /> : <Wand2 size={11} />}
           Select Subject
         </button>
       )}
@@ -352,7 +371,7 @@ export default function BackgroundRemovalPage() {
         {/* resolving install state */}
         {!install && (
           <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-            <Loader2 size={16} className="animate-spin" /> Checking engine…
+            <Loader2 size={16} className="animate-spin will-change-transform" /> Checking engine…
           </div>
         )}
 
@@ -409,7 +428,7 @@ export default function BackgroundRemovalPage() {
                   <div className="h-full rounded-full transition-all" style={{ width: `${iProg?.pct ?? 0}%`, background: ACCENT }} />
                 </div>
                 <div className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                  <Loader2 size={16} className="animate-spin" style={{ color: ACCENT }} />
+                  <ProcessingSpinner />
                   <span className="truncate">{iProg?.message || 'Working…'}</span>
                 </div>
                 <button onClick={cancelInstall} className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800">
@@ -493,8 +512,8 @@ export default function BackgroundRemovalPage() {
             </div>
             <div className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               {phase === 'done'
-                ? <><CheckCircle2 size={16} style={{ color: ACCENT }} /> {result?.success ? 'Completed.' : (result?.error || 'Finished with errors.')}</>
-                : <><Loader2 size={16} className="animate-spin" style={{ color: ACCENT }} /> {status?.current?.step || 'Preparing…'}</>}
+                ? <><CheckCircle2 size={16} style={ACCENT_STYLE} /> {result?.success ? 'Completed.' : (result?.error || 'Finished with errors.')}</>
+                : <><ProcessingSpinner /> {status?.current?.step || 'Preparing…'}</>}
             </div>
             {phase === 'processing' && (
               <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
@@ -589,7 +608,7 @@ export default function BackgroundRemovalPage() {
                   title="Re-cut this photo with Photoshop Select Subject"
                 >
                   {recutting === baseName(files[lightbox])
-                    ? <Loader2 size={13} className="animate-spin" />
+                    ? <Loader2 size={13} className="animate-spin will-change-transform" />
                     : <Wand2 size={13} />}
                   Select Subject (Photoshop)
                 </button>
