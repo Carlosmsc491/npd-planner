@@ -1,0 +1,24 @@
+# Background Removal — RUNTIME (inference) dependencies.
+# These are what batch_run.py / infer.py / birefnet actually import at runtime.
+# Pinned to the versions validated in the dev .venv so the shipped engine is
+# reproducible. The downloadable runtime package bundles these as offline wheels;
+# the app installs them into a venv on the user's Mac (no compiler, no network).
+
+torch==2.12.0
+torchvision==0.27.0
+segmentation-models-pytorch==0.5.0
+timm==1.0.27
+transformers==5.12.1
+einops==0.8.2
+kornia==0.8.3
+safetensors==0.8.0
+huggingface_hub==1.19.0
+rembg==2.0.76
+onnxruntime==1.27.0
+opencv-python-headless==4.13.0.92
+pillow==12.2.0
+numpy==2.4.6
+scipy==1.17.1
+pymatting==1.1.15
+scikit-image==0.26.0
+pyyaml==6.0.3

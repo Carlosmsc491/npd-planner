@@ -27,6 +27,7 @@ const CORE_AREAS: AreaRow[] = [
 
 const MODULE_AREAS: AreaRow[] = [
   { label: 'NPD Projects',     areaId: 'npd_projects',         options: ['none', 'view', 'edit'] },
+  { label: 'Background Removal (Mac)', areaId: 'background_removal', options: ['none', 'view'] },
 ]
 
 // One entry per settings sidebar item that is NOT admin-only.

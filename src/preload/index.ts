@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/constants'
-import type { ConvertScanResult, ConvertBatchJob, ConvertBatchResult, ConvertProgress, PathStat } from '../shared/convert'
+import type { ConvertScanResult, ConvertBatchJob, ConvertBatchResult, ConvertProgress, ConvertEstimate, ConvertEstimateOptions, PathStat } from '../shared/convert'
+import type { BgRemovalJob, BgRemovalResult, BgRemovalStatus, BgRemovalSetup } from '../shared/bgRemoval'
 
 // Allowed channels for generic invoke/on/off/send
 const INVOKE_CHANNELS = [
@@ -43,6 +44,11 @@ const SEND_CHANNELS = [
 
 // Custom APIs for renderer
 const electronAPI = {
+  // Synchronous platform string ("darwin" | "win32" | …). Exposed via the
+  // namespaced bridge rather than a global `window.process` shim, which in the
+  // renderer aliases globalThis.process and can break browser libs that probe it.
+  platform: process.platform,
+
   copyFile: (sourcePath: string, destPath: string, createDirs: boolean, resolvedFolder?: string) =>
     ipcRenderer.invoke(IPC.FILE_COPY, { sourcePath, destPath, createDirs, resolvedFolder }),
 
@@ -274,10 +280,45 @@ const electronAPI = {
   convertRunBatch: (job: ConvertBatchJob): Promise<ConvertBatchResult> =>
     ipcRenderer.invoke('convert:run-batch', job),
 
+  convertEstimate: (sources: string[], opts: ConvertEstimateOptions): Promise<ConvertEstimate> =>
+    ipcRenderer.invoke('convert:estimate', sources, opts),
+
   onConvertProgress: (cb: (p: ConvertProgress) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, p: ConvertProgress) => cb(p)
     ipcRenderer.on('convert:progress', listener)
     return () => ipcRenderer.removeListener('convert:progress', listener)
+  },
+
+  // ── Background removal (Mac-only) ─────────────────────────────────────────────
+  bgRemovalInstallState: (): Promise<import('../shared/bgRemoval').BgInstallState> =>
+    ipcRenderer.invoke('bgremoval:install-state'),
+  bgRemovalInstall: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('bgremoval:install'),
+  bgRemovalInstallCancel: (): Promise<void> =>
+    ipcRenderer.invoke('bgremoval:install-cancel'),
+  onBgRemovalInstallProgress: (cb: (p: import('../shared/bgRemoval').BgInstallProgress) => void): (() => void) => {
+    const listener = (_e: unknown, p: import('../shared/bgRemoval').BgInstallProgress): void => cb(p)
+    ipcRenderer.on('bgremoval:install-progress', listener)
+    return () => ipcRenderer.removeListener('bgremoval:install-progress', listener)
+  },
+  bgRemovalDefaultToolDir: (): Promise<string> =>
+    ipcRenderer.invoke('bgremoval:default-tool-dir'),
+  bgRemovalSelectFiles: (): Promise<string[]> =>
+    ipcRenderer.invoke('bgremoval:select-files'),
+  bgRemovalCheckSetup: (toolDir: string): Promise<BgRemovalSetup> =>
+    ipcRenderer.invoke('bgremoval:check-setup', toolDir),
+  bgRemovalRun: (job: BgRemovalJob): Promise<BgRemovalResult> =>
+    ipcRenderer.invoke('bgremoval:run', job),
+  bgRemovalCancel: (): Promise<void> =>
+    ipcRenderer.invoke('bgremoval:cancel'),
+  bgRemovalOpenOutput: (dir: string): Promise<void> =>
+    ipcRenderer.invoke('bgremoval:open-output', dir),
+  bgRemovalReadThumb: (absPath: string): Promise<string | null> =>
+    ipcRenderer.invoke('bgremoval:read-thumb', absPath),
+  onBgRemovalProgress: (cb: (s: BgRemovalStatus) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, s: BgRemovalStatus) => cb(s)
+    ipcRenderer.on('bgremoval:progress', listener)
+    return () => ipcRenderer.removeListener('bgremoval:progress', listener)
   },
 
   // ── Excel / Python ──────────────────────────────────────────────────────────

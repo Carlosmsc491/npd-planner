@@ -15,6 +15,10 @@ const LEGACY_ALIASES: Record<string, string[]> = {
   npd_projects: ['elitequote', 'recipes'],
 }
 
+// Areas a photographer (standalone role or add-on) gets by default, no explicit
+// grant needed — mirrors the photographer rules in lib/permissions.ts.
+const PHOTOGRAPHER_DEFAULTS = new Set(['npd_projects', 'background_removal'])
+
 function resolvePermission(perms: AreaPermissions | undefined, areaId: string): AreaPermission {
   if (perms?.[areaId] !== undefined) return perms[areaId] as AreaPermission
   // Check legacy keys for backward compat with existing Firestore data
@@ -36,6 +40,7 @@ export function useAreaPermission(areaId: string): AreaPermission {
   const user = useAuthStore((s) => s.user)
   if (!user) return 'none'
   if (user.role === 'owner' || user.role === 'admin') return 'edit'
+  if ((user.role === 'photographer' || user.isPhotographer) && PHOTOGRAPHER_DEFAULTS.has(areaId)) return 'edit'
   return resolvePermission(user.areaPermissions, areaId)
 }
 
@@ -54,5 +59,6 @@ export function getAreaPermission(areaId: string): AreaPermission {
   const user = useAuthStore.getState().user
   if (!user) return 'none'
   if (user.role === 'owner' || user.role === 'admin') return 'edit'
+  if ((user.role === 'photographer' || user.isPhotographer) && PHOTOGRAPHER_DEFAULTS.has(areaId)) return 'edit'
   return resolvePermission(user.areaPermissions, areaId)
 }

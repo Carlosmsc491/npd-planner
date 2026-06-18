@@ -4,7 +4,7 @@ import { useAreaPermission } from '../../hooks/useAreaPermission'
 import { isPrivileged } from '../../lib/permissions'
 
 // Routes a photographer is allowed to visit
-const PHOTOGRAPHER_ALLOWED = ['/recipes', '/capture', '/emergency']
+const PHOTOGRAPHER_ALLOWED = ['/recipes', '/capture', '/background-removal', '/emergency']
 
 interface ProtectedRouteProps {
   areaId?: string

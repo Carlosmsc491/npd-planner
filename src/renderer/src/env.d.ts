@@ -28,6 +28,7 @@ interface IpcSharePointVerifyResponse {
 }
 
 interface IElectronAPI {
+  platform: string
   copyFile: (sourcePath: string, destPath: string, createDirs: boolean, resolvedFolder?: string) => Promise<IpcFileResponse>
   verifySharePointFolder: (folderPath: string, verificationSubfolder: string) => Promise<IpcSharePointVerifyResponse>
   selectFolder: () => Promise<string | null>
@@ -114,7 +115,21 @@ interface IElectronAPI {
   convertSelectFiles: () => Promise<string[]>
   convertSelectDest: () => Promise<string | null>
   convertRunBatch: (job: import('../../shared/convert').ConvertBatchJob) => Promise<import('../../shared/convert').ConvertBatchResult>
+  convertEstimate: (sources: string[], opts: import('../../shared/convert').ConvertEstimateOptions) => Promise<import('../../shared/convert').ConvertEstimate>
   onConvertProgress: (cb: (p: import('../../shared/convert').ConvertProgress) => void) => () => void
+  // Background removal (Mac-only)
+  bgRemovalInstallState: () => Promise<import('../../shared/bgRemoval').BgInstallState>
+  bgRemovalInstall: () => Promise<{ ok: boolean; error?: string }>
+  bgRemovalInstallCancel: () => Promise<void>
+  onBgRemovalInstallProgress: (cb: (p: import('../../shared/bgRemoval').BgInstallProgress) => void) => () => void
+  bgRemovalDefaultToolDir: () => Promise<string>
+  bgRemovalSelectFiles: () => Promise<string[]>
+  bgRemovalCheckSetup: (toolDir: string) => Promise<import('../../shared/bgRemoval').BgRemovalSetup>
+  bgRemovalRun: (job: import('../../shared/bgRemoval').BgRemovalJob) => Promise<import('../../shared/bgRemoval').BgRemovalResult>
+  bgRemovalCancel: () => Promise<void>
+  bgRemovalOpenOutput: (dir: string) => Promise<void>
+  bgRemovalReadThumb: (absPath: string) => Promise<string | null>
+  onBgRemovalProgress: (cb: (s: import('../../shared/bgRemoval').BgRemovalStatus) => void) => () => void
   // Excel / Python
   excelCheckDependencies: () => Promise<{ available: boolean; error?: string }>
   insertPhotoInExcel: (args: { excelPath: string; jpgPath: string }) => Promise<{ success: boolean; error?: string }>

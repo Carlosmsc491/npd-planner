@@ -1027,6 +1027,7 @@ const CORE_PERM_AREAS: { label: string; areaId: string; options: AreaPermission[
   { label: 'Master Calendar', areaId: 'calendar',    options: ['none', 'view'] },
   { label: 'Analytics',       areaId: 'analytics',   options: ['none', 'view'] },
   { label: 'NPD Projects',    areaId: 'npd_projects', options: ['none', 'view', 'edit'] },
+  { label: 'Background Removal (Mac)', areaId: 'background_removal', options: ['none', 'view'] },
 ]
 
 const SETTINGS_PERM_AREAS: { label: string; areaId: string }[] = [

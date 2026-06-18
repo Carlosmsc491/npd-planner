@@ -30,6 +30,7 @@ const NewRecipeProjectWizard = lazy(() => import('./components/recipes/wizard/Ne
 const CapturePage = lazy(() => import('./pages/CapturePage'))
 const DirectoryPage = lazy(() => import('./pages/DirectoryPage'))
 const ConvertPicturesPage = lazy(() => import('./pages/ConvertPicturesPage'))
+const BackgroundRemovalPage = lazy(() => import('./pages/BackgroundRemovalPage'))
 
 function RouteFallback() {
   return (
@@ -232,6 +233,14 @@ export default function App() {
           <Route path="/recipes/:projectId" element={<RecipeProjectPage />} />
           <Route path="/capture/:recipeId" element={<CapturePage />} />
           <Route path="/convert-pictures" element={<ConvertPicturesPage />} />
+        </Route>
+        {/* Background Removal — own area (default-on for owner + photographer),
+            Mac-only (needs the local engine + Photoshop) */}
+        <Route element={<ProtectedRoute areaId="background_removal" />}>
+          <Route
+            path="/background-removal"
+            element={window.electronAPI.platform === 'darwin' ? <BackgroundRemovalPage /> : <Navigate to="/dashboard" replace />}
+          />
         </Route>
         <Route element={<ProtectedRoute areaId="directory" />}>
           <Route path="/directory" element={<DirectoryPage />} />

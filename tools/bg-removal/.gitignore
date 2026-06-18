@@ -7,6 +7,16 @@ config.yaml
 # Generated artifacts
 output/
 logs/
+app_runs/
+
+# App-driven test batches
+batch_in/
+batch_out/
+retocados/
+
+# Downloadable engine package build artifacts (multi-GB) — never commit
+package/build/
+package/dist/
 
 # Training data + generated labels/checkpoints (large / client-proprietary)
 dataset/

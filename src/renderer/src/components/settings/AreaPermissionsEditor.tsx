@@ -35,6 +35,7 @@ const CORE_ROWS: { label: string; key: string; levels: AreaPermission[] }[] = [
   { label: 'Master Calendar', key: 'calendar',       levels: ['none', 'view'] },
   { label: 'Analytics',       key: 'analytics',      levels: ['none', 'view'] },
   { label: 'NPD Projects',    key: 'npd_projects',   levels: ['none', 'view', 'edit'] },
+  { label: 'Background Removal (Mac)', key: 'background_removal', levels: ['none', 'view'] },
 ]
 
 export function AreaPermissionsEditor({ user, boards, currentUser }: Props) {
