@@ -74,7 +74,19 @@ export function setupAutoUpdater(mainWindow: BrowserWindow): void {
   // install the DMG — open the GitHub release so the user downloads it.
   ipcMain.on('app:restart-to-update', () => {
     if (process.platform === 'win32') {
-      autoUpdater.quitAndInstall()
+      // isSilent=true  → no NSIS UI window (the "loader" that users saw vanish
+      //                  when the app exited); the install runs in the background.
+      // isForceRunAfter=true → relaunch into the updated app, so it visibly
+      //                  "updates" instead of just dying.
+      // Deferred a tick so the renderer settles and the before-quit Traze cleanup
+      // (bounded to 3s in index.ts) can run before the installer takes the dir.
+      setImmediate(() => {
+        try {
+          autoUpdater.quitAndInstall(true, true)
+        } catch (e) {
+          console.error('[Updater] quitAndInstall failed:', (e as Error).message)
+        }
+      })
     } else {
       shell.openExternal(RELEASES_URL).catch(() => { /* ignore */ })
     }

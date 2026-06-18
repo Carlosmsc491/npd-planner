@@ -346,7 +346,10 @@ app.on('before-quit', (event) => {
   if (!trazeBrowserClosed && hasActiveTrazeBrowser()) {
     event.preventDefault()
     trazeBrowserClosed = true
-    closeActiveTrazeBrowser().finally(() => app.quit())
+    // Bound to 3s so a hung Chromium can't freeze quit — which on Windows would
+    // also stall the NSIS update install waiting for the app to exit.
+    const timeout = new Promise((res) => setTimeout(res, 3000))
+    Promise.race([closeActiveTrazeBrowser(), timeout]).finally(() => app.quit())
     return
   }
   trazeBrowserClosed = true
