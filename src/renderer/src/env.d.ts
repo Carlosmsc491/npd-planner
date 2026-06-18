@@ -139,6 +139,18 @@ interface IElectronAPI {
   bgRemovalReadFull: (absPath: string) => Promise<string | null>
   bgRemovalReadThumb: (absPath: string) => Promise<string | null>
   onBgRemovalProgress: (cb: (s: import('../../shared/bgRemoval').BgRemovalStatus) => void) => () => void
+  // Photo Studio (Mac-only standalone session manager)
+  photoStudioListSessions: (catalogDir: string) => Promise<{ ok: boolean; sessions: import('../../shared/photoStudio').StudioSession[]; error?: string }>
+  photoStudioCreateSession: (catalogDir: string, name: string) => Promise<{ ok: boolean; id?: string; sessionDir?: string; error?: string }>
+  photoStudioDeleteSession: (sessionDir: string) => Promise<{ ok: boolean; error?: string }>
+  photoStudioListPhotos: (sessionDir: string) => Promise<{ ok: boolean; photos: import('../../shared/photoStudio').StudioPhoto[]; error?: string }>
+  photoStudioImportPhotos: (sessionDir: string, srcPaths: string[]) => Promise<{ ok: boolean; errors: string[] }>
+  photoStudioSelectImport: (sessionDir: string) => Promise<{ ok: boolean; imported: number; errors: string[] }>
+  photoStudioUpdatePhotoState: (args: { sessionDir: string; photoId: string; state: import('../../shared/photoStudio').StudioPhoto['state']; cleanedPath?: string | null; jpgPath?: string | null }) => Promise<{ ok: boolean; error?: string }>
+  photoStudioRemovePhoto: (args: { sessionDir: string; photoId: string; filename: string }) => Promise<{ ok: boolean; error?: string }>
+  photoStudioPickCatalog: () => Promise<string | null>
+  photoStudioOpenInFinder: (dir: string) => Promise<void>
+  photoStudioRenameSession: (sessionDir: string, newName: string) => Promise<{ ok: boolean; error?: string }>
   // Excel / Python
   excelCheckDependencies: () => Promise<{ available: boolean; error?: string }>
   insertPhotoInExcel: (args: { excelPath: string; jpgPath: string }) => Promise<{ success: boolean; error?: string }>

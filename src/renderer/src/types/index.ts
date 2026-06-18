@@ -17,16 +17,18 @@ export type AccessLevel = 'none' | 'view' | 'edit'
 export type AreaPermissions = Record<string, AreaPermission>
 
 export const DEFAULT_AREA_PERMISSIONS: AreaPermissions = {
-  dashboard:       'view',
-  my_tasks:        'view',
-  my_space:        'view',
-  calendar:        'view',
-  analytics:       'none',
-  npd_projects:    'none',
-  settings_files:  'none',
-  settings_traze:  'none',
-  settings_trash:  'none',
-  settings_recipe: 'none',
+  dashboard:        'view',
+  my_tasks:         'view',
+  my_space:         'view',
+  calendar:         'view',
+  analytics:        'none',
+  npd_projects:     'none',
+  background_removal: 'none',
+  photo_studio:     'none',
+  settings_files:   'none',
+  settings_traze:   'none',
+  settings_trash:   'none',
+  settings_recipe:  'none',
 }
 
 export interface PendingApproval {

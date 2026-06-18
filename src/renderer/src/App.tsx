@@ -31,6 +31,7 @@ const CapturePage = lazy(() => import('./pages/CapturePage'))
 const DirectoryPage = lazy(() => import('./pages/DirectoryPage'))
 const ConvertPicturesPage = lazy(() => import('./pages/ConvertPicturesPage'))
 const BackgroundRemovalPage = lazy(() => import('./pages/BackgroundRemovalPage'))
+const PhotoStudioPage = lazy(() => import('./pages/PhotoStudioPage'))
 
 function RouteFallback() {
   return (
@@ -240,6 +241,13 @@ export default function App() {
           <Route
             path="/background-removal"
             element={window.electronAPI.platform === 'darwin' ? <BackgroundRemovalPage /> : <Navigate to="/dashboard" replace />}
+          />
+        </Route>
+        {/* Photo Studio — standalone session manager, Mac-only */}
+        <Route element={<ProtectedRoute areaId="photo_studio" />}>
+          <Route
+            path="/photo-studio"
+            element={window.electronAPI.platform === 'darwin' ? <PhotoStudioPage /> : <Navigate to="/dashboard" replace />}
           />
         </Route>
         <Route element={<ProtectedRoute areaId="directory" />}>

@@ -341,6 +341,30 @@ const electronAPI = {
     return () => ipcRenderer.removeListener('bgremoval:progress', listener)
   },
 
+  // ── Photo Studio (Mac-only standalone session manager) ──────────────────────
+  photoStudioListSessions: (catalogDir: string): Promise<{ ok: boolean; sessions: import('../shared/photoStudio').StudioSession[]; error?: string }> =>
+    ipcRenderer.invoke('photostudio:list-sessions', catalogDir),
+  photoStudioCreateSession: (catalogDir: string, name: string): Promise<{ ok: boolean; id?: string; sessionDir?: string; error?: string }> =>
+    ipcRenderer.invoke('photostudio:create-session', { catalogDir, name }),
+  photoStudioDeleteSession: (sessionDir: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('photostudio:delete-session', sessionDir),
+  photoStudioListPhotos: (sessionDir: string): Promise<{ ok: boolean; photos: import('../shared/photoStudio').StudioPhoto[]; error?: string }> =>
+    ipcRenderer.invoke('photostudio:list-photos', sessionDir),
+  photoStudioImportPhotos: (sessionDir: string, srcPaths: string[]): Promise<{ ok: boolean; errors: string[] }> =>
+    ipcRenderer.invoke('photostudio:import-photos', { sessionDir, srcPaths }),
+  photoStudioSelectImport: (sessionDir: string): Promise<{ ok: boolean; imported: number; errors: string[] }> =>
+    ipcRenderer.invoke('photostudio:select-import', sessionDir),
+  photoStudioUpdatePhotoState: (args: { sessionDir: string; photoId: string; state: import('../shared/photoStudio').StudioPhoto['state']; cleanedPath?: string | null; jpgPath?: string | null }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('photostudio:update-photo-state', args),
+  photoStudioRemovePhoto: (args: { sessionDir: string; photoId: string; filename: string }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('photostudio:remove-photo', args),
+  photoStudioPickCatalog: (): Promise<string | null> =>
+    ipcRenderer.invoke('photostudio:pick-catalog'),
+  photoStudioOpenInFinder: (dir: string): Promise<void> =>
+    ipcRenderer.invoke('photostudio:open-in-finder', dir),
+  photoStudioRenameSession: (sessionDir: string, newName: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('photostudio:rename-session', { sessionDir, newName }),
+
   // ── Excel / Python ──────────────────────────────────────────────────────────
   excelCheckDependencies: (): Promise<{ available: boolean; error?: string }> =>
     ipcRenderer.invoke('excel:check-dependencies'),

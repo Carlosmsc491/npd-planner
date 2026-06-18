@@ -17,7 +17,7 @@ const LEGACY_ALIASES: Record<string, string[]> = {
 
 // Areas a photographer (standalone role or add-on) gets by default, no explicit
 // grant needed — mirrors the photographer rules in lib/permissions.ts.
-const PHOTOGRAPHER_DEFAULTS = new Set(['npd_projects', 'background_removal'])
+const PHOTOGRAPHER_DEFAULTS = new Set(['npd_projects', 'background_removal', 'photo_studio'])
 
 function resolvePermission(perms: AreaPermissions | undefined, areaId: string): AreaPermission {
   if (perms?.[areaId] !== undefined) return perms[areaId] as AreaPermission
