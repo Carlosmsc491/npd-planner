@@ -80,8 +80,11 @@ Typecheck (`typecheck:node` + `typecheck:web`) green.
 
 ## 4. TODO / PENDING
 
-- [ ] **Build the package:** `bash tools/bg-removal/package/build-runtime.sh`
-      (~15–20 min, ~2 GB out). Produces `package/dist/…tar.gz` + `.sha256`.
+- [x] **Build the package** — `package/dist/bg-removal-runtime-mac-arm64.tar.gz`
+      **792 MB** (download). SHA-256:
+      `92f91275cd2594ec49cebc78a4a41d905bd4e2e5a3ff1afe34593ca09af17e51`.
+      (rembg ONNX dropped — not used at runtime; install footprint ~2.8 GB once
+      the venv is built on-device.)
 - [ ] **Create the release + upload** (Carlos, billed/outward-facing):
       ```
       gh release create bg-runtime-v1 \

@@ -154,14 +154,14 @@ export default function BackgroundRemovalPage() {
               <>
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white">Install the engine</h2>
                 <p className="mt-1 max-w-xl text-sm text-gray-500 dark:text-gray-400">
-                  This module needs a one-time download of the AI engine (~2 GB). It installs automatically — no setup required. You only do this once.
+                  This module needs a one-time download of the AI engine (~800 MB). It installs automatically — no setup required. You only do this once.
                 </p>
                 <button
                   onClick={startInstall}
                   className="mt-4 inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-white"
                   style={{ background: ACCENT }}
                 >
-                  <Download size={16} /> Download engine (~2 GB)
+                  <Download size={16} /> Download engine (~800 MB)
                 </button>
               </>
             )}
