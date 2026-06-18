@@ -3,11 +3,13 @@
 // Mac-only. No recipe dependency.
 
 import { useState, useEffect, useCallback, useRef, memo } from 'react'
+import AppLayout from '../components/ui/AppLayout'
+import CutoutCompareModal from '../components/ui/CutoutCompareModal'
 import type { StudioSession, StudioPhoto } from '../../../shared/photoStudio'
 import {
   Camera, FolderOpen, Grid3X3, List, Image, Plus, Trash2, RefreshCw,
   CheckCircle2, Loader2, AlertTriangle, ChevronLeft, Scissors, Download,
-  FolderInput, MoreVertical, Pencil, X, ArrowLeft, ArrowRight, WifiOff, Wifi, Star,
+  FolderInput, MoreVertical, Pencil, X, ArrowLeft, ArrowRight, WifiOff, Wifi, Star, ExternalLink, Wand2,
 } from 'lucide-react'
 
 // ─── localStorage ────────────────────────────────────────────────────────────
@@ -22,13 +24,14 @@ type ViewMode = 'icons' | 'gallery' | 'list' | 'capture'
 
 // ─── Thumbnail component ──────────────────────────────────────────────────────
 const PhotoThumb = memo(function PhotoThumb({
-  photo, selected, onClick, onSelect, onStar,
+  photo, selected, onClick, onSelect, onStar, bust,
 }: {
   photo: StudioPhoto
   selected: boolean
   onClick: () => void
   onSelect: (shift: boolean) => void
   onStar?: () => void
+  bust?: number
 }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
 
@@ -43,7 +46,7 @@ const PhotoThumb = memo(function PhotoThumb({
       if (!cancelled) setDataUrl(url)
     })
     return () => { cancelled = true }
-  }, [photo.absPath, photo.state, photo.cleanedPath, photo.jpgPath])
+  }, [photo.absPath, photo.state, photo.cleanedPath, photo.jpgPath, bust])
 
   const stateColor: Record<StudioPhoto['state'], string> = {
     captured: 'bg-gray-500',
@@ -131,8 +134,14 @@ function PhotoListRow({ photo, selected, onClick, onSelect, onStar }: {
 }
 
 // ─── Lightbox ────────────────────────────────────────────────────────────────
-function Lightbox({ photos, index, onClose, onNav }: {
+function Lightbox({ photos, index, onClose, onNav, onApprove, onPhotoshop, onSaveReturn, onSelectSubject, busy, bust }: {
   photos: StudioPhoto[]; index: number; onClose: () => void; onNav: (dir: -1 | 1) => void
+  onApprove?: (p: StudioPhoto) => void
+  onPhotoshop?: (p: StudioPhoto) => void
+  onSaveReturn?: (p: StudioPhoto) => void
+  onSelectSubject?: (p: StudioPhoto) => void
+  busy?: boolean
+  bust?: number
 }) {
   const photo = photos[index]
   const [dataUrl, setDataUrl] = useState<string | null>(null)
@@ -145,7 +154,7 @@ function Lightbox({ photos, index, onClose, onNav }: {
         ? photo.cleanedPath
         : photo.absPath
     window.electronAPI.bgRemovalReadFull(src).then(url => setDataUrl(url))
-  }, [photo])
+  }, [photo, bust])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -196,6 +205,49 @@ function Lightbox({ photos, index, onClose, onNav }: {
           </div>
         )}
         <div className="text-white/70 text-sm">{photo.filename} · {index + 1} / {photos.length}</div>
+
+        {/* Cleaned / ready action bar */}
+        {(photo.state === 'cleaned' || photo.state === 'ready') && (onApprove || onPhotoshop || onSaveReturn) && (
+          <div className="flex items-center gap-2 mt-1">
+            {onPhotoshop && (
+              <button
+                onClick={() => onPhotoshop(photo)}
+                disabled={busy}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-white/10 text-white hover:bg-white/20 disabled:opacity-50"
+              >
+                <ExternalLink size={12} /> Open in Photoshop
+              </button>
+            )}
+            {photo.state === 'cleaned' && onSelectSubject && (
+              <button
+                onClick={() => onSelectSubject(photo)}
+                disabled={busy}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-purple-600/80 text-white hover:bg-purple-500 disabled:opacity-50"
+                title="Re-cut with Photoshop Select Subject, then compare"
+              >
+                {busy ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />} Select Subject
+              </button>
+            )}
+            {photo.state === 'cleaned' && onApprove && (
+              <button
+                onClick={() => onApprove(photo)}
+                disabled={busy}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-green-600 text-white hover:bg-green-500 disabled:opacity-50"
+              >
+                {busy ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />} Approve → Ready
+              </button>
+            )}
+            {photo.state === 'ready' && onSaveReturn && (
+              <button
+                onClick={() => onSaveReturn(photo)}
+                disabled={busy}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
+              >
+                {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Save from Photoshop &amp; update JPG
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -347,6 +399,25 @@ function SessionView({
   const [filterState, setFilterState] = useState<StudioPhoto['state'] | 'all'>('all')
   const lastSelectedRef = useRef<number | null>(null)
 
+  // ── Background-removal engine ───────────────────────────────────────────────
+  // Resolve the local engine path the same way BackgroundRemovalPage does — via
+  // bgRemovalInstallState() (installed runtime or dev fallback). The old code read
+  // an `npd:bgremoval_tool_path` localStorage key that nothing ever wrote, so the
+  // engine never ran. Kept as an optional manual override.
+  const engineToolDirRef = useRef<string | null>(null)
+  const [engineReady, setEngineReady] = useState(false)
+  useEffect(() => {
+    window.electronAPI.bgRemovalInstallState().then(s => {
+      const dir = s.installed ? s.toolDir : (localStorage.getItem(LS_TOOL) || null)
+      engineToolDirRef.current = dir
+      setEngineReady(!!dir)
+    }).catch(() => {
+      const dir = localStorage.getItem(LS_TOOL) || null
+      engineToolDirRef.current = dir
+      setEngineReady(!!dir)
+    })
+  }, [])
+
   // ── Capture mode state ──────────────────────────────────────────────────────
   const [bgStatus, setBgStatus] = useState<Map<string, 'queued' | 'loading-model' | 'processing' | 'done' | 'error'>>(new Map())
   const [previewIdx, setPreviewIdx] = useState<number | null>(null)
@@ -486,7 +557,7 @@ function SessionView({
     setPhotos(prev => prev.map(p => p.id === photo.id ? { ...p, state: newState } : p))
     window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: photo.id, state: newState })
     if (newState === 'selected') {
-      const toolDir = localStorage.getItem(LS_TOOL)
+      const toolDir = engineToolDirRef.current
       if (toolDir && window.electronAPI.photoStudioEnqueueBg) {
         const outPng = sessionDir + '/_cleaned/' + photo.id + '.png'
         window.electronAPI.photoStudioEnqueueBg({ sessionDir, photoId: photo.id, input: photo.absPath, output: outPng, toolDir })
@@ -560,7 +631,7 @@ function SessionView({
         setPhotos(prev => prev.map(q => q.id === p.id ? { ...q, state: newState } : q))
         window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: p.id, state: newState })
         if (newState === 'selected') {
-          const toolDir = localStorage.getItem(LS_TOOL)
+          const toolDir = engineToolDirRef.current
           if (toolDir && window.electronAPI.photoStudioEnqueueBg) {
             const outPng = sessionDir + '/_cleaned/' + p.id + '.png'
             window.electronAPI.photoStudioEnqueueBg({ sessionDir, photoId: p.id, input: p.absPath, output: outPng, toolDir })
@@ -614,8 +685,8 @@ function SessionView({
 
   // Run BG removal on selected photos
   const runBgRemoval = async () => {
-    const toolDir = localStorage.getItem(LS_TOOL)
-    if (!toolDir) { alert('Set up the Background Removal engine first.'); return }
+    const toolDir = engineToolDirRef.current
+    if (!toolDir) { alert('Background Removal engine is not installed. Open the Background Removal page to install it.'); return }
     const targets = photos.filter(p => selected.has(p.id) && (p.state === 'selected' || p.state === 'captured'))
     if (!targets.length) return
 
@@ -650,6 +721,88 @@ function SessionView({
     }
     await loadPhotos()
   }
+
+  // ── Per-photo cleaned/ready actions (Approve · Photoshop · Save&return) ──────
+  const [photoBusy, setPhotoBusy] = useState<Set<string>>(new Set())
+  const setBusy = (id: string, on: boolean) =>
+    setPhotoBusy(prev => { const s = new Set(prev); if (on) s.add(id); else s.delete(id); return s })
+  // Per-photo thumbnail cache-bust — bumped when a cleaned/ready PNG changes on
+  // disk (Photoshop save or Select Subject recut) so the thumb/lightbox refetch.
+  const [thumbBust, setThumbBust] = useState<Record<string, number>>({})
+  const bumpThumb = (id: string) => setThumbBust(prev => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
+
+  // Approve a cleaned photo → READY (creates the final JPG from the cleaned PNG)
+  const approvePhoto = useCallback(async (photo: StudioPhoto) => {
+    if (!photo.cleanedPath) return
+    setBusy(photo.id, true)
+    const finalJpg = sessionDir + '/_ready/' + photo.id + '.jpg'
+    const res = await window.electronAPI.bgRemovalMakeJpg(photo.cleanedPath, finalJpg)
+    if (res.ok) {
+      await window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: photo.id, state: 'ready', jpgPath: finalJpg })
+      setPhotos(prev => prev.map(p => p.id === photo.id ? { ...p, state: 'ready', jpgPath: finalJpg } : p))
+    } else {
+      alert('Could not create the JPG: ' + (res.error ?? 'unknown error'))
+    }
+    setBusy(photo.id, false)
+  }, [sessionDir])
+
+  // Open the cleaned/ready PNG in Photoshop for manual retouch
+  const openInPhotoshop = useCallback(async (photo: StudioPhoto) => {
+    const png = photo.cleanedPath
+    if (!png) return
+    const res = await window.electronAPI.photoshopOpen(png)
+    if (!res.ok) alert('Could not open Photoshop: ' + (res.error ?? 'unknown error'))
+  }, [])
+
+  // Save the Photoshop-edited PNG back to the same path; if the photo is READY,
+  // regenerate its JPG so the export stays in sync (deterministic auto-update).
+  const saveReturnPhotoshop = useCallback(async (photo: StudioPhoto) => {
+    const png = photo.cleanedPath
+    if (!png) return
+    setBusy(photo.id, true)
+    const r = await window.electronAPI.photoshopSaveReturn(png, false)
+    if (r.ok && photo.state === 'ready' && photo.jpgPath) {
+      await window.electronAPI.bgRemovalMakeJpg(png, photo.jpgPath)
+    }
+    setBusy(photo.id, false)
+    bumpThumb(photo.id)
+    if (!r.ok) alert('Could not save from Photoshop: ' + (r.error ?? 'unknown error'))
+  }, [])
+
+  // ── Select Subject (engine vs Photoshop cut-out compare) ────────────────────
+  // Same flow as Background Removal / Photo Manager: run Photoshop "Select Subject"
+  // on the ORIGINAL camera frame → compare against the engine cut → keep one.
+  const [compare, setCompare] = useState<
+    { photoId: string; enginePng: string; subjectPng: string; engineUrl: string | null; subjectUrl: string | null; name: string } | null
+  >(null)
+  const [compareBusy, setCompareBusy] = useState(false)
+
+  const selectSubject = useCallback(async (photo: StudioPhoto) => {
+    if (!photo.cleanedPath) return
+    setBusy(photo.id, true)
+    const subjectPng = photo.cleanedPath.replace(/\.png$/i, '.subject.png')
+    const r = await window.electronAPI.photoshopSelectSubject(photo.absPath, subjectPng)
+    if (!r.ok) {
+      setBusy(photo.id, false)
+      alert('Select Subject failed: ' + (r.error ?? 'unknown error'))
+      return
+    }
+    const [engineUrl, subjectUrl] = await Promise.all([
+      window.electronAPI.bgRemovalReadFull(photo.cleanedPath),
+      window.electronAPI.bgRemovalReadFull(subjectPng),
+    ])
+    setBusy(photo.id, false)
+    setCompare({ photoId: photo.id, enginePng: photo.cleanedPath, subjectPng, engineUrl, subjectUrl, name: photo.filename })
+  }, [])
+
+  const chooseRecut = useCallback(async (keepSubject: boolean) => {
+    if (!compare) return
+    setCompareBusy(true)
+    await window.electronAPI.bgRemovalResolveRecut({ keepSubject, enginePng: compare.enginePng, subjectPng: compare.subjectPng })
+    setCompareBusy(false)
+    bumpThumb(compare.photoId)
+    setCompare(null)
+  }, [compare])
 
   // Remove selected
   const removeSelected = async () => {
@@ -927,11 +1080,16 @@ function SessionView({
       </div>
 
       {/* KPI strip */}
-      <div className="flex gap-4 px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 text-xs shrink-0">
+      <div className="flex items-center gap-4 px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 text-xs shrink-0">
         <span className="text-gray-500">📷 <b className="text-gray-900 dark:text-white">{counts.captured}</b> captured</span>
         <span className="text-blue-500">⭐ <b>{counts.selected}</b> selected</span>
         <span className="text-purple-500">✂️ <b>{counts.cleaned}</b> cleaned</span>
         <span className="text-green-600">✅ <b>{counts.ready}</b> ready</span>
+        {!engineReady && (
+          <span className="ml-auto flex items-center gap-1 text-amber-600 dark:text-amber-400" title="Star a photo to auto-clean it — but the engine must be installed first">
+            <AlertTriangle size={12} /> Background Removal engine not installed
+          </span>
+        )}
       </div>
 
       {/* Filter + selection toolbar */}
@@ -1031,6 +1189,7 @@ function SessionView({
                   onClick={() => setLightboxIdx(i)}
                   onSelect={shift => toggleSelect(i, shift)}
                   onStar={() => starPhoto(p)}
+                  bust={thumbBust[p.id] ?? 0}
                 />
                 {processing.has(p.id) && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg">
@@ -1040,6 +1199,34 @@ function SessionView({
                 {p.state === 'ready' && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <CheckCircle2 size={28} className="text-green-400 drop-shadow-lg opacity-80" />
+                  </div>
+                )}
+                {/* Cleaned quick actions — Approve · Select Subject · Open in Photoshop */}
+                {p.state === 'cleaned' && (
+                  <div className="absolute bottom-1 inset-x-1 flex gap-1">
+                    <button
+                      onClick={e => { e.stopPropagation(); approvePhoto(p) }}
+                      disabled={photoBusy.has(p.id)}
+                      title="Approve → Ready"
+                      className="flex-1 flex items-center justify-center gap-1 py-1 rounded bg-green-600/90 text-white text-[10px] font-medium hover:bg-green-500 disabled:opacity-50"
+                    >
+                      {photoBusy.has(p.id) ? <Loader2 size={10} className="animate-spin" /> : <CheckCircle2 size={10} />} Approve
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); selectSubject(p) }}
+                      disabled={photoBusy.has(p.id)}
+                      title="Re-cut with Photoshop Select Subject"
+                      className="flex items-center justify-center px-1.5 py-1 rounded bg-purple-600/90 text-white hover:bg-purple-500 disabled:opacity-50"
+                    >
+                      <Wand2 size={11} />
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); openInPhotoshop(p) }}
+                      title="Open in Photoshop"
+                      className="flex items-center justify-center px-1.5 py-1 rounded bg-black/70 text-white hover:bg-black/90"
+                    >
+                      <ExternalLink size={11} />
+                    </button>
                   </div>
                 )}
               </div>
@@ -1059,6 +1246,28 @@ function SessionView({
             const next = i + dir
             return next >= 0 && next < visiblePhotos.length ? next : i
           })}
+          onApprove={approvePhoto}
+          onPhotoshop={openInPhotoshop}
+          onSaveReturn={saveReturnPhotoshop}
+          onSelectSubject={selectSubject}
+          busy={visiblePhotos[lightboxIdx] ? photoBusy.has(visiblePhotos[lightboxIdx].id) : false}
+          bust={visiblePhotos[lightboxIdx] ? (thumbBust[visiblePhotos[lightboxIdx].id] ?? 0) : 0}
+        />
+      )}
+
+      {/* Select Subject comparison — engine cut vs Photoshop cut */}
+      {compare && (
+        <CutoutCompareModal
+          title={`Which cut-out do you want to keep? · ${compare.name}`}
+          engineUrl={compare.engineUrl}
+          subjectUrl={compare.subjectUrl}
+          busy={compareBusy}
+          onChoose={chooseRecut}
+          onCancel={() => {
+            if (compareBusy) return
+            void window.electronAPI.bgRemovalResolveRecut({ keepSubject: false, enginePng: compare.enginePng, subjectPng: compare.subjectPng })
+            setCompare(null)
+          }}
         />
       )}
     </div>
@@ -1122,19 +1331,22 @@ export default function PhotoStudioPage() {
   // Session detail view
   if (activeSession && catalog) {
     return (
-      <div className="flex flex-col h-full bg-white dark:bg-gray-900">
-        <SessionView
-          session={activeSession}
-          catalogDir={catalog}
-          onBack={() => { setActiveSession(null); loadSessions(catalog) }}
-        />
-      </div>
+      <AppLayout mainClassName="flex-1 overflow-hidden">
+        <div className="flex flex-col h-full bg-white dark:bg-gray-900">
+          <SessionView
+            session={activeSession}
+            catalogDir={catalog}
+            onBack={() => { setActiveSession(null); loadSessions(catalog) }}
+          />
+        </div>
+      </AppLayout>
     )
   }
 
   // No catalog set → setup screen
   if (!catalog) {
     return (
+      <AppLayout>
       <div className="flex flex-col items-center justify-center h-full gap-6 text-center px-8">
         <div className="w-16 h-16 rounded-2xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
           <Camera size={32} className="text-purple-600" />
@@ -1152,11 +1364,13 @@ export default function PhotoStudioPage() {
           <FolderOpen size={18} /> Choose catalog folder
         </button>
       </div>
+      </AppLayout>
     )
   }
 
   // Sessions list
   return (
+    <AppLayout mainClassName="flex-1 overflow-hidden">
     <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
       {/* Header */}
       <div className="flex items-center gap-3 px-5 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shrink-0">
@@ -1232,5 +1446,6 @@ export default function PhotoStudioPage() {
         )}
       </div>
     </div>
+    </AppLayout>
   )
 }

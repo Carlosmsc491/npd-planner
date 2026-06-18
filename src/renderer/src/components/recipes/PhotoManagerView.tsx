@@ -708,6 +708,49 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
     }
   }
 
+  // Approve the existing cleaned PNG straight to Ready — no re-drop required.
+  // Mirrors processPng but sources from the cleaned PNG already on disk.
+  async function approveCleaned(recipe: RecipeFile): Promise<void> {
+    const cleanedRel = recipe.cleanedPhotoPaths?.[0]
+    if (!cleanedRel) return
+    setCleanedProcessing(recipe.id)
+    setCleanedErrors([])
+    try {
+      const projectRoot   = effectiveRootPath.replace(/\\/g, '/')
+      const srcPath       = resolvePhotoPath(cleanedRel, effectiveRootPath)
+      const baseName      = (cleanedRel.split(/[\\/]/).pop() ?? '').replace(/\.png$/i, '')
+      const parts         = recipe.relativePath.replace(/\\/g, '/').split('/')
+      const subfolderName = parts.length > 1 ? parts[0] : (recipe.capturedPhotos?.[0]?.subfolderName ?? '')
+      const pngFilename   = `${baseName}.png`
+      const jpgFilename   = `${baseName}.jpg`
+      const pngDest = subfolderName
+        ? `${projectRoot}/PICTURES/4. READY/PNG/${subfolderName}/${pngFilename}`
+        : `${projectRoot}/PICTURES/4. READY/PNG/${pngFilename}`
+      const jpgDest = subfolderName
+        ? `${projectRoot}/PICTURES/4. READY/JPG/${subfolderName}/${jpgFilename}`
+        : `${projectRoot}/PICTURES/4. READY/JPG/${jpgFilename}`
+
+      await moveOldReady(recipe)
+      const copyResult = await window.electronAPI.copyToSelected({ sourcePath: srcPath, destPath: pngDest })
+      if (!copyResult.success) { setCleanedErrors(e => [...e, `${recipe.displayName}: PNG copy failed — ${copyResult.error}`]); return }
+      const convertResult = await window.electronAPI.convertPngToJpg({ sourcePng: pngDest, destJpg: jpgDest, quality: 90 })
+      if (!convertResult.success) { setCleanedErrors(e => [...e, `${recipe.displayName}: JPG conversion failed — ${convertResult.error}`]); return }
+
+      const ref = refFromRecipe(recipe, user?.uid ?? '')
+      if (ref) {
+        upsertManifest(await setReady(projectRoot, ref, pngFilename, jpgFilename))
+        upsertManifest(await markCleanedDone(projectRoot, ref))
+      } else {
+        await updateRecipeReadyPaths(recipe.id, toRelativePhotoPath(pngDest, projectRoot), toRelativePhotoPath(jpgDest, projectRoot), user?.uid ?? '')
+        await updateRecipeCleanedPaths(recipe.id, recipe.cleanedPhotoPaths ?? [], 'done', user?.uid ?? '')
+      }
+    } catch (err) {
+      setCleanedErrors(e => [...e, `${recipe.displayName}: ${err instanceof Error ? err.message : String(err)}`])
+    } finally {
+      setCleanedProcessing(null)
+    }
+  }
+
   // ── READY tab drop handlers ───────────────────────────────────────────────────
 
   // Files that need a dialog (manual assign / notes warning) wait here so a
@@ -1040,6 +1083,7 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
                     isProcessing={cleanedProcessing === recipe.id}
                     canEdit={canEdit}
                     onDrop={file => handleCleanedDrop(file, recipe)}
+                    onApprove={() => approveCleaned(recipe)}
                     onOpenPhotoshop={async path => {
                       const abs = resolvePhotoPath(path, effectiveRootPath)
                       if (isMac) {
@@ -1345,10 +1389,11 @@ function KpiCard({ label, value, total, subtitle, color, alert }: {
 
 // ── CLEANED recipe row ─────────────────────────────────────────────────────────
 
-function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onOpenPhotoshop, onSaveReturn, onSelectSubject, onWarningClick }: {
+function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onApprove, onOpenPhotoshop, onSaveReturn, onSelectSubject, onWarningClick }: {
   recipe: RecipeFile; isProcessing: boolean
   canEdit: boolean
   onDrop: (file: File) => void; onOpenPhotoshop: (path: string) => void
+  onApprove?: () => Promise<void>  // promote the existing cleaned PNG straight to Ready (no re-drop)
   onSaveReturn?: (path: string) => Promise<void>   // Mac scripted save-back to same path
   onSelectSubject?: (path: string) => Promise<void> // Mac re-cut with Photoshop Select Subject
   onWarningClick?: () => void
@@ -1356,6 +1401,7 @@ function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onOpenPhotosh
   const [dragOver, setDragOver] = useState(false)
   const [saving, setSaving]     = useState(false)
   const [recut, setRecut]       = useState(false)
+  const [approving, setApproving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const hasCleaned   = (recipe.cleanedPhotoPaths?.length ?? 0) > 0
   const isDone       = recipe.cleanedPhotoStatus === 'done'
@@ -1383,7 +1429,7 @@ function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onOpenPhotosh
             </button>
           )}
         </div>
-        {needsRetouch && <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-0.5">{recipe.cleanedPhotoPaths!.length} cleaned · re-drop after retouching to send to Ready</p>}
+        {needsRetouch && <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-0.5">{recipe.cleanedPhotoPaths!.length} cleaned · Approve to send to Ready, or retouch first</p>}
         {isDone && <p className="text-[10px] text-green-600 dark:text-green-400 mt-0.5">Retouch accepted — moved to Ready</p>}
       </div>
       {hasCleaned && recipe.cleanedPhotoPaths![0] && (
@@ -1410,6 +1456,16 @@ function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onOpenPhotosh
           className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 transition-colors disabled:opacity-50">
           {saving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
           <span className="hidden sm:inline">Save &amp; return</span>
+        </button>
+      )}
+      {needsRetouch && onApprove && canEdit && (
+        <button
+          disabled={approving}
+          onClick={async () => { setApproving(true); try { await onApprove() } finally { setApproving(false) } }}
+          title="Approve this cut-out and send it to Ready"
+          className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold bg-green-600 text-white hover:bg-green-500 transition-colors disabled:opacity-50">
+          {approving ? <Loader2 size={10} className="animate-spin" /> : <CheckCircle2 size={10} />}
+          <span>Approve →&nbsp;Ready</span>
         </button>
       )}
       {canEdit && (
