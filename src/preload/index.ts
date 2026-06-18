@@ -315,6 +315,10 @@ const electronAPI = {
     ipcRenderer.invoke('photoshop:save-return', { filePath, close, app }),
   photoshopSelectSubject: (input: string, output: string, opts?: { canvas?: number; margin?: number; app?: string }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('photoshop:select-subject', { input, output, ...opts }),
+  bgRemovalMakeJpg: (pngPath: string, jpgPath: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('bgremoval:make-jpg', pngPath, jpgPath),
+  bgRemovalResolveRecut: (args: { keepSubject: boolean; enginePng: string; subjectPng: string }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('bgremoval:resolve-recut', args),
   bgRemovalSelectFiles: (): Promise<string[]> =>
     ipcRenderer.invoke('bgremoval:select-files'),
   bgRemovalCheckSetup: (toolDir: string): Promise<BgRemovalSetup> =>

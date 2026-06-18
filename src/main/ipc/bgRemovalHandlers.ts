@@ -343,6 +343,30 @@ export function registerBgRemovalHandlers(): void {
     }
   })
 
+  // Flatten a transparent PNG onto white → JPG (for Excel / formats that need it).
+  ipcMain.handle('bgremoval:make-jpg', async (_e, pngPath: string, jpgPath: string): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const sharp = require('sharp') as typeof import('sharp')
+      fs.mkdirSync(path.dirname(jpgPath), { recursive: true })
+      await sharp(pngPath).flatten({ background: '#ffffff' }).jpeg({ quality: 92 }).toFile(jpgPath)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+
+  // Resolve a Select-Subject comparison: keep the engine cut or the Photoshop one.
+  ipcMain.handle('bgremoval:resolve-recut', async (_e, { keepSubject, enginePng, subjectPng }: { keepSubject: boolean; enginePng: string; subjectPng: string }): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      if (keepSubject && fs.existsSync(subjectPng)) fs.copyFileSync(subjectPng, enginePng)
+      if (fs.existsSync(subjectPng)) fs.rmSync(subjectPng, { force: true })
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+
   // Full-size image as a data URL (for the lightbox large view, loaded on demand).
   ipcMain.handle('bgremoval:read-full', async (_e, absPath: string): Promise<string | null> => {
     try {

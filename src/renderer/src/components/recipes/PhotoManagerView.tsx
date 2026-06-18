@@ -21,6 +21,7 @@ import { canTakePhotos } from '../../lib/permissions'
 import { useRecipeNotes } from '../../hooks/useRecipeNotes'
 import { useCleanQueue } from '../../hooks/useCleanQueue'
 import PhotoGalleryPopup from './PhotoGalleryPopup'
+import CutoutCompareModal from '../ui/CutoutCompareModal'
 import type { RecipeProject, RecipeFile, CapturedPhoto } from '../../types'
 import type { PhotoManifest } from '../../../../shared/photoManifest'
 import {
@@ -144,6 +145,16 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
   // ── CLEANED tab state ───────────────────────────────────────────────────────
   const [cleanedProcessing, setCleanedProcessing] = useState<string | null>(null)
   const [cleanedErrors, setCleanedErrors]         = useState<string[]>([])
+  // Select Subject comparison (engine vs Photoshop)
+  const [compare, setCompare] = useState<{ cleanedAbs: string; subjectPng: string; engineUrl: string | null; subjectUrl: string | null; name: string } | null>(null)
+  const [compareBusy, setCompareBusy] = useState(false)
+  const chooseRecut = async (keepSubject: boolean) => {
+    if (!compare) return
+    setCompareBusy(true)
+    await window.electronAPI.bgRemovalResolveRecut({ keepSubject, enginePng: compare.cleanedAbs, subjectPng: compare.subjectPng })
+    setCompareBusy(false)
+    setCompare(null)
+  }
 
   // ── READY tab state ─────────────────────────────────────────────────────────
   const [dragOver, setDragOver]           = useState(false)
@@ -1047,8 +1058,14 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
                       const stem = (path.split(/[\\/]/).pop() ?? '').replace(/\.[^.]+$/, '')
                       const orig = recipe.capturedPhotos?.find(p => p.filename.replace(/\.[^.]+$/, '') === stem)
                       if (!orig) { setCleanedErrors(e => [...e, `${recipe.displayName}: original photo not found for re-cut`]); return }
-                      const r = await window.electronAPI.photoshopSelectSubject(resolvePhotoPath(orig.picturePath, effectiveRootPath), cleanedAbs)
-                      if (!r.ok) setCleanedErrors(e => [...e, `${recipe.displayName}: ${r.error || 'Select Subject failed'}`])
+                      const subjectPng = cleanedAbs.replace(/\.png$/i, '.subject.png')
+                      const r = await window.electronAPI.photoshopSelectSubject(resolvePhotoPath(orig.picturePath, effectiveRootPath), subjectPng)
+                      if (!r.ok) { setCleanedErrors(e => [...e, `${recipe.displayName}: ${r.error || 'Select Subject failed'}`]); return }
+                      const [eu, su] = await Promise.all([
+                        window.electronAPI.bgRemovalReadFull(cleanedAbs),
+                        window.electronAPI.bgRemovalReadFull(subjectPng),
+                      ])
+                      setCompare({ cleanedAbs, subjectPng, engineUrl: eu, subjectUrl: su, name: recipe.displayName })
                     } : undefined}
                     onWarningClick={() => setNotesModal({ recipeId: recipe.id, projectId: project.id, recipeName: recipe.recipeName || recipe.displayName })}
                   />
@@ -1136,6 +1153,18 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
           fileId={notesModal.recipeId}
           recipeName={notesModal.recipeName}
           onClose={() => setNotesModal(null)}
+        />
+      )}
+
+      {/* Select Subject comparison — keep engine vs Photoshop cut */}
+      {compare && (
+        <CutoutCompareModal
+          title={`Which cut-out do you want to keep? · ${compare.name}`}
+          engineUrl={compare.engineUrl}
+          subjectUrl={compare.subjectUrl}
+          busy={compareBusy}
+          onChoose={chooseRecut}
+          onCancel={() => { if (!compareBusy) { void window.electronAPI.bgRemovalResolveRecut({ keepSubject: false, enginePng: compare.cleanedAbs, subjectPng: compare.subjectPng }); setCompare(null) } }}
         />
       )}
 

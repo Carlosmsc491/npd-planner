@@ -15,11 +15,13 @@ import type {
 } from '../../../shared/bgRemoval'
 import { BG_IMAGE_EXTS } from '../../../shared/bgRemoval'
 import AppLayout from '../components/ui/AppLayout'
+import CutoutCompareModal from '../components/ui/CutoutCompareModal'
 
 type Phase = 'idle' | 'processing' | 'done'
 type ElectronFile = File & { path: string }
 
 const RETOUCH_KEY = 'npd:bgremoval_retouch'
+const JPG_KEY = 'npd:bgremoval_jpg'
 const ACCENT = '#1D9E75'
 
 function fmtTime(s: number): string {
@@ -118,6 +120,7 @@ export default function BackgroundRemovalPage() {
   const [iProg, setIProg] = useState<BgInstallProgress | null>(null)
   const [files, setFiles] = useState<string[]>([])
   const [retouch, setRetouch] = useState(() => localStorage.getItem(RETOUCH_KEY) !== '0')
+  const [wantJpg, setWantJpg] = useState(() => localStorage.getItem(JPG_KEY) === '1')
   const [phase, setPhase] = useState<Phase>('idle')
   const [status, setStatus] = useState<BgRemovalStatus | null>(null)
   const [result, setResult] = useState<BgRemovalResult | null>(null)
@@ -135,6 +138,25 @@ export default function BackgroundRemovalPage() {
   const ready = !!install?.installed
 
   useEffect(() => { localStorage.setItem(RETOUCH_KEY, retouch ? '1' : '0') }, [retouch])
+  useEffect(() => { localStorage.setItem(JPG_KEY, wantJpg ? '1' : '0') }, [wantJpg])
+
+  // JPG export happens AFTER the PNG batch is done (and after any Select-Subject
+  // choice, which regenerates its own JPG). Generates one JPG per finished PNG.
+  useEffect(() => {
+    if (phase !== 'done' || !wantJpg || !result?.cutDir || !status?.items?.length) return
+    let cancelled = false
+    setJpgState('working')
+    ;(async () => {
+      for (const it of status.items) {
+        if (cancelled) break
+        if (it.error) continue
+        const stem = stemOf(it.name)
+        await window.electronAPI.bgRemovalMakeJpg(`${result.cutDir}/${stem}.png`, `${result.cutDir}/${stem}.jpg`)
+      }
+      if (!cancelled) setJpgState('done')
+    })()
+    return () => { cancelled = true }
+  }, [phase, wantJpg, result]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Resolve install state — is the local engine present (installed or dev)?
   useEffect(() => {
@@ -243,26 +265,47 @@ export default function BackgroundRemovalPage() {
     const res = await window.electronAPI.bgRemovalRun({ files, toolDir, retouch })
     setResult(res); setPhase('done')
   }
-  // Re-cut a single result with Photoshop's Select Subject (manual quality escape
-  // hatch). Overwrites the result PNG + refreshes its preview.
+  // Re-cut a single result with Photoshop Select Subject → compare the engine cut
+  // vs the Photoshop cut side by side and keep one. JPG (if requested) is then
+  // regenerated from the chosen PNG.
   const [recutting, setRecutting] = useState<string | null>(null)
+  const [compare, setCompare] = useState<{
+    index: number; bn: string; enginePng: string; subjectPng: string
+    engineUrl: string | null; subjectUrl: string | null
+  } | null>(null)
+  const [compareBusy, setCompareBusy] = useState(false)
+  const [jpgState, setJpgState] = useState<'idle' | 'working' | 'done'>('idle')
+
   const recut = async (i: number) => {
     const f = files[i]
     if (!f || !result?.cutDir) return
     const bn = baseName(f)
-    const out = `${result.cutDir}/${stemOf(bn)}.png`
+    const enginePng = `${result.cutDir}/${stemOf(bn)}.png`
+    const subjectPng = `${result.cutDir}/${stemOf(bn)}.subject.png`
     setRecutting(bn)
-    const r = await window.electronAPI.photoshopSelectSubject(f, out)
+    const r = await window.electronAPI.photoshopSelectSubject(f, subjectPng)
     setRecutting(null)
-    if (r.ok) {
-      const fresh = await window.electronAPI.bgRemovalReadFull(out)
-      if (fresh) {
-        setResultThumbs((m) => ({ ...m, [bn]: fresh }))
-        if (lightbox === i) setLightboxUrl(fresh)
-      }
-    } else {
-      alert(r.error || 'Photoshop Select Subject failed.')
+    if (!r.ok) { alert(r.error || 'Photoshop Select Subject failed.'); return }
+    const [eu, su] = await Promise.all([
+      window.electronAPI.bgRemovalReadFull(enginePng),
+      window.electronAPI.bgRemovalReadFull(subjectPng),
+    ])
+    setCompare({ index: i, bn, enginePng, subjectPng, engineUrl: eu, subjectUrl: su })
+  }
+
+  const chooseRecut = async (keepSubject: boolean) => {
+    if (!compare || !result?.cutDir) return
+    setCompareBusy(true)
+    const { bn, enginePng, subjectPng, index } = compare
+    await window.electronAPI.bgRemovalResolveRecut({ keepSubject, enginePng, subjectPng })
+    const fresh = await window.electronAPI.bgRemovalReadFull(enginePng)
+    if (fresh) {
+      setResultThumbs((m) => ({ ...m, [bn]: fresh }))
+      if (lightbox === index) setLightboxUrl(fresh)
     }
+    if (wantJpg) await window.electronAPI.bgRemovalMakeJpg(enginePng, `${result.cutDir}/${stemOf(bn)}.jpg`)
+    setCompareBusy(false)
+    setCompare(null)
   }
   // Stable callbacks so memoized tiles don't re-render every status tick.
   const recutRef = useRef(recut); recutRef.current = recut
@@ -389,7 +432,11 @@ export default function BackgroundRemovalPage() {
                 <input type="checkbox" checked={retouch} onChange={(e) => setRetouch(e.target.checked)} className="accent-[#1D9E75]" />
                 <Wand2 size={15} style={{ color: ACCENT }} /> Auto-retouch in Photoshop
               </label>
-              <span className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">Output: PNG 3600 · 300 dpi</span>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
+                <input type="checkbox" checked={wantJpg} onChange={(e) => setWantJpg(e.target.checked)} className="accent-[#1D9E75]" />
+                <FileImage size={15} style={{ color: ACCENT }} /> Also export JPG
+              </label>
+              <span className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">Output: PNG 3600 · 300 dpi{wantJpg ? ' + JPG' : ''}</span>
             </div>
 
             <div className="mt-5 flex gap-3">
@@ -427,6 +474,13 @@ export default function BackgroundRemovalPage() {
                 ? <><CheckCircle2 size={16} style={{ color: ACCENT }} /> {result?.success ? 'Completed.' : (result?.error || 'Finished with errors.')}</>
                 : <><Loader2 size={16} className="animate-spin" style={{ color: ACCENT }} /> {status?.current?.step || 'Preparing…'}</>}
             </div>
+            {phase === 'done' && wantJpg && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                {jpgState === 'working'
+                  ? <><Loader2 size={13} className="animate-spin" /> Exporting JPGs…</>
+                  : jpgState === 'done' ? <><CheckCircle2 size={13} style={{ color: ACCENT }} /> JPGs exported.</> : null}
+              </div>
+            )}
             {phase === 'processing' && (
               <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
                 <span className="rounded-md bg-gray-100 px-2.5 py-1 dark:bg-gray-700/50">Elapsed {fmtTime(status?.elapsed_s ?? 0)}</span>
@@ -545,6 +599,18 @@ export default function BackgroundRemovalPage() {
             <X size={20} />
           </button>
         </div>
+      )}
+
+      {/* Select Subject comparison — keep engine vs Photoshop */}
+      {compare && (
+        <CutoutCompareModal
+          title={`Which cut-out do you want to keep? · ${stemOf(compare.bn)}`}
+          engineUrl={compare.engineUrl}
+          subjectUrl={compare.subjectUrl}
+          busy={compareBusy}
+          onChoose={chooseRecut}
+          onCancel={() => { if (!compareBusy) { void window.electronAPI.bgRemovalResolveRecut({ keepSubject: false, enginePng: compare.enginePng, subjectPng: compare.subjectPng }); setCompare(null) } }}
+        />
       )}
     </AppLayout>
   )
