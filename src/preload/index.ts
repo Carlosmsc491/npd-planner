@@ -323,6 +323,10 @@ const electronAPI = {
     ipcRenderer.invoke('bgremoval:cancel'),
   bgRemovalOpenOutput: (dir: string): Promise<void> =>
     ipcRenderer.invoke('bgremoval:open-output', dir),
+  bgRemovalThumb: (absPath: string, size?: number): Promise<string | null> =>
+    ipcRenderer.invoke('bgremoval:thumb', absPath, size),
+  bgRemovalReadFull: (absPath: string): Promise<string | null> =>
+    ipcRenderer.invoke('bgremoval:read-full', absPath),
   bgRemovalReadThumb: (absPath: string): Promise<string | null> =>
     ipcRenderer.invoke('bgremoval:read-thumb', absPath),
   onBgRemovalProgress: (cb: (s: BgRemovalStatus) => void): (() => void) => {

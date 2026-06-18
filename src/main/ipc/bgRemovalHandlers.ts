@@ -97,6 +97,14 @@ function readStatus(file: string): BgRemovalStatus | null {
   }
 }
 
+/** batch_run writes item thumbs as relative `_thumbs/x.jpg`; make them absolute
+ *  (under cutDir) so the renderer's read-thumb can open them. */
+function absThumbs(st: BgRemovalStatus, cutDir: string): void {
+  for (const it of st.items ?? []) {
+    if (it.thumb && !path.isAbsolute(it.thumb)) it.thumb = path.join(cutDir, it.thumb)
+  }
+}
+
 /** Symlink (fallback: copy) the picked files into a temp input dir, unique names. */
 function stageInputs(files: string[]): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'npd-bg-'))
@@ -322,6 +330,32 @@ export function registerBgRemovalHandlers(): void {
     }
   })
 
+  // Downscaled thumbnail of any image (for the input grid) — sharp keeps full-res
+  // files out of the renderer so big batches don't freeze the UI.
+  ipcMain.handle('bgremoval:thumb', async (_e, absPath: string, size = 320): Promise<string | null> => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const sharp = require('sharp') as typeof import('sharp')
+      const buf = await sharp(absPath).rotate().resize(size, size, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer()
+      return `data:image/jpeg;base64,${buf.toString('base64')}`
+    } catch {
+      return null
+    }
+  })
+
+  // Full-size image as a data URL (for the lightbox large view, loaded on demand).
+  ipcMain.handle('bgremoval:read-full', async (_e, absPath: string): Promise<string | null> => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const sharp = require('sharp') as typeof import('sharp')
+      // Cap to 1600px so a 3600px PNG doesn't blow up renderer memory; keep alpha.
+      const buf = await sharp(absPath).rotate().resize(1600, 1600, { fit: 'inside', withoutEnlargement: true }).png().toBuffer()
+      return `data:image/png;base64,${buf.toString('base64')}`
+    } catch {
+      return null
+    }
+  })
+
   ipcMain.handle('bgremoval:cancel', async (): Promise<void> => {
     if (activeChild) {
       try {
@@ -375,6 +409,7 @@ export function registerBgRemovalHandlers(): void {
       const emit = () => {
         const st = readStatus(statusFile)
         if (!st) return
+        absThumbs(st, cutDir)
         // Cutout done but the process is still alive => Photoshop retouch phase.
         if (st.finished && job.retouch && activeChild) {
           st.phase = 'retouch'
@@ -401,6 +436,7 @@ export function registerBgRemovalHandlers(): void {
         activeChild = null
         const st = readStatus(statusFile)
         if (st) {
+          absThumbs(st, cutDir)
           st.finished = true
           st.phase = 'done'
           try {

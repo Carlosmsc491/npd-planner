@@ -132,6 +132,8 @@ interface IElectronAPI {
   bgRemovalRun: (job: import('../../shared/bgRemoval').BgRemovalJob) => Promise<import('../../shared/bgRemoval').BgRemovalResult>
   bgRemovalCancel: () => Promise<void>
   bgRemovalOpenOutput: (dir: string) => Promise<void>
+  bgRemovalThumb: (absPath: string, size?: number) => Promise<string | null>
+  bgRemovalReadFull: (absPath: string) => Promise<string | null>
   bgRemovalReadThumb: (absPath: string) => Promise<string | null>
   onBgRemovalProgress: (cb: (s: import('../../shared/bgRemoval').BgRemovalStatus) => void) => () => void
   // Excel / Python

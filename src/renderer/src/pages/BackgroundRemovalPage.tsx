@@ -1,15 +1,17 @@
 // src/renderer/src/pages/BackgroundRemovalPage.tsx
 // Background Removal (Mac-only). Thin GUI over tools/bg-removal/train/batch_run.py:
-// pick photos → run the local model → live progress + previews → optional
-// Photoshop RETOUCH. All heavy work runs in the Python tool via bgRemovalHandlers.
+// pick photos → thumbnails → run the local model → live per-photo progress +
+// result thumbnails + lightbox → optional Photoshop RETOUCH. All heavy work runs
+// in the Python tool via bgRemovalHandlers; thumbnails are downscaled in main
+// (sharp) so big batches never freeze the renderer.
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import {
   Scissors, Upload, FolderOpen, Loader2, CheckCircle2, AlertTriangle,
-  X, Play, Wand2, Download, FileImage,
+  X, Play, Wand2, Download, FileImage, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import type {
-  BgRemovalStatus, BgRemovalResult, BgInstallState, BgInstallProgress,
+  BgRemovalStatus, BgRemovalResult, BgInstallState, BgInstallProgress, BgRemovalItem,
 } from '../../../shared/bgRemoval'
 import { BG_IMAGE_EXTS } from '../../../shared/bgRemoval'
 import AppLayout from '../components/ui/AppLayout'
@@ -32,6 +34,18 @@ function isImage(name: string): boolean {
   return (BG_IMAGE_EXTS as readonly string[]).includes(ext)
 }
 
+const baseName = (p: string): string => p.split(/[\\/]/).pop() ?? p
+const stemOf = (name: string): string => name.replace(/\.[^.]+$/, '')
+
+// checkerboard so transparent PNGs read clearly in the grid + lightbox
+const CHECKER = {
+  backgroundImage:
+    'linear-gradient(45deg,#d9d9d9 25%,transparent 25%),linear-gradient(-45deg,#d9d9d9 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#d9d9d9 75%),linear-gradient(-45deg,transparent 75%,#d9d9d9 75%)',
+  backgroundSize: '16px 16px',
+  backgroundPosition: '0 0,0 8px,8px -8px,-8px 0',
+  backgroundColor: '#f0f0f0',
+}
+
 export default function BackgroundRemovalPage() {
   const [install, setInstall] = useState<BgInstallState | null>(null)
   const [installing, setInstalling] = useState(false)
@@ -42,8 +56,14 @@ export default function BackgroundRemovalPage() {
   const [status, setStatus] = useState<BgRemovalStatus | null>(null)
   const [result, setResult] = useState<BgRemovalResult | null>(null)
   const [dragOver, setDragOver] = useState(false)
-  const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  const [inputThumbs, setInputThumbs] = useState<Record<string, string>>({})   // path → dataURL
+  const [resultThumbs, setResultThumbs] = useState<Record<string, string>>({}) // basename → dataURL
   const fetched = useRef<Set<string>>(new Set())
+  const loadingThumbs = useRef<Set<string>>(new Set())
+
+  // Lightbox
+  const [lightbox, setLightbox] = useState<number | null>(null)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
   const toolDir = install?.toolDir ?? ''
   const ready = !!install?.installed
@@ -82,18 +102,63 @@ export default function BackgroundRemovalPage() {
     setInstalling(false); setIProg(null)
   }
 
-  // Load previews (already checkerboard-composited by the tool) as they finish.
+  // Input thumbnails — load sequentially (downscaled in main) so 30+ photos
+  // never block the renderer.
+  useEffect(() => {
+    let cancelled = false
+    const pending = files.filter((f) => !inputThumbs[f] && !loadingThumbs.current.has(f))
+    if (!pending.length) return
+    ;(async () => {
+      for (const f of pending) {
+        if (cancelled) break
+        loadingThumbs.current.add(f)
+        const d = await window.electronAPI.bgRemovalThumb(f, 320)
+        if (cancelled) break
+        if (d) setInputThumbs((m) => ({ ...m, [f]: d }))
+      }
+    })()
+    return () => { cancelled = true }
+  }, [files]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Result preview thumbnails (checkerboard-composited by the tool) as they finish.
   useEffect(() => {
     if (!status?.items) return
     for (const it of status.items) {
       if (it.thumb && !fetched.current.has(it.name)) {
         fetched.current.add(it.name)
         window.electronAPI.bgRemovalReadThumb(it.thumb).then((d) => {
-          if (d) setThumbs((m) => ({ ...m, [it.name]: d }))
+          if (d) setResultThumbs((m) => ({ ...m, [it.name]: d }))
         })
       }
     }
   }, [status])
+
+  // Lightbox: load the large image on demand (full input, or result PNG if done).
+  useEffect(() => {
+    if (lightbox === null) { setLightboxUrl(null); return }
+    const f = files[lightbox]
+    if (!f) return
+    let cancelled = false
+    setLightboxUrl(null)
+    const bn = baseName(f)
+    const item = status?.items?.find((it) => it.name === bn)
+    const useResult = phase === 'done' && !!result?.cutDir && !!item && !item.error
+    const src = useResult ? `${result!.cutDir}/${stemOf(bn)}.png` : f
+    window.electronAPI.bgRemovalReadFull(src).then((d) => { if (!cancelled) setLightboxUrl(d) })
+    return () => { cancelled = true }
+  }, [lightbox]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lightbox keyboard nav
+  useEffect(() => {
+    if (lightbox === null) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightbox(null)
+      else if (e.key === 'ArrowRight') setLightbox((i) => (i === null ? i : Math.min(files.length - 1, i + 1)))
+      else if (e.key === 'ArrowLeft') setLightbox((i) => (i === null ? i : Math.max(0, i - 1)))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightbox, files.length])
 
   const pickFiles = async () => {
     const picked = await window.electronAPI.bgRemovalSelectFiles()
@@ -108,15 +173,20 @@ export default function BackgroundRemovalPage() {
 
   const start = async () => {
     if (!files.length || !ready) return
-    setPhase('processing'); setStatus(null); setResult(null); setThumbs({}); fetched.current = new Set()
+    setPhase('processing'); setStatus(null); setResult(null); setResultThumbs({}); fetched.current = new Set()
     const res = await window.electronAPI.bgRemovalRun({ files, toolDir, retouch })
     setResult(res); setPhase('done')
   }
   const cancel = async () => { await window.electronAPI.bgRemovalCancel(); setPhase('idle'); setStatus(null) }
-  const reset = () => { setFiles([]); setStatus(null); setResult(null); setPhase('idle'); setThumbs({}); fetched.current = new Set() }
+  const reset = () => {
+    setFiles([]); setStatus(null); setResult(null); setResultThumbs({}); setInputThumbs({})
+    fetched.current = new Set(); loadingThumbs.current = new Set(); setPhase('idle')
+  }
 
   const pct = status && status.total ? Math.round((100 * status.done) / status.total) : 0
   const retouchPhase = status?.phase === 'retouch'
+  const itemByName = new Map<string, BgRemovalItem>((status?.items ?? []).map((it) => [it.name, it]))
+  const currentName = status?.current?.name
 
   return (
     <AppLayout>
@@ -203,7 +273,7 @@ export default function BackgroundRemovalPage() {
           </div>
         )}
 
-        {/* IDLE: input + options */}
+        {/* IDLE controls */}
         {ready && phase === 'idle' && (
           <>
             <div
@@ -240,7 +310,7 @@ export default function BackgroundRemovalPage() {
                 <Play size={16} /> Process {files.length || ''} photo{files.length !== 1 ? 's' : ''}
               </button>
               {files.length > 0 && (
-                <button onClick={() => setFiles([])} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800">
+                <button onClick={() => { setFiles([]); setInputThumbs({}); loadingThumbs.current = new Set() }} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800">
                   <X size={15} /> Clear
                 </button>
               )}
@@ -248,75 +318,156 @@ export default function BackgroundRemovalPage() {
           </>
         )}
 
-        {/* PROCESSING / DONE: progress + previews */}
+        {/* PROCESSING / DONE progress card */}
         {ready && (phase === 'processing' || phase === 'done') && (
-          <>
-            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800/50">
-              <div className="mb-2 flex items-baseline justify-between">
-                <span className="font-medium text-gray-900 dark:text-white">
-                  {phase === 'done' ? 'Done' : retouchPhase ? 'Retouching in Photoshop' : 'Processing batch'}
-                </span>
-                <span className="text-sm text-gray-500 dark:text-gray-400">{status?.done ?? 0} / {status?.total ?? files.length} photos</span>
-              </div>
-              <div className="h-3 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-                <div className="h-full rounded-full transition-all" style={{ width: `${phase === 'done' ? 100 : pct}%`, background: ACCENT }} />
-              </div>
-              <div className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                {phase === 'done'
-                  ? <><CheckCircle2 size={16} style={{ color: ACCENT }} /> {result?.success ? 'Completed.' : (result?.error || 'Finished with errors.')}</>
-                  : <><Loader2 size={16} className="animate-spin" style={{ color: ACCENT }} /> {status?.current?.step || 'Preparing…'}</>}
-              </div>
-              {phase === 'processing' && (
-                <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
-                  <span className="rounded-md bg-gray-100 px-2.5 py-1 dark:bg-gray-700/50">Elapsed {fmtTime(status?.elapsed_s ?? 0)}</span>
-                  {!retouchPhase && <span className="rounded-md bg-gray-100 px-2.5 py-1 dark:bg-gray-700/50">~{fmtTime(status?.eta_s ?? 0)} left</span>}
-                  {status?.avg_s ? <span className="rounded-md bg-gray-100 px-2.5 py-1 dark:bg-gray-700/50">{status.avg_s}s/photo</span> : null}
-                </div>
-              )}
-              <div className="mt-4 flex gap-3">
-                {phase === 'processing' && (
-                  <button onClick={cancel} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800">
-                    <X size={15} /> Cancel
-                  </button>
-                )}
-                {phase === 'done' && result?.outDir && (
-                  <>
-                    <button onClick={() => window.electronAPI.bgRemovalOpenOutput(result.outDir)} className="inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium text-white" style={{ background: ACCENT }}>
-                      <FolderOpen size={15} /> Open results
-                    </button>
-                    <button onClick={reset} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800">
-                      Process another batch
-                    </button>
-                  </>
-                )}
-              </div>
+          <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800/50">
+            <div className="mb-2 flex items-baseline justify-between">
+              <span className="font-medium text-gray-900 dark:text-white">
+                {phase === 'done' ? 'Done' : retouchPhase ? 'Retouching in Photoshop' : 'Processing batch'}
+              </span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">{status?.done ?? 0} / {status?.total ?? files.length} photos</span>
             </div>
-
-            {status?.items && status.items.length > 0 && (
-              <>
-                <p className="mb-2 mt-6 text-sm text-gray-500 dark:text-gray-400">Previews</p>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                  {status.items.map((it) => (
-                    <div key={it.name} className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
-                      <div className="aspect-square bg-gray-100 dark:bg-gray-800">
-                        {thumbs[it.name]
-                          ? <img src={thumbs[it.name]} alt={it.name} className="h-full w-full object-cover" />
-                          : <div className="flex h-full items-center justify-center"><Loader2 size={18} className="animate-spin text-gray-400" /></div>}
-                      </div>
-                      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
-                        <span className="truncate text-xs text-gray-500 dark:text-gray-400">{it.name.replace(/\.[^.]+$/, '')}</span>
-                        {it.error
-                          ? <span className="flex items-center gap-0.5 text-xs text-red-500"><AlertTriangle size={11} /> error</span>
-                          : <span className="text-xs font-medium" style={{ color: ACCENT }}>{it.seconds}s</span>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
+            <div className="h-3 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+              <div className="h-full rounded-full transition-all" style={{ width: `${phase === 'done' ? 100 : pct}%`, background: ACCENT }} />
+            </div>
+            <div className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              {phase === 'done'
+                ? <><CheckCircle2 size={16} style={{ color: ACCENT }} /> {result?.success ? 'Completed.' : (result?.error || 'Finished with errors.')}</>
+                : <><Loader2 size={16} className="animate-spin" style={{ color: ACCENT }} /> {status?.current?.step || 'Preparing…'}</>}
+            </div>
+            {phase === 'processing' && (
+              <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
+                <span className="rounded-md bg-gray-100 px-2.5 py-1 dark:bg-gray-700/50">Elapsed {fmtTime(status?.elapsed_s ?? 0)}</span>
+                {!retouchPhase && <span className="rounded-md bg-gray-100 px-2.5 py-1 dark:bg-gray-700/50">~{fmtTime(status?.eta_s ?? 0)} left</span>}
+                {status?.avg_s ? <span className="rounded-md bg-gray-100 px-2.5 py-1 dark:bg-gray-700/50">{status.avg_s}s/photo</span> : null}
+              </div>
             )}
+            <div className="mt-4 flex gap-3">
+              {phase === 'processing' && (
+                <button onClick={cancel} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800">
+                  <X size={15} /> Cancel
+                </button>
+              )}
+              {phase === 'done' && result?.outDir && (
+                <>
+                  <button onClick={() => window.electronAPI.bgRemovalOpenOutput(result.outDir)} className="inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium text-white" style={{ background: ACCENT }}>
+                    <FolderOpen size={15} /> Open results
+                  </button>
+                  <button onClick={reset} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800">
+                    Process another batch
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Photo grid — shown whenever there are files (idle preview + live + done) */}
+        {ready && files.length > 0 && (
+          <>
+            <p className="mb-2 mt-6 text-sm text-gray-500 dark:text-gray-400">
+              {phase === 'idle' ? 'Selected photos — click to preview' : 'Photos — click to view large'}
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+              {files.map((f, i) => {
+                const bn = baseName(f)
+                const item = itemByName.get(bn)
+                const isCurrent = phase === 'processing' && currentName === bn
+                const isDone = !!item && !item.error
+                const isError = !!item?.error
+                const url = resultThumbs[bn] || inputThumbs[f]
+                return (
+                  <button
+                    key={f}
+                    onClick={() => setLightbox(i)}
+                    className="group relative overflow-hidden rounded-lg border border-gray-200 text-left dark:border-gray-700"
+                  >
+                    <div className="aspect-square" style={CHECKER}>
+                      {url
+                        ? <img src={url} alt={bn} className="h-full w-full object-cover" />
+                        : <div className="flex h-full items-center justify-center"><Loader2 size={18} className="animate-spin text-gray-400" /></div>}
+                    </div>
+
+                    {/* per-photo status overlay */}
+                    {isDone && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/15">
+                        <CheckCircle2 size={42} className="text-white drop-shadow-lg" style={{ color: '#fff', fill: ACCENT }} />
+                      </div>
+                    )}
+                    {isCurrent && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                        <Loader2 size={34} className="animate-spin text-white drop-shadow" />
+                      </div>
+                    )}
+                    {isError && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                        <AlertTriangle size={34} className="text-red-400 drop-shadow" />
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
+                      <span className="truncate text-xs text-gray-500 dark:text-gray-400">{stemOf(bn)}</span>
+                      {isError
+                        ? <span className="flex items-center gap-0.5 text-xs text-red-500"><AlertTriangle size={11} /> error</span>
+                        : isDone
+                          ? <span className="text-xs font-medium" style={{ color: ACCENT }}>{item!.seconds}s</span>
+                          : isCurrent
+                            ? <span className="text-xs text-gray-400">cleaning…</span>
+                            : phase !== 'idle' ? <span className="text-xs text-gray-300 dark:text-gray-600">queued</span> : null}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
           </>
         )}
       </div>
+
+      {/* Lightbox */}
+      {lightbox !== null && files[lightbox] && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+          onClick={() => setLightbox(null)}
+        >
+          {/* prev */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setLightbox((i) => (i === null ? i : Math.max(0, i - 1))) }}
+            disabled={lightbox === 0}
+            className="absolute left-4 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/30 disabled:opacity-30"
+          >
+            <ChevronLeft size={26} />
+          </button>
+
+          <div className="flex max-h-full max-w-4xl flex-col items-center" onClick={(e) => e.stopPropagation()}>
+            <div className="relative flex max-h-[78vh] items-center justify-center overflow-hidden rounded-lg" style={CHECKER}>
+              {lightboxUrl
+                ? <img src={lightboxUrl} alt={baseName(files[lightbox])} className="max-h-[78vh] max-w-full object-contain" />
+                : <div className="flex h-72 w-72 items-center justify-center"><Loader2 size={28} className="animate-spin text-gray-500" /></div>}
+            </div>
+            <div className="mt-3 flex items-center gap-3 text-sm text-white/80">
+              <span className="truncate max-w-md">{stemOf(baseName(files[lightbox]))}</span>
+              <span className="text-white/50">{lightbox + 1} / {files.length}</span>
+            </div>
+          </div>
+
+          {/* next */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setLightbox((i) => (i === null ? i : Math.min(files.length - 1, i + 1))) }}
+            disabled={lightbox === files.length - 1}
+            className="absolute right-4 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/30 disabled:opacity-30"
+          >
+            <ChevronRight size={26} />
+          </button>
+
+          {/* close */}
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/30"
+          >
+            <X size={20} />
+          </button>
+        </div>
+      )}
     </AppLayout>
   )
 }
