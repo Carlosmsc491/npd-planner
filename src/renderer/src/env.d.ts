@@ -151,6 +151,10 @@ interface IElectronAPI {
   photoStudioPickCatalog: () => Promise<string | null>
   photoStudioOpenInFinder: (dir: string) => Promise<void>
   photoStudioRenameSession: (sessionDir: string, newName: string) => Promise<{ ok: boolean; error?: string }>
+  photoStudioStageSelect: (args: { sessionDir: string; photoId: string }) => Promise<{ ok: boolean; selectedPath?: string; error?: string }>
+  photoStudioStageUnselect: (args: { sessionDir: string; photoId: string }) => Promise<{ ok: boolean; error?: string }>
+  photoStudioStageApprove: (args: { sessionDir: string; photoId: string }) => Promise<{ ok: boolean; readyPngPath?: string; jpgPath?: string; error?: string }>
+  photoStudioStageRefreshJpg: (args: { sessionDir: string; photoId: string }) => Promise<{ ok: boolean; jpgPath?: string; error?: string }>
   photoStudioEnqueueBg: (args: { sessionDir: string; photoId: string; input: string; output: string; toolDir: string }) => Promise<void>
   photoStudioKillBgWorker: () => Promise<void>
   onPhotoStudioBgEvent: (cb: (e: { sessionDir: string; photoId: string; status: string; output?: string; error?: string }) => void) => () => void

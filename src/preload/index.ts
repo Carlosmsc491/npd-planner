@@ -364,6 +364,14 @@ const electronAPI = {
     ipcRenderer.invoke('photostudio:open-in-finder', dir),
   photoStudioRenameSession: (sessionDir: string, newName: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('photostudio:rename-session', { sessionDir, newName }),
+  photoStudioStageSelect: (args: { sessionDir: string; photoId: string }): Promise<{ ok: boolean; selectedPath?: string; error?: string }> =>
+    ipcRenderer.invoke('photostudio:stage-select', args),
+  photoStudioStageUnselect: (args: { sessionDir: string; photoId: string }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('photostudio:stage-unselect', args),
+  photoStudioStageApprove: (args: { sessionDir: string; photoId: string }): Promise<{ ok: boolean; readyPngPath?: string; jpgPath?: string; error?: string }> =>
+    ipcRenderer.invoke('photostudio:stage-approve', args),
+  photoStudioStageRefreshJpg: (args: { sessionDir: string; photoId: string }): Promise<{ ok: boolean; jpgPath?: string; error?: string }> =>
+    ipcRenderer.invoke('photostudio:stage-refresh-jpg', args),
   photoStudioEnqueueBg: (args: { sessionDir: string; photoId: string; input: string; output: string; toolDir: string }): Promise<void> =>
     ipcRenderer.invoke('photostudio:enqueue-bg', args),
   photoStudioKillBgWorker: (): Promise<void> =>

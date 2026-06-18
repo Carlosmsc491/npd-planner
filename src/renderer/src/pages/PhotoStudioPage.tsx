@@ -22,32 +22,83 @@ function getCatalog(): string | null { return localStorage.getItem(LS_CATALOG) }
 function setCatalog(p: string): void { localStorage.setItem(LS_CATALOG, p) }
 
 type ViewMode = 'icons' | 'gallery' | 'list' | 'capture'
+type StageFilter = StudioPhoto['state'] | 'all'
+
+// Furthest stage a photo occupies → its single `state` label.
+function deriveState(stages: StudioPhoto['stages']): StudioPhoto['state'] {
+  return stages.ready ? 'ready' : stages.cleaned ? 'cleaned' : stages.selected ? 'selected' : 'captured'
+}
+
+// Apply a stage patch and keep `state` consistent (used for optimistic updates).
+function withStages(p: StudioPhoto, patch: Partial<StudioPhoto['stages']>, extra?: Partial<StudioPhoto>): StudioPhoto {
+  const stages = { ...p.stages, ...patch }
+  return { ...p, ...extra, stages, state: deriveState(stages) }
+}
+
+// Cumulative stage booleans implied by a single `state` (legacy 'flat' sessions).
+function stagesForState(state: StudioPhoto['state']): StudioPhoto['stages'] {
+  const rank = { captured: 0, selected: 1, cleaned: 2, ready: 3 }[state]
+  return { selected: rank >= 1, cleaned: rank >= 2, ready: rank >= 3 }
+}
+
+// Which artifact to render for a given tab/stage (so a photo shows its capture
+// frame under Captured, its cut-out under Cleaned, its export under Ready, etc.).
+function artifactFor(p: StudioPhoto, stage: StageFilter): string {
+  switch (stage) {
+    case 'captured': return p.capturePath ?? p.absPath
+    case 'selected': return p.selectedPath ?? p.capturePath ?? p.absPath
+    case 'cleaned':  return p.cleanedPath ?? p.absPath
+    case 'ready':    return p.jpgPath ?? p.readyPngPath ?? p.cleanedPath ?? p.absPath
+    case 'all':
+    default:
+      return p.stages.ready ? (p.jpgPath ?? p.readyPngPath ?? p.absPath)
+        : p.stages.cleaned ? (p.cleanedPath ?? p.absPath)
+        : (p.capturePath ?? p.absPath)
+  }
+}
+
+// Does a photo belong in a given cumulative tab?
+function inStage(p: StudioPhoto, stage: StageFilter): boolean {
+  switch (stage) {
+    case 'all':
+    case 'captured': return true            // everything was captured
+    case 'selected': return p.stages.selected
+    case 'cleaned':  return p.stages.cleaned
+    case 'ready':    return p.stages.ready
+    default: return true
+  }
+}
+
+// Is the rendered artifact a transparent cut-out (→ wants the gray backdrop)?
+function isCutoutStage(p: StudioPhoto, stage: StageFilter): boolean {
+  if (stage === 'cleaned' || stage === 'ready') return true
+  if (stage === 'all') return p.stages.cleaned || p.stages.ready
+  return false
+}
 
 // ─── Thumbnail component ──────────────────────────────────────────────────────
 const PhotoThumb = memo(function PhotoThumb({
-  photo, selected, onClick, onSelect, onStar, bust,
+  photo, selected, displayStage = 'all', onClick, onSelect, onStar, bust,
 }: {
   photo: StudioPhoto
   selected: boolean
+  displayStage?: StageFilter
   onClick: () => void
   onSelect: (shift: boolean) => void
   onStar?: () => void
   bust?: number
 }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
+  const src = artifactFor(photo, displayStage)
+  const cutout = isCutoutStage(photo, displayStage)
 
   useEffect(() => {
     let cancelled = false
-    const src = photo.state === 'ready' && photo.jpgPath
-      ? photo.jpgPath
-      : photo.state === 'cleaned' && photo.cleanedPath
-        ? photo.cleanedPath
-        : photo.absPath
     window.electronAPI.bgRemovalThumb(src, 220).then(url => {
       if (!cancelled) setDataUrl(url)
     })
     return () => { cancelled = true }
-  }, [photo.absPath, photo.state, photo.cleanedPath, photo.jpgPath, bust])
+  }, [src, bust])
 
   const stateColor: Record<StudioPhoto['state'], string> = {
     captured: 'bg-gray-500',
@@ -65,7 +116,7 @@ const PhotoThumb = memo(function PhotoThumb({
     >
       <div className="aspect-square flex items-center justify-center bg-gradient-to-b from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800">
         {dataUrl ? (
-          <img src={dataUrl} alt={photo.filename} className="w-full h-full object-cover" />
+          <img src={dataUrl} alt={photo.filename} className={`w-full h-full ${cutout ? 'object-contain' : 'object-cover'}`} />
         ) : (
           <Loader2 size={20} className="text-gray-400 animate-spin" />
         )}
@@ -87,10 +138,10 @@ const PhotoThumb = memo(function PhotoThumb({
       {/* Star toggle */}
       {onStar && (
         <button
-          className={`absolute bottom-1.5 right-1.5 p-0.5 rounded transition-opacity ${photo.state === 'selected' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          className={`absolute bottom-1.5 right-1.5 p-0.5 rounded transition-opacity ${photo.stages.selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
           onClick={e => { e.stopPropagation(); onStar() }}
         >
-          <Star size={12} fill={photo.state === 'selected' ? 'currentColor' : 'none'} className={photo.state === 'selected' ? 'text-yellow-400' : 'text-white'} />
+          <Star size={12} fill={photo.stages.selected ? 'currentColor' : 'none'} className={photo.stages.selected ? 'text-yellow-400' : 'text-white'} />
         </button>
       )}
     </div>
@@ -127,7 +178,7 @@ function PhotoListRow({ photo, selected, onClick, onSelect, onStar }: {
       <span className="text-xs text-gray-400">{(photo.size / 1024).toFixed(0)} KB</span>
       {onStar && (
         <button onClick={e => { e.stopPropagation(); onStar() }} className="p-0.5">
-          <Star size={13} fill={photo.state === 'selected' ? 'currentColor' : 'none'} className={photo.state === 'selected' ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-400'} />
+          <Star size={13} fill={photo.stages.selected ? 'currentColor' : 'none'} className={photo.stages.selected ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-400'} />
         </button>
       )}
     </div>
@@ -135,8 +186,8 @@ function PhotoListRow({ photo, selected, onClick, onSelect, onStar }: {
 }
 
 // ─── Lightbox ────────────────────────────────────────────────────────────────
-function Lightbox({ photos, index, onClose, onNav, onApprove, onPhotoshop, onSaveReturn, onSelectSubject, busy, bust }: {
-  photos: StudioPhoto[]; index: number; onClose: () => void; onNav: (dir: -1 | 1) => void
+function Lightbox({ photos, index, displayStage = 'all', onClose, onNav, onApprove, onPhotoshop, onSaveReturn, onSelectSubject, busy, bust }: {
+  photos: StudioPhoto[]; index: number; displayStage?: StageFilter; onClose: () => void; onNav: (dir: -1 | 1) => void
   onApprove?: (p: StudioPhoto) => void
   onPhotoshop?: (p: StudioPhoto) => void
   onSaveReturn?: (p: StudioPhoto) => void
@@ -146,16 +197,13 @@ function Lightbox({ photos, index, onClose, onNav, onApprove, onPhotoshop, onSav
 }) {
   const photo = photos[index]
   const [dataUrl, setDataUrl] = useState<string | null>(null)
+  const cutout = isCutoutStage(photo, displayStage)
 
   useEffect(() => {
     setDataUrl(null)
-    const src = photo.state === 'ready' && photo.jpgPath
-      ? photo.jpgPath
-      : photo.state === 'cleaned' && photo.cleanedPath
-        ? photo.cleanedPath
-        : photo.absPath
+    const src = artifactFor(photo, displayStage)
     window.electronAPI.bgRemovalReadFull(src).then(url => setDataUrl(url))
-  }, [photo, bust])
+  }, [photo, displayStage, bust])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -193,7 +241,7 @@ function Lightbox({ photos, index, onClose, onNav, onApprove, onPhotoshop, onSav
       {/* Image */}
       <div className="max-w-5xl max-h-[90vh] flex flex-col items-center gap-2" onClick={e => e.stopPropagation()}>
         {dataUrl ? (
-          photo.state === 'cleaned' || photo.state === 'ready' ? (
+          cutout ? (
             // Apple-style soft gray backdrop behind the transparent cut-out
             // (no backdrop-filter blur — that crashes the Electron 25 renderer).
             <div className="relative rounded-lg overflow-hidden" style={{ background: 'linear-gradient(160deg, #3a3a3c 0%, #2a2a2c 60%, #232325 100%)' }}>
@@ -210,7 +258,7 @@ function Lightbox({ photos, index, onClose, onNav, onApprove, onPhotoshop, onSav
         <div className="text-white/70 text-sm">{photo.filename} · {index + 1} / {photos.length}</div>
 
         {/* Cleaned / ready action bar */}
-        {(photo.state === 'cleaned' || photo.state === 'ready') && (onApprove || onPhotoshop || onSaveReturn) && (
+        {(photo.stages.cleaned || photo.stages.ready) && (onApprove || onPhotoshop || onSaveReturn) && (
           <div className="flex items-center gap-2 mt-1">
             {onPhotoshop && (
               <button
@@ -221,7 +269,7 @@ function Lightbox({ photos, index, onClose, onNav, onApprove, onPhotoshop, onSav
                 <ExternalLink size={12} /> Open in Photoshop
               </button>
             )}
-            {photo.state === 'cleaned' && onSelectSubject && (
+            {photo.stages.cleaned && !photo.stages.ready && onSelectSubject && (
               <button
                 onClick={() => onSelectSubject(photo)}
                 disabled={busy}
@@ -231,7 +279,7 @@ function Lightbox({ photos, index, onClose, onNav, onApprove, onPhotoshop, onSav
                 {busy ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />} Select Subject
               </button>
             )}
-            {photo.state === 'cleaned' && onApprove && (
+            {photo.stages.cleaned && !photo.stages.ready && onApprove && (
               <button
                 onClick={() => onApprove(photo)}
                 disabled={busy}
@@ -240,7 +288,7 @@ function Lightbox({ photos, index, onClose, onNav, onApprove, onPhotoshop, onSav
                 {busy ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />} Approve → Ready
               </button>
             )}
-            {photo.state === 'ready' && onSaveReturn && (
+            {photo.stages.ready && onSaveReturn && (
               <button
                 onClick={() => onSaveReturn(photo)}
                 disabled={busy}
@@ -288,7 +336,7 @@ const FilmstripThumb = memo(function FilmstripThumb({
           <Loader2 size={14} className="text-amber-400 animate-spin will-change-transform" />
         </div>
       )}
-      {photo.state === 'selected' && (
+      {photo.stages.selected && (
         <div className="absolute top-0.5 right-0.5">
           <Star size={10} fill="currentColor" className="text-yellow-400" />
         </div>
@@ -392,6 +440,11 @@ function SessionView({
   onBack: () => void
 }) {
   const sessionDir = catalogDir + '/' + session.id
+  const layout = session.layout ?? 'flat'
+  // bg-removal output path for a photo id (real cleaned/ folder vs legacy _cleaned/)
+  const cleanedOut = (id: string) => layout === 'stages'
+    ? `${sessionDir}/cleaned/${id}.png`
+    : `${sessionDir}/_cleaned/${id}.png`
   const [photos, setPhotos] = useState<StudioPhoto[]>([])
   const loading = useRef(true)
   const [loadingState, setLoadingState] = useState(true)
@@ -512,18 +565,20 @@ function SessionView({
       }, 0) + 1
       const ext = data.filename.slice(data.filename.lastIndexOf('.')).toLowerCase() || '.jpg'
       const destFilename = `${String(nextSeq).padStart(4, '0')}${ext}`
-      const destPath = sessionDir + '/' + destFilename
+      // stages sessions keep originals in capture/; flat sessions in the root
+      const destPath = layout === 'stages'
+        ? `${sessionDir}/capture/${destFilename}`
+        : `${sessionDir}/${destFilename}`
       const res = await window.electronAPI.cameraCopyFile(data.tempPath, destPath)
       if (res.success) {
-        // Register in state map as 'captured'
-        await window.electronAPI.photoStudioUpdatePhotoState({
-          sessionDir,
-          photoId: destFilename.replace(/\.[^.]+$/, ''),
-          state: 'captured',
-        })
+        const id = destFilename.replace(/\.[^.]+$/, '')
+        // flat sessions track state in _states.json; stages derive it from disk
+        if (layout !== 'stages') {
+          await window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: id, state: 'captured' })
+        }
         // Append to local state immediately (no full reload needed)
         const newPhoto: StudioPhoto = {
-          id: destFilename.replace(/\.[^.]+$/, ''),
+          id,
           filename: destFilename,
           absPath: destPath,
           ext,
@@ -532,6 +587,10 @@ function SessionView({
           state: 'captured',
           cleanedPath: null,
           jpgPath: null,
+          capturePath: destPath,
+          selectedPath: null,
+          readyPngPath: null,
+          stages: { selected: false, cleaned: false, ready: false },
         }
         setPhotos(prev => [...prev, newPhoto])
         photosRef.current = [...photosRef.current, newPhoto]
@@ -544,7 +603,8 @@ function SessionView({
       processingPhotoRef.current = false
       if (photoQueueRef.current.length) processNextPhoto()
     }
-  }, [sessionDir])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionDir, layout])
 
   // Listen for photos from gphoto2
   useEffect(() => {
@@ -555,19 +615,37 @@ function SessionView({
     return () => unlisten()
   }, [processNextPhoto])
 
-  // Star/unstar a photo — optimistic update + auto-enqueue bg-removal
-  const starPhoto = useCallback((photo: StudioPhoto) => {
-    const newState: StudioPhoto['state'] = photo.state === 'selected' ? 'captured' : 'selected'
-    setPhotos(prev => prev.map(p => p.id === photo.id ? { ...p, state: newState } : p))
-    window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: photo.id, state: newState })
-    if (newState === 'selected') {
-      const toolDir = engineToolDirRef.current
-      if (toolDir && window.electronAPI.photoStudioEnqueueBg) {
-        const outPng = sessionDir + '/_cleaned/' + photo.id + '.png'
-        window.electronAPI.photoStudioEnqueueBg({ sessionDir, photoId: photo.id, input: photo.absPath, output: outPng, toolDir })
-      }
+  // Star/unstar a photo — optimistic update, copy into selected/, auto-enqueue clean
+  const enqueueClean = useCallback((photo: StudioPhoto) => {
+    const toolDir = engineToolDirRef.current
+    if (toolDir && window.electronAPI.photoStudioEnqueueBg) {
+      window.electronAPI.photoStudioEnqueueBg({ sessionDir, photoId: photo.id, input: photo.absPath, output: cleanedOut(photo.id), toolDir })
     }
-  }, [sessionDir])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionDir, layout])
+
+  const starPhoto = useCallback((photo: StudioPhoto) => {
+    const willSelect = !photo.stages.selected
+    if (layout === 'stages') {
+      // Optimistic: toggle selected (unselect also clears cleaned — see handler)
+      setPhotos(prev => prev.map(p => p.id === photo.id
+        ? withStages(p, willSelect ? { selected: true } : { selected: false, cleaned: false })
+        : p))
+      if (willSelect) {
+        window.electronAPI.photoStudioStageSelect({ sessionDir, photoId: photo.id })
+        enqueueClean(photo)
+      } else {
+        window.electronAPI.photoStudioStageUnselect({ sessionDir, photoId: photo.id })
+      }
+      return
+    }
+    // flat (legacy)
+    const newState: StudioPhoto['state'] = photo.state === 'selected' ? 'captured' : 'selected'
+    setPhotos(prev => prev.map(p => p.id === photo.id ? withStages({ ...p, state: newState }, { selected: newState === 'selected' }) : p))
+    window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: photo.id, state: newState })
+    if (newState === 'selected') enqueueClean(photo)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionDir, layout, enqueueClean])
 
   // Listen for bg-removal worker events
   useEffect(() => {
@@ -582,12 +660,17 @@ function SessionView({
         return next
       })
       if (status === 'done' && e.output) {
-        window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: e.photoId, state: 'cleaned', cleanedPath: e.output })
-        setPhotos(prev => prev.map(p => p.id === e.photoId ? { ...p, state: 'cleaned', cleanedPath: e.output! } : p))
+        if (layout === 'stages') {
+          setPhotos(prev => prev.map(p => p.id === e.photoId ? withStages({ ...p, cleanedPath: e.output! }, { cleaned: true }) : p))
+        } else {
+          window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: e.photoId, state: 'cleaned', cleanedPath: e.output })
+          setPhotos(prev => prev.map(p => p.id === e.photoId ? withStages({ ...p, state: 'cleaned', cleanedPath: e.output! }, { cleaned: true }) : p))
+        }
       }
     })
     return () => unlisten()
-  }, [sessionDir])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionDir, layout])
 
   // Auto-select last photo when entering capture mode
   useEffect(() => {
@@ -631,24 +714,16 @@ function SessionView({
       if (e.key === 'Enter') {
         e.preventDefault()
         const p = photos[cur]
-        if (!p) return
-        const newState: StudioPhoto['state'] = p.state === 'selected' ? 'captured' : 'selected'
-        setPhotos(prev => prev.map(q => q.id === p.id ? { ...q, state: newState } : q))
-        window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: p.id, state: newState })
-        if (newState === 'selected') {
-          const toolDir = engineToolDirRef.current
-          if (toolDir && window.electronAPI.photoStudioEnqueueBg) {
-            const outPng = sessionDir + '/_cleaned/' + p.id + '.png'
-            window.electronAPI.photoStudioEnqueueBg({ sessionDir, photoId: p.id, input: p.absPath, output: outPng, toolDir })
-          }
-        }
+        if (p) starPhoto(p)
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [view, photos, sessionDir])
+  }, [view, photos, sessionDir, starPhoto])
 
-  const visiblePhotos = filterState === 'all' ? photos : photos.filter(p => p.state === filterState)
+  // Cumulative tabs: a photo shows in every stage it has reached, so the same
+  // photo stays visible under Captured, Selected, Cleaned, Ready as it advances.
+  const visiblePhotos = photos.filter(p => inStage(p, filterState))
 
   const toggleSelect = useCallback((idx: number, shift: boolean) => {
     const photo = visiblePhotos[idx]
@@ -670,7 +745,7 @@ function SessionView({
   const selectAll = () => setSelected(new Set(visiblePhotos.map(p => p.id)))
   const deselectAll = () => setSelected(new Set())
 
-  // Update state for a single photo
+  // Update state for a single photo (flat sessions; keeps stages consistent)
   const updateState = async (photo: StudioPhoto, state: StudioPhoto['state'], extra?: { cleanedPath?: string | null; jpgPath?: string | null }) => {
     await window.electronAPI.photoStudioUpdatePhotoState({
       sessionDir,
@@ -678,48 +753,52 @@ function SessionView({
       state,
       ...extra,
     })
-    setPhotos(prev => prev.map(p => p.id === photo.id ? { ...p, state, ...extra } : p))
+    setPhotos(prev => prev.map(p => p.id === photo.id ? withStages({ ...p, state, ...extra }, stagesForState(state)) : p))
   }
 
-  // Mark selected as "selected" state
+  // Mark selected (bulk) — same as starring: copies to selected/ + auto-cleans
   const markSelected = async () => {
-    for (const photo of photos.filter(p => selected.has(p.id) && p.state === 'captured')) {
-      await updateState(photo, 'selected')
+    for (const photo of photos.filter(p => selected.has(p.id) && !p.stages.selected)) {
+      if (layout === 'stages') {
+        await window.electronAPI.photoStudioStageSelect({ sessionDir, photoId: photo.id })
+        setPhotos(prev => prev.map(p => p.id === photo.id ? withStages(p, { selected: true }) : p))
+      } else {
+        await updateState(photo, 'selected')
+      }
+      enqueueClean(photo)
     }
   }
 
-  // Run BG removal on selected photos
+  // Run BG removal (one-shot) on selected photos
   const runBgRemoval = async () => {
     const toolDir = engineToolDirRef.current
     if (!toolDir) { alert('Background Removal engine is not installed. Open the Background Removal page to install it.'); return }
-    const targets = photos.filter(p => selected.has(p.id) && (p.state === 'selected' || p.state === 'captured'))
+    const targets = photos.filter(p => selected.has(p.id) && !p.stages.cleaned)
     if (!targets.length) return
 
     for (const photo of targets) {
       setProcessing(prev => new Set(prev).add(photo.id))
-      const outPng = sessionDir + '/_cleaned/' + photo.id + '.png'
-      const res = await window.electronAPI.bgRemovalCleanPhoto({
-        input: photo.absPath,
-        output: outPng,
-        toolDir,
-      })
-      if (res.ok) {
-        // Auto-generate JPG too
+      const outPng = cleanedOut(photo.id)
+      const res = await window.electronAPI.bgRemovalCleanPhoto({ input: photo.absPath, output: outPng, toolDir })
+      if (res.ok && layout !== 'stages') {
+        // legacy quirk: flat sessions also keep a JPG next to the cleaned PNG
         const outJpg = sessionDir + '/_cleaned/' + photo.id + '.jpg'
         await window.electronAPI.bgRemovalMakeJpg(outPng, outJpg)
         await updateState(photo, 'cleaned', { cleanedPath: outPng, jpgPath: outJpg })
       }
       setProcessing(prev => { const s = new Set(prev); s.delete(photo.id); return s })
     }
-    await loadPhotos()
+    await loadPhotos() // stages: re-derive cleaned from disk
   }
 
-  // Promote cleaned → ready (generates final JPG)
+  // Promote cleaned → ready (bulk; generates the final JPG)
   const markReady = async () => {
-    const targets = photos.filter(p => selected.has(p.id) && p.state === 'cleaned')
+    const targets = photos.filter(p => selected.has(p.id) && p.stages.cleaned && !p.stages.ready)
     for (const photo of targets) {
-      const finalJpg = sessionDir + '/_ready/' + photo.id + '.jpg'
-      if (photo.cleanedPath) {
+      if (layout === 'stages') {
+        await window.electronAPI.photoStudioStageApprove({ sessionDir, photoId: photo.id })
+      } else if (photo.cleanedPath) {
+        const finalJpg = sessionDir + '/_ready/' + photo.id + '.jpg'
         await window.electronAPI.bgRemovalMakeJpg(photo.cleanedPath, finalJpg)
         await updateState(photo, 'ready', { jpgPath: finalJpg })
       }
@@ -736,43 +815,60 @@ function SessionView({
   const [thumbBust, setThumbBust] = useState<Record<string, number>>({})
   const bumpThumb = (id: string) => setThumbBust(prev => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
 
-  // Approve a cleaned photo → READY (creates the final JPG from the cleaned PNG)
+  // Approve a cleaned photo → READY (copies the cleaned PNG into ready/ + makes JPG)
   const approvePhoto = useCallback(async (photo: StudioPhoto) => {
     if (!photo.cleanedPath) return
     setBusy(photo.id, true)
-    const finalJpg = sessionDir + '/_ready/' + photo.id + '.jpg'
-    const res = await window.electronAPI.bgRemovalMakeJpg(photo.cleanedPath, finalJpg)
-    if (res.ok) {
-      await window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: photo.id, state: 'ready', jpgPath: finalJpg })
-      setPhotos(prev => prev.map(p => p.id === photo.id ? { ...p, state: 'ready', jpgPath: finalJpg } : p))
+    if (layout === 'stages') {
+      const res = await window.electronAPI.photoStudioStageApprove({ sessionDir, photoId: photo.id })
+      if (res.ok) {
+        setPhotos(prev => prev.map(p => p.id === photo.id
+          ? withStages({ ...p, jpgPath: res.jpgPath ?? p.jpgPath, readyPngPath: res.readyPngPath ?? p.readyPngPath }, { ready: true })
+          : p))
+      } else {
+        alert('Could not approve: ' + (res.error ?? 'unknown error'))
+      }
     } else {
-      alert('Could not create the JPG: ' + (res.error ?? 'unknown error'))
+      const finalJpg = sessionDir + '/_ready/' + photo.id + '.jpg'
+      const res = await window.electronAPI.bgRemovalMakeJpg(photo.cleanedPath, finalJpg)
+      if (res.ok) {
+        await window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: photo.id, state: 'ready', jpgPath: finalJpg })
+        setPhotos(prev => prev.map(p => p.id === photo.id ? withStages({ ...p, state: 'ready', jpgPath: finalJpg }, { ready: true }) : p))
+      } else {
+        alert('Could not create the JPG: ' + (res.error ?? 'unknown error'))
+      }
     }
     setBusy(photo.id, false)
-  }, [sessionDir])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionDir, layout])
 
   // Open the cleaned/ready PNG in Photoshop for manual retouch
   const openInPhotoshop = useCallback(async (photo: StudioPhoto) => {
-    const png = photo.cleanedPath
+    const png = photo.stages.ready ? (photo.readyPngPath ?? photo.cleanedPath) : photo.cleanedPath
     if (!png) return
     const res = await window.electronAPI.photoshopOpen(png)
     if (!res.ok) alert('Could not open Photoshop: ' + (res.error ?? 'unknown error'))
   }, [])
 
-  // Save the Photoshop-edited PNG back to the same path; if the photo is READY,
-  // regenerate its JPG so the export stays in sync (deterministic auto-update).
+  // Save the Photoshop-edited PNG back; if the photo is READY, regenerate its JPG
+  // so the export stays in sync (deterministic auto-update on save).
   const saveReturnPhotoshop = useCallback(async (photo: StudioPhoto) => {
-    const png = photo.cleanedPath
+    const png = photo.stages.ready ? (photo.readyPngPath ?? photo.cleanedPath) : photo.cleanedPath
     if (!png) return
     setBusy(photo.id, true)
     const r = await window.electronAPI.photoshopSaveReturn(png, false)
-    if (r.ok && photo.state === 'ready' && photo.jpgPath) {
-      await window.electronAPI.bgRemovalMakeJpg(png, photo.jpgPath)
+    if (r.ok && photo.stages.ready) {
+      if (layout === 'stages') {
+        await window.electronAPI.photoStudioStageRefreshJpg({ sessionDir, photoId: photo.id })
+      } else if (photo.jpgPath) {
+        await window.electronAPI.bgRemovalMakeJpg(png, photo.jpgPath)
+      }
     }
     setBusy(photo.id, false)
     bumpThumb(photo.id)
     if (!r.ok) alert('Could not save from Photoshop: ' + (r.error ?? 'unknown error'))
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionDir, layout])
 
   // ── Select Subject (engine vs Photoshop cut-out compare) ────────────────────
   // Same flow as Background Removal / Photo Manager: run Photoshop "Select Subject"
@@ -830,11 +926,13 @@ function SessionView({
     window.electronAPI.photoStudioOpenInFinder(sessionDir + '/_ready')
   }
 
+  // Cumulative counts — match the cumulative tabs (a ready photo also counts as
+  // captured/selected/cleaned, since it lives in all those folders).
   const counts = {
-    captured: photos.filter(p => p.state === 'captured').length,
-    selected: photos.filter(p => p.state === 'selected').length,
-    cleaned:  photos.filter(p => p.state === 'cleaned').length,
-    ready:    photos.filter(p => p.state === 'ready').length,
+    captured: photos.length,
+    selected: photos.filter(p => p.stages.selected).length,
+    cleaned:  photos.filter(p => p.stages.cleaned).length,
+    ready:    photos.filter(p => p.stages.ready).length,
   }
 
   const stateFilterOptions: Array<{ value: StudioPhoto['state'] | 'all'; label: string; count: number }> = [
@@ -972,14 +1070,14 @@ function SessionView({
                   <div className="text-[10px] text-gray-400 truncate mb-1">{activePhoto.filename}</div>
                   <button
                     className={`w-full py-1.5 rounded text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
-                      activePhoto.state === 'selected'
+                      activePhoto.stages.selected
                         ? 'bg-blue-600 text-white hover:bg-blue-500'
                         : 'bg-white/10 text-gray-200 hover:bg-white/20'
                     }`}
                     onClick={() => starPhoto(activePhoto)}
                   >
-                    <Star size={11} fill={activePhoto.state === 'selected' ? 'currentColor' : 'none'} />
-                    {activePhoto.state === 'selected' ? 'Starred' : 'Star (Enter)'}
+                    <Star size={11} fill={activePhoto.stages.selected ? 'currentColor' : 'none'} />
+                    {activePhoto.stages.selected ? 'Starred' : 'Star (Enter)'}
                   </button>
                 </div>
               )}
@@ -1130,12 +1228,12 @@ function SessionView({
             <button onClick={selectAll} className="text-xs text-blue-600 hover:underline">All</button>
             <button onClick={deselectAll} className="text-xs text-gray-400 hover:underline">None</button>
             <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
-            {photos.some(p => selected.has(p.id) && p.state === 'captured') && (
+            {photos.some(p => selected.has(p.id) && !p.stages.selected) && (
               <button onClick={markSelected} className="flex items-center gap-1 text-xs px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200">
                 ⭐ Mark selected
               </button>
             )}
-            {photos.some(p => selected.has(p.id) && (p.state === 'selected' || p.state === 'captured')) && (
+            {photos.some(p => selected.has(p.id) && !p.stages.cleaned) && (
               <button
                 onClick={runBgRemoval}
                 disabled={processing.size > 0}
@@ -1145,7 +1243,7 @@ function SessionView({
                 Clean background
               </button>
             )}
-            {photos.some(p => selected.has(p.id) && p.state === 'cleaned') && (
+            {photos.some(p => selected.has(p.id) && p.stages.cleaned && !p.stages.ready) && (
               <button onClick={markReady} className="flex items-center gap-1 text-xs px-2.5 py-1 bg-green-100 text-green-700 rounded-full hover:bg-green-200">
                 ✅ Mark ready
               </button>
@@ -1197,6 +1295,7 @@ function SessionView({
                 <PhotoThumb
                   photo={p}
                   selected={selected.has(p.id)}
+                  displayStage={filterState}
                   onClick={() => setLightboxIdx(i)}
                   onSelect={shift => toggleSelect(i, shift)}
                   onStar={() => starPhoto(p)}
@@ -1207,13 +1306,13 @@ function SessionView({
                     <Loader2 size={20} className="animate-spin text-white" />
                   </div>
                 )}
-                {p.state === 'ready' && (
+                {p.stages.ready && (
                   <div className="absolute top-1.5 left-1.5 pointer-events-none">
                     <CheckCircle2 size={16} className="text-green-400 drop-shadow" />
                   </div>
                 )}
                 {/* Cleaned quick actions — hover-reveal, muted so they don't fight the photo */}
-                {p.state === 'cleaned' && (
+                {p.stages.cleaned && !p.stages.ready && (
                   <div className="absolute bottom-1.5 inset-x-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={e => { e.stopPropagation(); approvePhoto(p) }}
@@ -1251,6 +1350,7 @@ function SessionView({
         <Lightbox
           photos={visiblePhotos}
           index={lightboxIdx}
+          displayStage={filterState}
           onClose={() => setLightboxIdx(null)}
           onNav={dir => setLightboxIdx(i => {
             if (i === null) return null
