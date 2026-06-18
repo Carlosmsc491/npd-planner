@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Camera, Star, Upload, ImageOff, Loader2, AlertTriangle,
-  ExternalLink, CheckCircle2, Check, Trash2, FolderDown, Archive,
+  ExternalLink, CheckCircle2, Check, Trash2, FolderDown, Archive, Scissors,
 } from 'lucide-react'
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
@@ -19,6 +19,7 @@ import { resolvePhotoPath, toRelativePhotoPath } from '../../utils/photoUtils'
 import { resolveAllRecipeNotes } from '../../lib/recipeFirestore'
 import { canTakePhotos } from '../../lib/permissions'
 import { useRecipeNotes } from '../../hooks/useRecipeNotes'
+import { useCleanQueue } from '../../hooks/useCleanQueue'
 import PhotoGalleryPopup from './PhotoGalleryPopup'
 import type { RecipeProject, RecipeFile, CapturedPhoto } from '../../types'
 import type { PhotoManifest } from '../../../../shared/photoManifest'
@@ -223,6 +224,45 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
     setManifests(prev => ({ ...prev, [m.recipeUid]: m }))
   }, [])
 
+  // ── Auto-clean on select (background removal) ───────────────────────────────
+  // Selecting a candidate enqueues a single-photo cut-out; the transparent PNG
+  // lands in CLEANED (needs_retouch). Mac + installed engine only.
+  const isMac = window.electronAPI.platform === 'darwin'
+  const [engineReady, setEngineReady] = useState(false)
+  const [autoClean, setAutoClean] = useState(() => localStorage.getItem('npd:autoCleanOnSelect') !== '0')
+  const cleanQueue = useCleanQueue(1)
+
+  useEffect(() => { localStorage.setItem('npd:autoCleanOnSelect', autoClean ? '1' : '0') }, [autoClean])
+  useEffect(() => {
+    if (!isMac) return
+    window.electronAPI.bgRemovalInstallState()
+      .then(s => setEngineReady(s.installed && s.supported))
+      .catch(() => {})
+  }, [isMac])
+
+  function enqueueAutoClean(recipe: RecipeFile, photo: CapturedPhoto) {
+    const ref = refFromRecipe(recipe, user?.uid ?? '')
+    const projectRoot = effectiveRootPath.replace(/\\/g, '/')
+    if (!ref || !projectRoot) return
+    const pngName = photo.filename.replace(/\.[^.]+$/, '') + '.png'
+    // Already cleaned? skip the (slow) re-cut.
+    if (manifests[ref.recipeUid]?.cleaned?.some(e => e.filename === pngName)) return
+    const input = resolvePhotoPath(photo.picturePath, projectRoot)
+    const output = ref.subfolderName
+      ? `${projectRoot}/PICTURES/3. CLEANED/${ref.subfolderName}/${pngName}`
+      : `${projectRoot}/PICTURES/3. CLEANED/${pngName}`
+    cleanQueue.enqueue({
+      id: `${ref.recipeUid}/${photo.filename}`,
+      label: `${recipe.displayName} · ${photo.filename}`,
+      run: async () => {
+        const res = await window.electronAPI.bgRemovalCleanPhoto({ input, output })
+        if (!res.ok) throw new Error(res.error || 'Cut-out failed.')
+        const merged = await appendCleanedEntry(projectRoot, ref, pngName)
+        upsertManifest(merged)
+      },
+    })
+  }
+
   // ── KPIs ─────────────────────────────────────────────────────────────────────
 
   const kpis = useMemo(() => {
@@ -360,6 +400,8 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
       const absCamera = resolvePhotoPath(photo.picturePath, projectRoot)
       if (newIsSelected) {
         window.electronAPI.copyToSelected({ sourcePath: absCamera, destPath: selectedPath }).catch(() => {})
+        // Auto-clean: kick off the background-removal cut-out for this candidate.
+        if (isMac && engineReady && canEdit && autoClean) enqueueAutoClean(recipe, photo)
       } else {
         window.electronAPI.deleteFromSelected({ filePath: selectedPath }).catch(() => {})
       }
@@ -851,6 +893,34 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
         ))}
       </div>
 
+      {/* Auto-clean (background removal) status bar — Mac + editors, on capture tabs */}
+      {isMac && canEdit && (activeTab === 'camera' || activeTab === 'selected') && (
+        <div className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 flex-wrap">
+          <label className={`inline-flex items-center gap-1.5 text-xs font-medium cursor-pointer ${engineReady ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 cursor-not-allowed'}`}>
+            <input type="checkbox" checked={autoClean && engineReady} disabled={!engineReady}
+              onChange={e => setAutoClean(e.target.checked)} className="accent-[#1D9E75]" />
+            <Scissors size={13} /> Auto-clean on select
+          </label>
+          {!engineReady ? (
+            <span className="text-[11px] text-amber-600 dark:text-amber-400">
+              Engine not installed — open Background Removal to set it up.
+            </span>
+          ) : (cleanQueue.activeCount + cleanQueue.pendingCount) > 0 ? (
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-gray-300">
+              <Loader2 size={12} className="animate-spin" style={{ color: '#1D9E75' }} />
+              Cleaning {cleanQueue.activeCount + cleanQueue.pendingCount} photo{(cleanQueue.activeCount + cleanQueue.pendingCount) !== 1 ? 's' : ''}…
+            </span>
+          ) : (
+            <span className="text-[11px] text-gray-400">Selected photos are cut out automatically.</span>
+          )}
+          {cleanQueue.errors.length > 0 && (
+            <button onClick={cleanQueue.clearErrors} className="text-[11px] text-red-500 hover:underline">
+              {cleanQueue.errors.length} failed — dismiss
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Selection toolbar — sticky below tabs */}
       {(activeTab !== 'cleaned') && selectionCount > 0 && (
         <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 flex-wrap">
@@ -938,7 +1008,7 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
           /* ── 3. CLEANED tab ── */
           <div className="space-y-3">
             <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider mb-1">
-              Drop background-removed PNGs per recipe. Re-drop after retouching to send to Ready.
+              Selected photos are cut out automatically. Open in Photoshop to retouch, Save &amp; return, then re-drop to send to Ready.
             </p>
             {cleanedErrors.map((err, i) => (
               <div key={i} className="flex items-start gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
@@ -959,7 +1029,19 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
                     isProcessing={cleanedProcessing === recipe.id}
                     canEdit={canEdit}
                     onDrop={file => handleCleanedDrop(file, recipe)}
-                    onOpenPhotoshop={path => window.electronAPI.openFile(resolvePhotoPath(path, effectiveRootPath))}
+                    onOpenPhotoshop={async path => {
+                      const abs = resolvePhotoPath(path, effectiveRootPath)
+                      if (isMac) {
+                        const r = await window.electronAPI.photoshopOpen(abs)
+                        if (!r.ok) setCleanedErrors(e => [...e, `${recipe.displayName}: ${r.error || 'could not open Photoshop'}`])
+                      } else {
+                        window.electronAPI.openFile(abs)
+                      }
+                    }}
+                    onSaveReturn={isMac ? async path => {
+                      const r = await window.electronAPI.photoshopSaveReturn(resolvePhotoPath(path, effectiveRootPath))
+                      if (!r.ok) setCleanedErrors(e => [...e, `${recipe.displayName}: ${r.error || 'save failed'}`])
+                    } : undefined}
                     onWarningClick={() => setNotesModal({ recipeId: recipe.id, projectId: project.id, recipeName: recipe.recipeName || recipe.displayName })}
                   />
                 ))
@@ -1226,13 +1308,15 @@ function KpiCard({ label, value, total, subtitle, color, alert }: {
 
 // ── CLEANED recipe row ─────────────────────────────────────────────────────────
 
-function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onOpenPhotoshop, onWarningClick }: {
+function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onOpenPhotoshop, onSaveReturn, onWarningClick }: {
   recipe: RecipeFile; isProcessing: boolean
   canEdit: boolean
   onDrop: (file: File) => void; onOpenPhotoshop: (path: string) => void
+  onSaveReturn?: (path: string) => Promise<void>   // Mac scripted save-back to same path
   onWarningClick?: () => void
 }) {
   const [dragOver, setDragOver] = useState(false)
+  const [saving, setSaving]     = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const hasCleaned   = (recipe.cleanedPhotoPaths?.length ?? 0) > 0
   const isDone       = recipe.cleanedPhotoStatus === 'done'
@@ -1267,6 +1351,16 @@ function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onOpenPhotosh
         <button onClick={() => onOpenPhotoshop(recipe.cleanedPhotoPaths![0])} title="Open in Photoshop"
           className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 transition-colors">
           <ExternalLink size={10} /><span className="hidden sm:inline">Open in Photoshop</span>
+        </button>
+      )}
+      {hasCleaned && recipe.cleanedPhotoPaths![0] && onSaveReturn && canEdit && (
+        <button
+          disabled={saving}
+          onClick={async () => { setSaving(true); try { await onSaveReturn(recipe.cleanedPhotoPaths![0]) } finally { setSaving(false) } }}
+          title="Save the edited file back to the app (no dialog)"
+          className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 transition-colors disabled:opacity-50">
+          {saving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+          <span className="hidden sm:inline">Save &amp; return</span>
         </button>
       )}
       {canEdit && (
