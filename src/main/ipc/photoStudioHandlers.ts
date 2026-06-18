@@ -66,20 +66,23 @@ export function registerPhotoStudioHandlers(): void {
   ipcMain.handle('photostudio:list-sessions', async (_event, catalogDir: string) => {
     try {
       if (!fs.existsSync(catalogDir)) return { ok: true, sessions: [] }
+
+      // Filter first so sort never touches dirs without _session.json
       const entries = fs.readdirSync(catalogDir, { withFileTypes: true })
-        .filter(e => e.isDirectory())
+        .filter(e => e.isDirectory() && fs.existsSync(path.join(catalogDir, e.name, SESSION_META_FILE)))
         .sort((a, b) => {
-          // Newest first — sort by mtime of _session.json
-          const ma = fs.statSync(path.join(catalogDir, a.name, SESSION_META_FILE)).mtimeMs
-          const mb = fs.statSync(path.join(catalogDir, b.name, SESSION_META_FILE)).mtimeMs
-          return mb - ma
+          // Newest first by _session.json mtime
+          try {
+            const ma = fs.statSync(path.join(catalogDir, a.name, SESSION_META_FILE)).mtimeMs
+            const mb = fs.statSync(path.join(catalogDir, b.name, SESSION_META_FILE)).mtimeMs
+            return mb - ma
+          } catch { return 0 }
         })
 
       const sessions: StudioSession[] = []
       for (const entry of entries) {
         const sessionDir = path.join(catalogDir, entry.name)
         const metaPath = path.join(sessionDir, SESSION_META_FILE)
-        if (!fs.existsSync(metaPath)) continue
         const meta = readJson<{ id: string; name: string; createdAt: string }>(metaPath, {
           id: entry.name, name: entry.name, createdAt: new Date().toISOString(),
         })
@@ -100,10 +103,11 @@ export function registerPhotoStudioHandlers(): void {
     }
   })
 
-  // Create a new session folder
+  // Create a new session folder — folder name is just the timestamp,
+  // display name lives only in _session.json (no slugifying or user text in paths)
   ipcMain.handle('photostudio:create-session', async (_event, args: { catalogDir: string; name: string }) => {
     try {
-      const id = `${Date.now()}-${args.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}`
+      const id = Date.now().toString()
       const sessionDir = path.join(args.catalogDir, id)
       fs.mkdirSync(sessionDir, { recursive: true })
       const meta = { id, name: args.name, createdAt: new Date().toISOString() }
