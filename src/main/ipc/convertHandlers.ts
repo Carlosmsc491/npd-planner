@@ -13,8 +13,11 @@ import {
   CONVERT_IMAGE_EXTS,
   type ConvertScanResult,
   type ConvertGroup,
+  type ConvertTool,
   type ConvertBatchJob,
   type ConvertBatchResult,
+  type ConvertEstimate,
+  type ConvertEstimateOptions,
   type PathStat,
 } from '../../shared/convert'
 
@@ -86,31 +89,51 @@ async function decode(src: string): Promise<{ pipeline: Sharp; isPsd: boolean }>
 }
 
 /**
- * Convert tool: PNG/PSD → JPG with a white background, keeping the original size.
- * Writes {destDir}/{base}.jpg.
+ * Encode a source into the output buffer for the chosen tool, returning the
+ * buffer and its extension. Both the file writer and the size estimate use this,
+ * so a sampled estimate is produced exactly the way the real conversion will be.
+ *
+ *  • convert — PNG/PSD → JPG, white background, original size. Quality 100 keeps
+ *    full chroma (4:4:4) for the closest-to-lossless "Original" option.
+ *  • resize  — shrink inside maxEdge, keeping the original format/transparency
+ *    (PNG→PNG, JPG→JPG, WEBP→WEBP; PSD and anything else → PNG).
  */
-async function convertToJpg(src: string, destDir: string, base: string, quality: number): Promise<void> {
-  await fs.promises.mkdir(destDir, { recursive: true })
-  const { pipeline } = await decode(src)
-  await pipeline.flatten({ background: { r: 255, g: 255, b: 255 } }).jpeg({ quality }).toFile(path.join(destDir, `${base}.jpg`))
-}
-
-/**
- * Resize tool: shrink inside maxEdge, keeping the original format/transparency.
- * PNG→PNG, JPG→JPG, WEBP→WEBP; PSD and anything else → PNG.
- */
-async function resizeKeepingFormat(src: string, destDir: string, base: string, maxEdge: number, quality: number): Promise<void> {
-  await fs.promises.mkdir(destDir, { recursive: true })
+async function encode(src: string, tool: ConvertTool, quality: number, maxEdge: number): Promise<{ buf: Buffer; ext: string }> {
   const { pipeline, isPsd } = await decode(src)
+  if (tool === 'convert') {
+    const jpegOpts = quality >= 100 ? { quality: 100, chromaSubsampling: '4:4:4' } : { quality }
+    const buf = await pipeline.flatten({ background: { r: 255, g: 255, b: 255 } }).jpeg(jpegOpts).toBuffer()
+    return { buf, ext: '.jpg' }
+  }
   const resized = pipeline.resize(maxEdge, maxEdge, { fit: 'inside', withoutEnlargement: true })
   const ext = isPsd ? '.png' : path.extname(src).toLowerCase()
-  if (ext === '.jpg' || ext === '.jpeg') {
-    await resized.jpeg({ quality }).toFile(path.join(destDir, `${base}.jpg`))
-  } else if (ext === '.webp') {
-    await resized.webp({ quality }).toFile(path.join(destDir, `${base}.webp`))
-  } else {
-    await resized.png().toFile(path.join(destDir, `${base}.png`)) // lossless, keeps transparency
+  if (ext === '.jpg' || ext === '.jpeg') return { buf: await resized.jpeg({ quality }).toBuffer(), ext: '.jpg' }
+  if (ext === '.webp') return { buf: await resized.webp({ quality }).toBuffer(), ext: '.webp' }
+  return { buf: await resized.png().toBuffer(), ext: '.png' } // lossless, keeps transparency
+}
+
+/** Encode + write one file to {destDir}/{base}{ext}; returns the bytes written. */
+async function writeOutput(src: string, destDir: string, base: string, tool: ConvertTool, quality: number, maxEdge: number): Promise<number> {
+  await fs.promises.mkdir(destDir, { recursive: true })
+  const { buf, ext } = await encode(src, tool, quality, maxEdge)
+  await fs.promises.writeFile(path.join(destDir, `${base}${ext}`), buf)
+  return buf.length
+}
+
+async function fileSize(p: string): Promise<number> {
+  try {
+    return (await fs.promises.stat(p)).size
+  } catch {
+    return 0
   }
+}
+
+/** Pick up to `k` indices spread evenly across [0, len) — first, last and middles. */
+function spreadIndices(len: number, k: number): number[] {
+  if (len <= k) return Array.from({ length: len }, (_, i) => i)
+  const out = new Set<number>()
+  for (let i = 0; i < k; i++) out.add(Math.round((i * (len - 1)) / (k - 1)))
+  return [...out]
 }
 
 export function registerConvertHandlers(): void {
@@ -220,13 +243,15 @@ export function registerConvertHandlers(): void {
     const total = work.length
     let done = 0
     let failed = 0
+    let sourceBytes = 0
+    let outputBytes = 0
     const errors: string[] = []
 
     for (const { src, destDir } of work) {
       const base = path.basename(src, path.extname(src))
       try {
-        if (job.tool === 'convert') await convertToJpg(src, destDir, base, quality)
-        else await resizeKeepingFormat(src, destDir, base, maxEdge, quality)
+        outputBytes += await writeOutput(src, destDir, base, job.tool, quality, maxEdge)
+        sourceBytes += await fileSize(src)
       } catch (err) {
         failed++
         errors.push(`${path.basename(src)}: ${err instanceof Error ? err.message : String(err)}`)
@@ -245,6 +270,38 @@ export function registerConvertHandlers(): void {
     else if (job.mode === 'custom') outputFolder = job.destRoot ?? null
     else if (job.mode === 'files') outputFolder = work.length ? work[0].destDir : null
 
-    return { success: failed === 0, converted: total - failed, failed, errors, outputFolder }
+    return { success: failed === 0, converted: total - failed, failed, errors, outputFolder, sourceBytes, outputBytes }
+  })
+
+  // Pre-flight estimate: exact source total + a sample-based output projection.
+  // Sampling a few files (encoded the real way) keeps it fast while staying close,
+  // since JPEG size depends on each image's content and can't be guessed otherwise.
+  ipcMain.handle('convert:estimate', async (_event, sources: string[], opts: ConvertEstimateOptions): Promise<ConvertEstimate> => {
+    const maxEdge = Math.max(1, Math.round(opts.maxLongEdge || 1920))
+    const quality = Math.min(100, Math.max(1, Math.round(opts.quality || 92)))
+
+    let sourceBytes = 0
+    for (const s of sources) sourceBytes += await fileSize(s)
+
+    let sampleIn = 0
+    let sampleOut = 0
+    let sampled = 0
+    for (const i of spreadIndices(sources.length, 3)) {
+      try {
+        const { buf } = await encode(sources[i], opts.tool, quality, maxEdge)
+        const inB = await fileSize(sources[i])
+        if (inB > 0) {
+          sampleIn += inB
+          sampleOut += buf.length
+          sampled++
+        }
+      } catch {
+        /* skip unreadable samples */
+      }
+    }
+
+    const ratio = sampleIn > 0 ? sampleOut / sampleIn : 0
+    const estBytes = sampled > 0 ? Math.round(sourceBytes * ratio) : 0
+    return { count: sources.length, sourceBytes, estBytes, sampled }
   })
 }

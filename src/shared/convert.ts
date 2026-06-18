@@ -49,6 +49,29 @@ export interface ConvertBatchResult {
   errors: string[]
   /** Folder to reveal in Finder/Explorer when done. */
   outputFolder: string | null
+  /** Total bytes of the source files that converted successfully. */
+  sourceBytes: number
+  /** Total bytes of the produced files. */
+  outputBytes: number
+}
+
+/** Pre-flight size preview: real source total + a sample-based output estimate. */
+export interface ConvertEstimate {
+  /** Number of source images. */
+  count: number
+  /** Exact total size of the sources, in bytes. */
+  sourceBytes: number
+  /** Estimated output size, extrapolated from a few sample conversions. */
+  estBytes: number
+  /** How many files were actually sampled to build the estimate. */
+  sampled: number
+}
+
+/** Options for a size estimate — mirrors the relevant batch-job fields. */
+export interface ConvertEstimateOptions {
+  tool: ConvertTool
+  quality: number
+  maxLongEdge: number
 }
 
 export interface ConvertProgress {
