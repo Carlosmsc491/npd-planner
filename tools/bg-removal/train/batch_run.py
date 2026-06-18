@@ -85,18 +85,18 @@ class Status:
 def process_one(path: Path, birefnet, refiner, ref_size: int, device: str,
                 out: Path, thumbs: Path, st: Status, idx: int) -> None:
     name = path.name
-    st.step(name, idx, "Loading image…", 5)
+    st.step(name, idx, "Opening the photo…", 5)
     orig = Image.open(path).convert("RGB")
     ow, oh = orig.size
     orig_rgb = np.asarray(orig)
 
-    st.step(name, idx, "BiRefNet — base cutout (2048)…", 25)
+    st.step(name, idx, "Finding the bouquet…", 25)
     xb = torch.from_numpy(_norm_chw(letterbox(orig, BIRE, (255, 255, 255)))).unsqueeze(0).to(device)
     out_b = birefnet(xb)
     pred = out_b[-1] if isinstance(out_b, (list, tuple)) else out_b
     ba = torch.sigmoid(pred)[0, 0].float().cpu().numpy()
 
-    st.step(name, idx, "Refiner — removing base & debris…", 60)
+    st.step(name, idx, "Removing the background…", 60)
     rgb_r = _norm_chw(letterbox(orig, ref_size, (255, 255, 255)))
     ba_r = cv2.resize(ba, (ref_size, ref_size), interpolation=cv2.INTER_LINEAR)
     xr = torch.from_numpy(np.concatenate([rgb_r, ba_r[None]], 0)).unsqueeze(0).float().to(device)
@@ -105,19 +105,19 @@ def process_one(path: Path, birefnet, refiner, ref_size: int, device: str,
     remove = cv2.resize(remove, (BIRE, BIRE), interpolation=cv2.INTER_LINEAR)
     corrected = np.clip(ba * (1 - remove), 0, 1)
 
-    st.step(name, idx, "Refining edges (guided filter)…", 75)
+    st.step(name, idx, "Cleaning up the edges…", 75)
     alpha = unletterbox(corrected, ow, oh)
     guide = np.asarray(orig.convert("L"), np.float32) / 255.0
     alpha = np.clip(guided_filter(guide, alpha, GF_R, GF_EPS), 0, 1)
 
-    st.step(name, idx, "Cleaning white fringe & floating debris…", 88)
+    st.step(name, idx, "Removing leftover background…", 88)
     alpha = decontaminate_white(orig_rgb, alpha, DEC_SAT, DEC_VAL, DEC_COV, DEC_WIN)
     if SHARP > 1:
         alpha = np.clip((alpha - 0.5) * SHARP + 0.5, 0, 1)
     alpha = defringe_edges(orig_rgb, alpha, EDGE_SHIFT)            # anti-halo on thin foliage
     alpha = keep_large_components(alpha, MIN_COMP, largest_only=True)  # keep only the bouquet
 
-    st.step(name, idx, "Square crop 3600 & saving…", 95)
+    st.step(name, idx, "Finishing up…", 95)
     rgba = Image.fromarray(np.dstack([orig_rgb, (alpha * 255).astype(np.uint8)]), "RGBA")
     result = pipeline.square_crop(rgba, {"canvas_size": CANVAS, "margin_pct": MARGIN})
     dest = out / f"{path.stem}.png"
@@ -152,7 +152,7 @@ def main() -> int:
 
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     st = Status(args.out, len(imgs))
-    st.step("—", 0, "Loading models (BiRefNet + refiner)…", 0)
+    st.step("—", 0, "Getting ready…", 0)
     birefnet = load_birefnet(device=device)
     birefnet.eval()
     refiner, ref_size = load_refiner(args.checkpoint, device)
@@ -177,7 +177,7 @@ def main() -> int:
 
     if args.retouch:
         import subprocess
-        print("Abriendo Photoshop y aplicando RETOUCH al lote…", flush=True)
+        print("Opening Photoshop and applying RETOUCH to the batch…", flush=True)
         subprocess.run([sys.executable, str(HERE / "photoshop_retouch.py"),
                         "--action", args.rt_action, "--set", args.rt_set,
                         "--app", args.rt_app, "--in", str(args.out),

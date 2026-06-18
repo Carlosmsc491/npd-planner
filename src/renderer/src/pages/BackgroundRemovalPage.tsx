@@ -5,7 +5,7 @@
 // in the Python tool via bgRemovalHandlers; thumbnails are downscaled in main
 // (sharp) so big batches never freeze the renderer.
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, memo } from 'react'
 import {
   Scissors, Upload, FolderOpen, Loader2, CheckCircle2, AlertTriangle,
   X, Play, Wand2, Download, FileImage, ChevronLeft, ChevronRight,
@@ -45,6 +45,72 @@ const CHECKER = {
   backgroundPosition: '0 0,0 8px,8px -8px,-8px 0',
   backgroundColor: '#f0f0f0',
 }
+
+type TileKind = 'idle' | 'queued' | 'current' | 'done' | 'error'
+
+// Memoized so a 700ms status tick only re-renders the tile(s) that actually
+// changed — keeps the live grid smooth with big batches.
+const PhotoTile = memo(function PhotoTile({
+  index, label, url, kind, seconds, showRecut, recutting, onOpen, onRecut,
+}: {
+  index: number; label: string; url?: string; kind: TileKind
+  seconds?: number; showRecut: boolean; recutting: boolean
+  onOpen: (i: number) => void; onRecut: (i: number) => void
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(index)}
+      className="group relative cursor-pointer overflow-hidden rounded-lg border border-gray-200 text-left dark:border-gray-700"
+    >
+      <div className="aspect-square" style={CHECKER}>
+        {url
+          ? <img src={url} alt={label} loading="lazy" className="h-full w-full object-cover" />
+          : <div className="flex h-full items-center justify-center"><Loader2 size={18} className="animate-spin text-gray-400" /></div>}
+      </div>
+
+      {kind === 'done' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/15">
+          <CheckCircle2 size={42} className="drop-shadow-lg" style={{ color: '#fff', fill: ACCENT }} />
+        </div>
+      )}
+      {kind === 'current' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+          <Loader2 size={34} className="animate-spin text-white drop-shadow" />
+        </div>
+      )}
+      {kind === 'error' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+          <AlertTriangle size={34} className="text-red-400 drop-shadow" />
+        </div>
+      )}
+
+      {showRecut && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onRecut(index) }}
+          disabled={recutting}
+          title="Re-cut with Photoshop Select Subject"
+          className="absolute bottom-9 right-1.5 inline-flex items-center gap-1 rounded-md bg-black/55 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity hover:bg-black/75 group-hover:opacity-100 disabled:opacity-100"
+        >
+          {recutting ? <Loader2 size={11} className="animate-spin" /> : <Wand2 size={11} />}
+          Select Subject
+        </button>
+      )}
+
+      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
+        <span className="truncate text-xs text-gray-500 dark:text-gray-400">{label}</span>
+        {kind === 'error'
+          ? <span className="flex items-center gap-0.5 text-xs text-red-500"><AlertTriangle size={11} /> error</span>
+          : kind === 'done'
+            ? <span className="text-xs font-medium" style={{ color: ACCENT }}>{seconds}s</span>
+            : kind === 'current'
+              ? <span className="text-xs text-gray-400">cleaning…</span>
+              : kind === 'queued' ? <span className="text-xs text-gray-300 dark:text-gray-600">queued</span> : null}
+      </div>
+    </div>
+  )
+})
 
 export default function BackgroundRemovalPage() {
   const [install, setInstall] = useState<BgInstallState | null>(null)
@@ -198,6 +264,10 @@ export default function BackgroundRemovalPage() {
       alert(r.error || 'Photoshop Select Subject failed.')
     }
   }
+  // Stable callbacks so memoized tiles don't re-render every status tick.
+  const recutRef = useRef(recut); recutRef.current = recut
+  const onOpenTile = useCallback((i: number) => setLightbox(i), [])
+  const onRecutTile = useCallback((i: number) => { void recutRef.current(i) }, [])
 
   const cancel = async () => { await window.electronAPI.bgRemovalCancel(); setPhase('idle'); setStatus(null) }
   const reset = () => {
@@ -350,7 +420,7 @@ export default function BackgroundRemovalPage() {
               <span className="text-sm text-gray-500 dark:text-gray-400">{status?.done ?? 0} / {status?.total ?? files.length} photos</span>
             </div>
             <div className="h-3 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-              <div className="h-full rounded-full transition-all" style={{ width: `${phase === 'done' ? 100 : pct}%`, background: ACCENT }} />
+              <div className="h-full rounded-full transition-[width] duration-700 ease-linear" style={{ width: `${phase === 'done' ? 100 : pct}%`, background: ACCENT }} />
             </div>
             <div className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               {phase === 'done'
@@ -394,65 +464,23 @@ export default function BackgroundRemovalPage() {
               {files.map((f, i) => {
                 const bn = baseName(f)
                 const item = itemByName.get(bn)
-                const isCurrent = phase === 'processing' && currentName === bn
-                const isDone = !!item && !item.error
-                const isError = !!item?.error
-                const url = resultThumbs[bn] || inputThumbs[f]
+                const kind: TileKind = item?.error ? 'error'
+                  : item ? 'done'
+                  : phase === 'processing' && currentName === bn ? 'current'
+                  : phase !== 'idle' ? 'queued' : 'idle'
                 return (
-                  <div
+                  <PhotoTile
                     key={f}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setLightbox(i)}
-                    className="group relative cursor-pointer overflow-hidden rounded-lg border border-gray-200 text-left dark:border-gray-700"
-                  >
-                    <div className="aspect-square" style={CHECKER}>
-                      {url
-                        ? <img src={url} alt={bn} className="h-full w-full object-cover" />
-                        : <div className="flex h-full items-center justify-center"><Loader2 size={18} className="animate-spin text-gray-400" /></div>}
-                    </div>
-
-                    {/* per-photo status overlay */}
-                    {isDone && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/15">
-                        <CheckCircle2 size={42} className="text-white drop-shadow-lg" style={{ color: '#fff', fill: ACCENT }} />
-                      </div>
-                    )}
-                    {isCurrent && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                        <Loader2 size={34} className="animate-spin text-white drop-shadow" />
-                      </div>
-                    )}
-                    {isError && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                        <AlertTriangle size={34} className="text-red-400 drop-shadow" />
-                      </div>
-                    )}
-
-                    {/* Re-cut with Photoshop — appears on hover over a finished photo */}
-                    {phase === 'done' && (isDone || isError) && result?.cutDir && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); recut(i) }}
-                        disabled={recutting === bn}
-                        title="Re-cut with Photoshop Select Subject"
-                        className="absolute bottom-9 right-1.5 inline-flex items-center gap-1 rounded-md bg-black/55 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity hover:bg-black/75 group-hover:opacity-100 disabled:opacity-100"
-                      >
-                        {recutting === bn ? <Loader2 size={11} className="animate-spin" /> : <Wand2 size={11} />}
-                        Select Subject
-                      </button>
-                    )}
-
-                    <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
-                      <span className="truncate text-xs text-gray-500 dark:text-gray-400">{stemOf(bn)}</span>
-                      {isError
-                        ? <span className="flex items-center gap-0.5 text-xs text-red-500"><AlertTriangle size={11} /> error</span>
-                        : isDone
-                          ? <span className="text-xs font-medium" style={{ color: ACCENT }}>{item!.seconds}s</span>
-                          : isCurrent
-                            ? <span className="text-xs text-gray-400">cleaning…</span>
-                            : phase !== 'idle' ? <span className="text-xs text-gray-300 dark:text-gray-600">queued</span> : null}
-                    </div>
-                  </div>
+                    index={i}
+                    label={stemOf(bn)}
+                    url={resultThumbs[bn] || inputThumbs[f]}
+                    kind={kind}
+                    seconds={item?.seconds}
+                    showRecut={phase === 'done' && (kind === 'done' || kind === 'error') && !!result?.cutDir}
+                    recutting={recutting === bn}
+                    onOpen={onOpenTile}
+                    onRecut={onRecutTile}
+                  />
                 )
               })}
             </div>
