@@ -7,7 +7,7 @@ import type { StudioSession, StudioPhoto } from '../../../shared/photoStudio'
 import {
   Camera, FolderOpen, Grid3X3, List, Image, Plus, Trash2, RefreshCw,
   CheckCircle2, Loader2, AlertTriangle, ChevronLeft, Scissors, Download,
-  FolderInput, MoreVertical, Pencil, X, ArrowLeft, ArrowRight,
+  FolderInput, MoreVertical, Pencil, X, ArrowLeft, ArrowRight, WifiOff, Wifi,
 } from 'lucide-react'
 
 // ─── localStorage ────────────────────────────────────────────────────────────
@@ -282,7 +282,8 @@ function SessionView({
 }) {
   const sessionDir = catalogDir + '/' + session.id
   const [photos, setPhotos] = useState<StudioPhoto[]>([])
-  const [loading, setLoading] = useState(true)
+  const loading = useRef(true)
+  const [loadingState, setLoadingState] = useState(true)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [view, setView] = useState<ViewMode>((localStorage.getItem(LS_VIEW) as ViewMode) ?? 'icons')
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
@@ -290,14 +291,128 @@ function SessionView({
   const [filterState, setFilterState] = useState<StudioPhoto['state'] | 'all'>('all')
   const lastSelectedRef = useRef<number | null>(null)
 
+  // ── Camera tethering ────────────────────────────────────────────────────────
+  const [cameraConnected, setCameraConnected] = useState(false)
+  const [cameraModel, setCameraModel] = useState<string | null>(null)
+  const [tethering, setTethering] = useState(false)
+  const [tetheringWarming, setTetheringWarming] = useState(false)
+  const [tetheringError, setTetheringError] = useState<string | null>(null)
+  const tetheringRef = useRef(false)
+  const photoQueueRef = useRef<Array<{ tempPath: string; filename: string }>>([])
+  const processingPhotoRef = useRef(false)
+  const photosRef = useRef<StudioPhoto[]>([])
+  useEffect(() => { photosRef.current = photos }, [photos])
+
   const loadPhotos = useCallback(async () => {
-    setLoading(true)
+    loading.current = true
+    setLoadingState(true)
     const res = await window.electronAPI.photoStudioListPhotos(sessionDir)
-    if (res.ok) setPhotos(res.photos)
-    setLoading(false)
+    if (res.ok) { setPhotos(res.photos); photosRef.current = res.photos }
+    loading.current = false
+    setLoadingState(false)
   }, [sessionDir])
 
   useEffect(() => { loadPhotos() }, [loadPhotos])
+
+  // Check camera on mount + listen for connect/disconnect
+  useEffect(() => {
+    window.electronAPI.checkCameraConnection().then(s => {
+      setCameraConnected(s.connected)
+      setCameraModel(s.model)
+    }).catch(() => {})
+
+    const unlisten = window.electronAPI.onCameraStatusChanged(s => {
+      setCameraConnected(s.connected)
+      setCameraModel(s.model)
+      // Camera reconnected while not tethering → auto-restart
+      if (s.connected && !tetheringRef.current) {
+        startTethering()
+      }
+    })
+    return () => {
+      unlisten()
+      // Stop tethering when leaving this session (keep gphoto2 alive for next session)
+      window.electronAPI.stopFolderWatch()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const startTethering = useCallback(async () => {
+    if (tetheringRef.current) return
+    setTetheringError(null)
+    setTetheringWarming(true)
+    const udPath = await window.electronAPI.getUserDataPath()
+    const tempDir = udPath + '/camera-temp'
+    const result = await window.electronAPI.startCameraTethering(tempDir)
+    setTetheringWarming(false)
+    if (result.success) {
+      setTethering(true)
+      tetheringRef.current = true
+    } else {
+      setTetheringError(result.error ?? 'Could not start tethering. Check gphoto2 is installed.')
+    }
+  }, [])
+
+  const stopTethering = useCallback(async () => {
+    await window.electronAPI.stopCameraTethering()
+    setTethering(false)
+    tetheringRef.current = false
+  }, [])
+
+  // Process one photo from the queue — burst-safe
+  const processNextPhoto = useCallback(async () => {
+    if (processingPhotoRef.current || !photoQueueRef.current.length) return
+    processingPhotoRef.current = true
+    const data = photoQueueRef.current.shift()!
+
+    try {
+      // Sequence = max existing + 1
+      const nextSeq = photosRef.current.reduce((mx, p) => {
+        const n = parseInt(p.id, 10)
+        return isNaN(n) ? mx : Math.max(mx, n)
+      }, 0) + 1
+      const ext = data.filename.slice(data.filename.lastIndexOf('.')).toLowerCase() || '.jpg'
+      const destFilename = `${String(nextSeq).padStart(4, '0')}${ext}`
+      const destPath = sessionDir + '/' + destFilename
+      const res = await window.electronAPI.cameraCopyFile(data.tempPath, destPath)
+      if (res.success) {
+        // Register in state map as 'captured'
+        await window.electronAPI.photoStudioUpdatePhotoState({
+          sessionDir,
+          photoId: destFilename.replace(/\.[^.]+$/, ''),
+          state: 'captured',
+        })
+        // Append to local state immediately (no full reload needed)
+        const newPhoto: StudioPhoto = {
+          id: destFilename.replace(/\.[^.]+$/, ''),
+          filename: destFilename,
+          absPath: destPath,
+          ext,
+          size: 0,
+          mtimeMs: Date.now(),
+          state: 'captured',
+          cleanedPath: null,
+          jpgPath: null,
+        }
+        setPhotos(prev => [...prev, newPhoto])
+        photosRef.current = [...photosRef.current, newPhoto]
+      }
+    } catch (err) {
+      console.error('[PhotoStudio] photo copy failed:', err)
+    } finally {
+      processingPhotoRef.current = false
+      if (photoQueueRef.current.length) processNextPhoto()
+    }
+  }, [sessionDir])
+
+  // Listen for photos from gphoto2
+  useEffect(() => {
+    const unlisten = window.electronAPI.onCameraPhotoReceived(data => {
+      photoQueueRef.current.push(data)
+      processNextPhoto()
+    })
+    return () => unlisten()
+  }, [processNextPhoto])
 
   const visiblePhotos = filterState === 'all' ? photos : photos.filter(p => p.state === filterState)
 
@@ -438,12 +553,68 @@ function SessionView({
           ))}
         </div>
 
-        <button onClick={importPhotos} className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+        <button onClick={importPhotos} className="flex items-center gap-1.5 text-sm px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
           <FolderInput size={14} /> Import
         </button>
         <button onClick={loadPhotos} className="p-1.5 text-gray-400 hover:text-gray-600">
           <RefreshCw size={14} />
         </button>
+      </div>
+
+      {/* ── Camera tethering bar ─────────────────────────────────────────── */}
+      <div className={`flex items-center gap-3 px-4 py-2.5 border-b text-sm shrink-0 transition-colors ${
+        tethering
+          ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
+          : 'bg-gray-50 border-gray-200 dark:bg-gray-800/50 dark:border-gray-700'
+      }`}>
+        {/* Status dot */}
+        <div className={`w-2 h-2 rounded-full shrink-0 ${
+          tethering ? 'bg-green-500 animate-pulse' : cameraConnected ? 'bg-amber-500' : 'bg-gray-300'
+        }`} />
+
+        {tethering ? (
+          <>
+            <Wifi size={14} className="text-green-600 shrink-0" />
+            <span className="text-green-700 dark:text-green-400 font-medium flex-1">
+              Live capture active{cameraModel ? ` · ${cameraModel}` : ''}
+            </span>
+            <button onClick={stopTethering} className="text-xs px-2.5 py-1 rounded-full border border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/40">
+              Stop
+            </button>
+          </>
+        ) : tetheringWarming ? (
+          <>
+            <Loader2 size={14} className="animate-spin will-change-transform text-purple-500 shrink-0" />
+            <span className="text-gray-600 dark:text-gray-400 flex-1">Connecting to camera…</span>
+          </>
+        ) : cameraConnected ? (
+          <>
+            <Camera size={14} className="text-amber-600 shrink-0" />
+            <span className="text-gray-700 dark:text-gray-300 flex-1">
+              Camera ready{cameraModel ? ` · ${cameraModel}` : ''}
+            </span>
+            <button
+              onClick={startTethering}
+              className="text-xs px-3 py-1 rounded-full bg-purple-600 text-white hover:bg-purple-700"
+            >
+              Start capture
+            </button>
+          </>
+        ) : (
+          <>
+            <WifiOff size={14} className="text-gray-400 shrink-0" />
+            <span className="text-gray-500 flex-1">No camera connected — connect via USB then press Start capture</span>
+            <button
+              onClick={() => { window.electronAPI.checkCameraConnection().then(s => { setCameraConnected(s.connected); setCameraModel(s.model) }) }}
+              className="text-xs px-2.5 py-1 rounded-full border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100"
+            >
+              Check
+            </button>
+          </>
+        )}
+        {tetheringError && (
+          <span className="text-xs text-red-500 truncate max-w-xs" title={tetheringError}>{tetheringError}</span>
+        )}
       </div>
 
       {/* KPI strip */}
@@ -515,9 +686,9 @@ function SessionView({
 
       {/* Photo grid / list */}
       <div className="flex-1 overflow-y-auto p-4">
-        {loading ? (
+        {loadingState ? (
           <div className="flex items-center justify-center h-40">
-            <Loader2 size={24} className="animate-spin text-gray-400" />
+            <Loader2 size={24} className="animate-spin will-change-transform text-gray-400" />
           </div>
         ) : visiblePhotos.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 gap-3 text-gray-400">
