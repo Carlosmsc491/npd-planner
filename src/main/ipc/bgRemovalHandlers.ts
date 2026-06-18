@@ -20,6 +20,8 @@ const IS_MAC = process.platform === 'darwin'
 const IS_ARM = process.arch === 'arm64'
 let activeChild: ChildProcess | null = null
 let installAbort: AbortController | null = null
+// Per-photo cut-out children (Photo Manager auto-clean queue) — for cancel-all.
+const cleanChildren = new Set<ChildProcess>()
 
 /** Where the downloaded engine is installed (writable, survives app updates). */
 function runtimeDir(): string {
@@ -422,5 +424,48 @@ export function registerBgRemovalHandlers(): void {
         })
       })
     })
+  })
+
+  // Single-photo cut-out (Photo Manager auto-clean). Runs infer.py to write the
+  // transparent PNG straight to `output`. Independent of the batch `run` above so
+  // it can be queued per selected photo.
+  ipcMain.handle(
+    'bgremoval:clean-photo',
+    async (_e, job: { input: string; output: string; toolDir?: string }): Promise<{ ok: boolean; error?: string }> => {
+      if (!IS_MAC) return { ok: false, error: 'Mac only.' }
+      const toolDir = job.toolDir || defaultToolDir()
+      const py = pythonPath(toolDir)
+      if (!toolDir || !fs.existsSync(py)) return { ok: false, error: 'Engine not installed.' }
+      if (!fs.existsSync(job.input)) return { ok: false, error: 'Source photo not found.' }
+      fs.mkdirSync(path.dirname(job.output), { recursive: true })
+
+      const modelsDir = path.join(toolDir, 'models')
+      const modelEnv: Record<string, string> = {}
+      if (fs.existsSync(modelsDir)) {
+        modelEnv.HF_HOME = path.join(modelsDir, 'hf')
+        modelEnv.U2NET_HOME = path.join(modelsDir, 'u2net')
+      }
+
+      return new Promise((resolve) => {
+        const child = spawn(py, ['-u', path.join('train', 'infer.py'), job.input, job.output], {
+          cwd: toolDir,
+          env: { ...process.env, PYTORCH_ENABLE_MPS_FALLBACK: '1', ...modelEnv },
+        })
+        cleanChildren.add(child)
+        let stderr = ''
+        child.stderr.on('data', (d) => { stderr += d.toString() })
+        child.on('error', (err) => { cleanChildren.delete(child); resolve({ ok: false, error: err.message }) })
+        child.on('exit', (code) => {
+          cleanChildren.delete(child)
+          if (code === 0 && fs.existsSync(job.output)) resolve({ ok: true })
+          else resolve({ ok: false, error: stderr.trim().split('\n').pop() || `infer.py exited with code ${code}.` })
+        })
+      })
+    },
+  )
+
+  ipcMain.handle('bgremoval:clean-cancel-all', async (): Promise<void> => {
+    for (const c of cleanChildren) { try { c.kill() } catch { /* */ } }
+    cleanChildren.clear()
   })
 }

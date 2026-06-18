@@ -15,6 +15,7 @@ import { registerPhotoManifestHandlers } from './ipc/photoManifestHandlers'
 import { registerCameraHandlers } from './ipc/cameraHandlers'
 import { registerConvertHandlers } from './ipc/convertHandlers'
 import { registerBgRemovalHandlers } from './ipc/bgRemovalHandlers'
+import { registerPhotoshopHandlers } from './ipc/photoshopHandlers'
 import { registerExcelHandlers } from './ipc/excelHandlers'
 import { registerCrashReportHandlers } from './ipc/crashReportHandlers'
 import { registerEmailHandlers } from './ipc/emailHandlers'
@@ -294,6 +295,7 @@ app.whenReady().then(() => {
   registerCameraHandlers()
   registerConvertHandlers()
   registerBgRemovalHandlers()
+  registerPhotoshopHandlers()
   startTrashCleanupService()
   errorReporter.log('App started')
 

@@ -123,6 +123,10 @@ interface IElectronAPI {
   bgRemovalInstallCancel: () => Promise<void>
   onBgRemovalInstallProgress: (cb: (p: import('../../shared/bgRemoval').BgInstallProgress) => void) => () => void
   bgRemovalDefaultToolDir: () => Promise<string>
+  bgRemovalCleanPhoto: (job: { input: string; output: string; toolDir?: string }) => Promise<{ ok: boolean; error?: string }>
+  bgRemovalCleanCancelAll: () => Promise<void>
+  photoshopOpen: (filePath: string, app?: string) => Promise<{ ok: boolean; error?: string }>
+  photoshopSaveReturn: (filePath: string, close?: boolean, app?: string) => Promise<{ ok: boolean; error?: string }>
   bgRemovalSelectFiles: () => Promise<string[]>
   bgRemovalCheckSetup: (toolDir: string) => Promise<import('../../shared/bgRemoval').BgRemovalSetup>
   bgRemovalRun: (job: import('../../shared/bgRemoval').BgRemovalJob) => Promise<import('../../shared/bgRemoval').BgRemovalResult>

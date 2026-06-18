@@ -303,6 +303,16 @@ const electronAPI = {
   },
   bgRemovalDefaultToolDir: (): Promise<string> =>
     ipcRenderer.invoke('bgremoval:default-tool-dir'),
+  // Single-photo cut-out (Photo Manager auto-clean)
+  bgRemovalCleanPhoto: (job: { input: string; output: string; toolDir?: string }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('bgremoval:clean-photo', job),
+  bgRemovalCleanCancelAll: (): Promise<void> =>
+    ipcRenderer.invoke('bgremoval:clean-cancel-all'),
+  // Photoshop round-trip edit
+  photoshopOpen: (filePath: string, app?: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('photoshop:open', { filePath, app }),
+  photoshopSaveReturn: (filePath: string, close?: boolean, app?: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('photoshop:save-return', { filePath, close, app }),
   bgRemovalSelectFiles: (): Promise<string[]> =>
     ipcRenderer.invoke('bgremoval:select-files'),
   bgRemovalCheckSetup: (toolDir: string): Promise<BgRemovalSetup> =>

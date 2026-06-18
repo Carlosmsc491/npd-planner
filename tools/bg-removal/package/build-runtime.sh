@@ -25,8 +25,8 @@
 set -euo pipefail
 
 VERSION="v1"
-PY_TAG="20250612"                 # python-build-standalone release date tag
-PY_VER="3.12.11"                  # CPython version
+PY_TAG="20260610"                 # python-build-standalone release date tag
+PY_VER="3.12.13"                  # CPython version
 PBS_ARCH="aarch64-apple-darwin"   # arm64 macOS
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,15 +36,21 @@ STAGE="$BUILD/runtime"
 DIST="$HERE/dist"
 ASSET="bg-removal-runtime-mac-arm64.tar.gz"
 
-echo "==> Clean staging"
-rm -rf "$BUILD" "$DIST"
+# Resumable: keep $STAGE across runs so a transient network failure doesn't
+# force re-downloading Python + 1.3 GB of wheels. Pass --fresh to wipe it.
 mkdir -p "$STAGE" "$DIST"
+if [ "${1:-}" = "--fresh" ]; then echo "==> Fresh build (wiping staging)"; rm -rf "$BUILD"; mkdir -p "$STAGE"; fi
+rm -f "$DIST/$ASSET" "$DIST/$ASSET.sha256"
+PYBIN="$STAGE/python/bin/python3"
 
 echo "==> 1/6  Fetch relocatable Python (python-build-standalone $PY_VER)"
-PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PY_TAG}/cpython-${PY_VER}+${PY_TAG}-${PBS_ARCH}-install_only.tar.gz"
-curl -fL "$PBS_URL" -o "$BUILD/python.tar.gz"
-tar -xzf "$BUILD/python.tar.gz" -C "$STAGE"   # creates $STAGE/python/
-PYBIN="$STAGE/python/bin/python3"
+if [ ! -x "$PYBIN" ]; then
+  PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PY_TAG}/cpython-${PY_VER}+${PY_TAG}-${PBS_ARCH}-install_only.tar.gz"
+  curl -fL --retry 5 --retry-all-errors "$PBS_URL" -o "$BUILD/python.tar.gz"
+  tar -xzf "$BUILD/python.tar.gz" -C "$STAGE"   # creates $STAGE/python/
+else
+  echo "    (already present, skipping)"
+fi
 "$PYBIN" --version
 
 echo "==> 2/6  Copy tool sources + checkpoint + config"
@@ -66,24 +72,32 @@ mkdir -p "$STAGE/wheels"
   --only-binary=:all: \
   -r "$STAGE/requirements-runtime.txt"
 
-echo "==> 4/6  Pre-download model weights (BiRefNet + rembg) into models/"
-mkdir -p "$STAGE/models/hf" "$STAGE/models/u2net"
+echo "==> 4/6  Pre-download model weights (BiRefNet safetensors) into models/"
+# Only BiRefNet is needed at runtime: batch_run.py / infer.py call load_birefnet
+# (HF safetensors) + the refiner. They use pipeline.square_crop only — never
+# rembg's new_session — so the ~973 MB rembg ONNX is intentionally NOT bundled.
+mkdir -p "$STAGE/models/hf"
 TMPVENV="$BUILD/venv"
-"$PYBIN" -m venv "$TMPVENV"
+[ -x "$TMPVENV/bin/python" ] || "$PYBIN" -m venv "$TMPVENV"
 "$TMPVENV/bin/pip" install --no-index --find-links "$STAGE/wheels" -r "$STAGE/requirements-runtime.txt"
-HF_HOME="$STAGE/models/hf" U2NET_HOME="$STAGE/models/u2net" BG_STAGE="$STAGE" \
+HF_HOME="$STAGE/models/hf" HF_HUB_ENABLE_HF_TRANSFER=0 BG_STAGE="$STAGE" \
   "$TMPVENV/bin/python" - <<'PY'
-import os, sys
+import os, sys, time
 stage = os.environ["BG_STAGE"]
 sys.path.insert(0, os.path.join(stage, "train"))
 sys.path.insert(0, stage)
-# BiRefNet weights (safetensors) via huggingface_hub → cached under HF_HOME
 from birefnet_model import load_birefnet
-load_birefnet(device="cpu")
-# rembg birefnet-general ONNX → cached under U2NET_HOME
-from rembg import new_session
-new_session("birefnet-general")
-print("models cached OK")
+# Retry — HF downloads can time out transiently.
+for attempt in range(1, 6):
+    try:
+        load_birefnet(device="cpu")
+        print("BiRefNet weights cached OK")
+        break
+    except Exception as e:
+        print(f"  attempt {attempt} failed: {e}")
+        if attempt == 5:
+            raise
+        time.sleep(5)
 PY
 # the temp venv was only to fetch models; the package ships wheels, not a venv
 rm -rf "$TMPVENV"
