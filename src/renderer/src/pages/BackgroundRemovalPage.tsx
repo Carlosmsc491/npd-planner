@@ -21,8 +21,34 @@ type Phase = 'idle' | 'processing' | 'done'
 type ElectronFile = File & { path: string }
 
 const RETOUCH_KEY = 'npd:bgremoval_retouch'
-const JPG_KEY = 'npd:bgremoval_jpg'
+const DEST_KEY = 'npd:bgremoval_dest'
 const ACCENT = '#1D9E75'
+
+const slash = (p: string): string => p.replace(/\\/g, '/')
+
+/** Longest common parent dir of the selected files (to mirror subfolders). */
+function commonBaseDir(files: string[]): string {
+  if (!files.length) return ''
+  const dirs = files.map((f) => slash(f).split('/').slice(0, -1))
+  let base = dirs[0]
+  for (const d of dirs.slice(1)) {
+    let i = 0
+    while (i < base.length && i < d.length && base[i] === d[i]) i++
+    base = base.slice(0, i)
+  }
+  return base.join('/')
+}
+
+/** Output paths for a source file: {dest}/PNG|JPG/{mirrored-subdir}/{name}.ext */
+function outFor(f: string, destDir: string, base: string): { png: string; jpg: string; subject: string } {
+  const sf = slash(f)
+  const dir = sf.split('/').slice(0, -1).join('/')
+  const stem = (sf.split('/').pop() || '').replace(/\.[^.]+$/, '')
+  const relDir = base && dir.length > base.length ? dir.slice(base.length).replace(/^\/+/, '') : ''
+  const d = slash(destDir).replace(/\/$/, '')
+  const sub = relDir ? `/${relDir}` : ''
+  return { png: `${d}/PNG${sub}/${stem}.png`, jpg: `${d}/JPG${sub}/${stem}.jpg`, subject: `${d}/PNG${sub}/${stem}.subject.png` }
+}
 
 function fmtTime(s: number): string {
   if (!s || s < 0) return '—'
@@ -120,7 +146,7 @@ export default function BackgroundRemovalPage() {
   const [iProg, setIProg] = useState<BgInstallProgress | null>(null)
   const [files, setFiles] = useState<string[]>([])
   const [retouch, setRetouch] = useState(() => localStorage.getItem(RETOUCH_KEY) !== '0')
-  const [wantJpg, setWantJpg] = useState(() => localStorage.getItem(JPG_KEY) === '1')
+  const [destDir, setDestDir] = useState(() => localStorage.getItem(DEST_KEY) || '')
   const [phase, setPhase] = useState<Phase>('idle')
   const [status, setStatus] = useState<BgRemovalStatus | null>(null)
   const [result, setResult] = useState<BgRemovalResult | null>(null)
@@ -138,25 +164,13 @@ export default function BackgroundRemovalPage() {
   const ready = !!install?.installed
 
   useEffect(() => { localStorage.setItem(RETOUCH_KEY, retouch ? '1' : '0') }, [retouch])
-  useEffect(() => { localStorage.setItem(JPG_KEY, wantJpg ? '1' : '0') }, [wantJpg])
+  useEffect(() => { if (destDir) localStorage.setItem(DEST_KEY, destDir) }, [destDir])
 
-  // JPG export happens AFTER the PNG batch is done (and after any Select-Subject
-  // choice, which regenerates its own JPG). Generates one JPG per finished PNG.
-  useEffect(() => {
-    if (phase !== 'done' || !wantJpg || !result?.cutDir || !status?.items?.length) return
-    let cancelled = false
-    setJpgState('working')
-    ;(async () => {
-      for (const it of status.items) {
-        if (cancelled) break
-        if (it.error) continue
-        const stem = stemOf(it.name)
-        await window.electronAPI.bgRemovalMakeJpg(`${result.cutDir}/${stem}.png`, `${result.cutDir}/${stem}.jpg`)
-      }
-      if (!cancelled) setJpgState('done')
-    })()
-    return () => { cancelled = true }
-  }, [phase, wantJpg, result]) // eslint-disable-line react-hooks/exhaustive-deps
+  const base = commonBaseDir(files)
+  const pickDest = async () => {
+    const d = await window.electronAPI.selectFolder()
+    if (d) setDestDir(d)
+  }
 
   // Resolve install state — is the local engine present (installed or dev)?
   useEffect(() => {
@@ -230,8 +244,8 @@ export default function BackgroundRemovalPage() {
     setLightboxUrl(null)
     const bn = baseName(f)
     const item = status?.items?.find((it) => it.name === bn)
-    const useResult = phase === 'done' && !!result?.cutDir && !!item && !item.error
-    const src = useResult ? `${result!.cutDir}/${stemOf(bn)}.png` : f
+    const useResult = phase === 'done' && !!destDir && !!item && !item.error
+    const src = useResult ? outFor(f, destDir, base).png : f
     window.electronAPI.bgRemovalReadFull(src).then((d) => { if (!cancelled) setLightboxUrl(d) })
     return () => { cancelled = true }
   }, [lightbox]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -260,50 +274,48 @@ export default function BackgroundRemovalPage() {
   }, [])
 
   const start = async () => {
-    if (!files.length || !ready) return
+    if (!files.length || !ready || !destDir) return
     setPhase('processing'); setStatus(null); setResult(null); setResultThumbs({}); fetched.current = new Set()
-    const res = await window.electronAPI.bgRemovalRun({ files, toolDir, retouch })
+    const res = await window.electronAPI.bgRemovalRun({ files, toolDir, destDir, retouch })
     setResult(res); setPhase('done')
   }
-  // Re-cut a single result with Photoshop Select Subject → compare the engine cut
-  // vs the Photoshop cut side by side and keep one. JPG (if requested) is then
-  // regenerated from the chosen PNG.
+  // Re-cut a single result with Photoshop Select Subject → compare engine vs
+  // Photoshop side by side, keep one, regenerate the JPG from the chosen PNG.
   const [recutting, setRecutting] = useState<string | null>(null)
   const [compare, setCompare] = useState<{
-    index: number; bn: string; enginePng: string; subjectPng: string
+    index: number; bn: string; enginePng: string; subjectPng: string; jpg: string
     engineUrl: string | null; subjectUrl: string | null
   } | null>(null)
   const [compareBusy, setCompareBusy] = useState(false)
-  const [jpgState, setJpgState] = useState<'idle' | 'working' | 'done'>('idle')
 
   const recut = async (i: number) => {
     const f = files[i]
-    if (!f || !result?.cutDir) return
+    if (!f || !destDir) return
     const bn = baseName(f)
-    const enginePng = `${result.cutDir}/${stemOf(bn)}.png`
-    const subjectPng = `${result.cutDir}/${stemOf(bn)}.subject.png`
+    const { png, jpg, subject } = outFor(f, destDir, base)
     setRecutting(bn)
-    const r = await window.electronAPI.photoshopSelectSubject(f, subjectPng)
+    const r = await window.electronAPI.photoshopSelectSubject(f, subject)
     setRecutting(null)
     if (!r.ok) { alert(r.error || 'Photoshop Select Subject failed.'); return }
     const [eu, su] = await Promise.all([
-      window.electronAPI.bgRemovalReadFull(enginePng),
-      window.electronAPI.bgRemovalReadFull(subjectPng),
+      window.electronAPI.bgRemovalReadFull(png),
+      window.electronAPI.bgRemovalReadFull(subject),
     ])
-    setCompare({ index: i, bn, enginePng, subjectPng, engineUrl: eu, subjectUrl: su })
+    setCompare({ index: i, bn, enginePng: png, subjectPng: subject, jpg, engineUrl: eu, subjectUrl: su })
   }
 
   const chooseRecut = async (keepSubject: boolean) => {
-    if (!compare || !result?.cutDir) return
+    if (!compare) return
     setCompareBusy(true)
-    const { bn, enginePng, subjectPng, index } = compare
+    const { bn, enginePng, subjectPng, jpg, index } = compare
     await window.electronAPI.bgRemovalResolveRecut({ keepSubject, enginePng, subjectPng })
+    // Regenerate the JPG from the chosen PNG so PNG + JPG stay in sync.
+    await window.electronAPI.bgRemovalMakeJpg(enginePng, jpg)
     const fresh = await window.electronAPI.bgRemovalReadFull(enginePng)
     if (fresh) {
       setResultThumbs((m) => ({ ...m, [bn]: fresh }))
       if (lightbox === index) setLightboxUrl(fresh)
     }
-    if (wantJpg) await window.electronAPI.bgRemovalMakeJpg(enginePng, `${result.cutDir}/${stemOf(bn)}.jpg`)
     setCompareBusy(false)
     setCompare(null)
   }
@@ -411,6 +423,20 @@ export default function BackgroundRemovalPage() {
         {/* IDLE controls */}
         {ready && phase === 'idle' && (
           <>
+            {/* Destination — where PNG/ and JPG/ folders are written */}
+            <div className="mb-4 flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
+              <FolderOpen size={18} className="shrink-0 text-gray-400" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Save results to</p>
+                {destDir
+                  ? <p className="truncate text-sm text-gray-800 dark:text-gray-200">{destDir}<span className="text-gray-400"> /PNG · /JPG</span></p>
+                  : <p className="text-sm text-amber-600 dark:text-amber-400">Choose a folder before processing.</p>}
+              </div>
+              <button onClick={pickDest} className="shrink-0 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800">
+                {destDir ? 'Change' : 'Choose folder'}
+              </button>
+            </div>
+
             <div
               onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
@@ -432,17 +458,13 @@ export default function BackgroundRemovalPage() {
                 <input type="checkbox" checked={retouch} onChange={(e) => setRetouch(e.target.checked)} className="accent-[#1D9E75]" />
                 <Wand2 size={15} style={{ color: ACCENT }} /> Auto-retouch in Photoshop
               </label>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
-                <input type="checkbox" checked={wantJpg} onChange={(e) => setWantJpg(e.target.checked)} className="accent-[#1D9E75]" />
-                <FileImage size={15} style={{ color: ACCENT }} /> Also export JPG
-              </label>
-              <span className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">Output: PNG 3600 · 300 dpi{wantJpg ? ' + JPG' : ''}</span>
+              <span className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">Output: PNG + JPG · 3600 · 300 dpi</span>
             </div>
 
             <div className="mt-5 flex gap-3">
               <button
                 onClick={start}
-                disabled={!files.length || !ready}
+                disabled={!files.length || !ready || !destDir}
                 className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40"
                 style={{ background: ACCENT }}
               >
@@ -474,13 +496,6 @@ export default function BackgroundRemovalPage() {
                 ? <><CheckCircle2 size={16} style={{ color: ACCENT }} /> {result?.success ? 'Completed.' : (result?.error || 'Finished with errors.')}</>
                 : <><Loader2 size={16} className="animate-spin" style={{ color: ACCENT }} /> {status?.current?.step || 'Preparing…'}</>}
             </div>
-            {phase === 'done' && wantJpg && (
-              <div className="mt-2 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                {jpgState === 'working'
-                  ? <><Loader2 size={13} className="animate-spin" /> Exporting JPGs…</>
-                  : jpgState === 'done' ? <><CheckCircle2 size={13} style={{ color: ACCENT }} /> JPGs exported.</> : null}
-              </div>
-            )}
             {phase === 'processing' && (
               <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
                 <span className="rounded-md bg-gray-100 px-2.5 py-1 dark:bg-gray-700/50">Elapsed {fmtTime(status?.elapsed_s ?? 0)}</span>
@@ -530,7 +545,7 @@ export default function BackgroundRemovalPage() {
                     url={resultThumbs[bn] || inputThumbs[f]}
                     kind={kind}
                     seconds={item?.seconds}
-                    showRecut={phase === 'done' && (kind === 'done' || kind === 'error') && !!result?.cutDir}
+                    showRecut={phase === 'done' && (kind === 'done' || kind === 'error') && !!destDir}
                     recutting={recutting === bn}
                     onOpen={onOpenTile}
                     onRecut={onRecutTile}
@@ -566,7 +581,7 @@ export default function BackgroundRemovalPage() {
             <div className="mt-3 flex items-center gap-3 text-sm text-white/80">
               <span className="truncate max-w-xs">{stemOf(baseName(files[lightbox]))}</span>
               <span className="text-white/50">{lightbox + 1} / {files.length}</span>
-              {phase === 'done' && result?.cutDir && (
+              {phase === 'done' && destDir && (
                 <button
                   onClick={() => recut(lightbox)}
                   disabled={recutting === baseName(files[lightbox])}

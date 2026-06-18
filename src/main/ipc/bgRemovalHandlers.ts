@@ -105,10 +105,27 @@ function absThumbs(st: BgRemovalStatus, cutDir: string): void {
   }
 }
 
-/** Symlink (fallback: copy) the picked files into a temp input dir, unique names. */
-function stageInputs(files: string[]): string {
+/** Longest common parent directory of the picked files — used to mirror the
+ *  source subfolder layout into the output PNG/ and JPG/ folders. */
+function commonBaseDir(files: string[]): string {
+  if (files.length === 0) return ''
+  const split = files.map((f) => path.dirname(f).split(path.sep))
+  let base = split[0]
+  for (const parts of split.slice(1)) {
+    let i = 0
+    while (i < base.length && i < parts.length && base[i] === parts[i]) i++
+    base = base.slice(0, i)
+  }
+  return base.join(path.sep)
+}
+
+/** Symlink (fallback: copy) the picked files into a temp input dir, unique names.
+ *  Returns a map stagedStem → original source path so outputs can be re-mapped to
+ *  their source subfolder afterwards. */
+function stageInputs(files: string[]): { dir: string; map: Map<string, string> } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'npd-bg-'))
   const used = new Set<string>()
+  const map = new Map<string, string>()
   for (const src of files) {
     let name = path.basename(src)
     if (used.has(name)) {
@@ -116,6 +133,7 @@ function stageInputs(files: string[]): string {
       name = `${path.basename(name, ext)}_${used.size}${ext}`
     }
     used.add(name)
+    map.set(name.replace(/\.[^.]+$/, ''), src)
     const dest = path.join(dir, name)
     try {
       fs.symlinkSync(src, dest)
@@ -123,7 +141,35 @@ function stageInputs(files: string[]): string {
       fs.copyFileSync(src, dest)
     }
   }
-  return dir
+  return { dir, map }
+}
+
+/** Organize flat cutout PNGs into {dest}/PNG/{subdir}/ + {dest}/JPG/{subdir}/,
+ *  mirroring each source's subfolder (flat if the sources shared one folder).
+ *  Generates the JPG (flatten onto white). Returns count organized. */
+async function organizeOutputs(
+  finalDir: string, destDir: string, base: string, map: Map<string, string>,
+): Promise<number> {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const sharp = require('sharp') as typeof import('sharp')
+  let n = 0
+  for (const [stagedStem, src] of map) {
+    const srcPng = path.join(finalDir, `${stagedStem}.png`)
+    if (!fs.existsSync(srcPng)) continue
+    const rel = base ? path.relative(base, src) : path.basename(src)
+    const relDir = path.dirname(rel) === '.' ? '' : path.dirname(rel)
+    const stem = path.basename(src).replace(/\.[^.]+$/, '')
+    const pngOut = path.join(destDir, 'PNG', relDir, `${stem}.png`)
+    const jpgOut = path.join(destDir, 'JPG', relDir, `${stem}.jpg`)
+    fs.mkdirSync(path.dirname(pngOut), { recursive: true })
+    fs.mkdirSync(path.dirname(jpgOut), { recursive: true })
+    fs.copyFileSync(srcPng, pngOut)
+    try {
+      await sharp(srcPng).flatten({ background: '#ffffff' }).jpeg({ quality: 92 }).toFile(jpgOut)
+    } catch { /* JPG best-effort */ }
+    n++
+  }
+  return n
 }
 
 // ── Engine install (download prebuilt runtime → venv from bundled wheels) ────────
@@ -403,7 +449,8 @@ export function registerBgRemovalHandlers(): void {
     const cutDir = path.join(runDir, 'cutouts')
     const retouchedDir = path.join(runDir, 'retouched')
     fs.mkdirSync(cutDir, { recursive: true })
-    const inputDir = stageInputs(job.files)
+    const { dir: inputDir, map: stageMap } = stageInputs(job.files)
+    const base = commonBaseDir(job.files)
     const statusFile = path.join(cutDir, '_status.json')
 
     const args = ['-u', path.join('train', 'batch_run.py'), '--in', inputDir, '--out', cutDir]
@@ -455,7 +502,7 @@ export function registerBgRemovalHandlers(): void {
         activeChild = null
         resolve({ success: false, outDir: '', cutDir, retouchedDir: null, error: err.message })
       })
-      child.on('exit', (code) => {
+      child.on('exit', async (code) => {
         clearInterval(poll)
         activeChild = null
         const st = readStatus(statusFile)
@@ -475,9 +522,14 @@ export function registerBgRemovalHandlers(): void {
           /* ignore */
         }
         const didRetouch = job.retouch && fs.existsSync(retouchedDir)
+        const finalDir = didRetouch ? retouchedDir : cutDir
+        // Organize into {dest}/PNG + {dest}/JPG, mirroring the source subfolders.
+        if (code === 0 && job.destDir) {
+          try { await organizeOutputs(finalDir, job.destDir, base, stageMap) } catch { /* best-effort */ }
+        }
         resolve({
           success: code === 0,
-          outDir: didRetouch ? retouchedDir : cutDir,
+          outDir: job.destDir || finalDir,
           cutDir,
           retouchedDir: didRetouch ? retouchedDir : null,
           error: code === 0 ? undefined : `The process exited with code ${code}.`,

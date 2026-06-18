@@ -7,6 +7,8 @@ export const BG_IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', 
 export interface BgRemovalJob {
   files: string[] // absolute paths of originals to process
   toolDir: string // absolute path to tools/bg-removal
+  destDir: string // where to write results — creates PNG/ and JPG/ subfolders,
+                  // mirroring the source subfolder layout (flat if sources shared one folder)
   retouch: boolean // also run the Photoshop RETOUCH action afterwards
   retouchAction?: string // default "RETOUCH ACTION"
   retouchSet?: string // default "Default Actions"

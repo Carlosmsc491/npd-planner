@@ -1656,6 +1656,9 @@ function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, on
   const [insertedAt, setInsertedAt]     = useState<Date | null>(
     recipe.excelInsertedAt ? (recipe.excelInsertedAt as { toDate(): Date }).toDate() : null
   )
+  const isMac = window.electronAPI.platform === 'darwin'
+  const [psEditing, setPsEditing] = useState(false)
+  const [psSaving, setPsSaving]   = useState(false)
 
   /**
    * If another user holds the Excel insert lock (and it's not stale), block our
@@ -1779,6 +1782,43 @@ function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, on
       }`}>
         {hasBoth ? 'PNG + JPG' : 'PNG only'}
       </span>
+
+      {/* Edit in Photoshop → on save, regenerate the JPG from the updated PNG */}
+      {isMac && recipe.readyPngPath && (
+        <div className="flex gap-1 px-0.5" onClick={e => e.stopPropagation()}>
+          <button
+            onClick={async () => {
+              setPsEditing(true)
+              await window.electronAPI.photoshopOpen(resolvePhotoPath(recipe.readyPngPath!, effectiveRootPath))
+              setPsEditing(false)
+            }}
+            disabled={psEditing}
+            title="Open this photo in Photoshop"
+            className="flex-1 flex items-center justify-center gap-1 text-[9px] font-semibold rounded-md px-1.5 py-1 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 transition-colors disabled:opacity-50">
+            {psEditing ? <Loader2 size={9} className="animate-spin" /> : <ExternalLink size={9} />} Edit
+          </button>
+          <button
+            onClick={async () => {
+              if (!recipe.readyPngPath || !recipe.readyJpgPath) return
+              setPsSaving(true)
+              const pngAbs = resolvePhotoPath(recipe.readyPngPath, effectiveRootPath)
+              const jpgAbs = resolvePhotoPath(recipe.readyJpgPath, effectiveRootPath)
+              const r = await window.electronAPI.photoshopSaveReturn(pngAbs)
+              if (r.ok) {
+                await window.electronAPI.convertPngToJpg({ sourcePng: pngAbs, destJpg: jpgAbs, quality: 90 })
+                const url = await window.electronAPI.readPhotoThumbnail(jpgAbs, 512)
+                setDataUrl(url)
+                setInsertedAt(null) // image changed → prompt re-insert into Excel
+              }
+              setPsSaving(false)
+            }}
+            disabled={psSaving}
+            title="Save edits back & regenerate the JPG"
+            className="flex-1 flex items-center justify-center gap-1 text-[9px] font-semibold rounded-md px-1.5 py-1 bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 transition-colors disabled:opacity-50">
+            {psSaving ? <Loader2 size={9} className="animate-spin" /> : <Check size={9} />} Save
+          </button>
+        </div>
+      )}
 
       {/* Insertar en Excel — only show when JPG is available */}
       {recipe.readyJpgPath && (
