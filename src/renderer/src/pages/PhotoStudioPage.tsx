@@ -7,7 +7,7 @@ import type { StudioSession, StudioPhoto } from '../../../shared/photoStudio'
 import {
   Camera, FolderOpen, Grid3X3, List, Image, Plus, Trash2, RefreshCw,
   CheckCircle2, Loader2, AlertTriangle, ChevronLeft, Scissors, Download,
-  FolderInput, MoreVertical, Pencil, X, ArrowLeft, ArrowRight, WifiOff, Wifi,
+  FolderInput, MoreVertical, Pencil, X, ArrowLeft, ArrowRight, WifiOff, Wifi, Star,
 } from 'lucide-react'
 
 // ─── localStorage ────────────────────────────────────────────────────────────
@@ -18,16 +18,17 @@ const LS_TOOL    = 'npd:bgremoval_tool_path'
 function getCatalog(): string | null { return localStorage.getItem(LS_CATALOG) }
 function setCatalog(p: string): void { localStorage.setItem(LS_CATALOG, p) }
 
-type ViewMode = 'icons' | 'gallery' | 'list'
+type ViewMode = 'icons' | 'gallery' | 'list' | 'capture'
 
 // ─── Thumbnail component ──────────────────────────────────────────────────────
 const PhotoThumb = memo(function PhotoThumb({
-  photo, selected, onClick, onSelect,
+  photo, selected, onClick, onSelect, onStar,
 }: {
   photo: StudioPhoto
   selected: boolean
   onClick: () => void
   onSelect: (shift: boolean) => void
+  onStar?: () => void
 }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
 
@@ -79,13 +80,22 @@ const PhotoThumb = memo(function PhotoThumb({
       <div className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[10px] px-1.5 py-0.5 truncate opacity-0 group-hover:opacity-100 transition-opacity">
         {photo.filename}
       </div>
+      {/* Star toggle */}
+      {onStar && (
+        <button
+          className={`absolute bottom-1.5 right-1.5 p-0.5 rounded transition-opacity ${photo.state === 'selected' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          onClick={e => { e.stopPropagation(); onStar() }}
+        >
+          <Star size={12} fill={photo.state === 'selected' ? 'currentColor' : 'none'} className={photo.state === 'selected' ? 'text-yellow-400' : 'text-white'} />
+        </button>
+      )}
     </div>
   )
 })
 
 // ─── List row ────────────────────────────────────────────────────────────────
-function PhotoListRow({ photo, selected, onClick, onSelect }: {
-  photo: StudioPhoto; selected: boolean; onClick: () => void; onSelect: (shift: boolean) => void
+function PhotoListRow({ photo, selected, onClick, onSelect, onStar }: {
+  photo: StudioPhoto; selected: boolean; onClick: () => void; onSelect: (shift: boolean) => void; onStar?: () => void
 }) {
   const stateLabel: Record<StudioPhoto['state'], string> = {
     captured: 'Captured', selected: 'Selected', cleaned: 'Cleaned', ready: 'Ready',
@@ -111,6 +121,11 @@ function PhotoListRow({ photo, selected, onClick, onSelect }: {
       <span className="flex-1 text-sm truncate">{photo.filename}</span>
       <span className={`text-xs font-medium ${stateColor[photo.state]}`}>{stateLabel[photo.state]}</span>
       <span className="text-xs text-gray-400">{(photo.size / 1024).toFixed(0)} KB</span>
+      {onStar && (
+        <button onClick={e => { e.stopPropagation(); onStar() }} className="p-0.5">
+          <Star size={13} fill={photo.state === 'selected' ? 'currentColor' : 'none'} className={photo.state === 'selected' ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-400'} />
+        </button>
+      )}
     </div>
   )
 }
@@ -185,6 +200,47 @@ function Lightbox({ photos, index, onClose, onNav }: {
     </div>
   )
 }
+
+// ─── Filmstrip thumbnail (capture mode) ──────────────────────────────────────
+const FilmstripThumb = memo(function FilmstripThumb({
+  photo, active, bgActive, onClick,
+}: {
+  photo: StudioPhoto; active: boolean; bgActive: boolean; onClick: () => void
+}) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    window.electronAPI.bgRemovalThumb(photo.absPath, 120).then(url => {
+      if (!cancelled) setDataUrl(url)
+    })
+    return () => { cancelled = true }
+  }, [photo.absPath])
+  return (
+    <button
+      onClick={onClick}
+      className={`relative shrink-0 w-[72px] h-[72px] rounded overflow-hidden border-2 transition-all ${
+        active ? 'border-white opacity-100' : 'border-transparent opacity-40 hover:opacity-70'
+      }`}
+    >
+      {dataUrl
+        ? <img src={dataUrl} alt={photo.filename} className="w-full h-full object-cover" />
+        : <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+            <Loader2 size={12} className="text-gray-500 animate-spin will-change-transform" />
+          </div>
+      }
+      {bgActive && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+          <Loader2 size={14} className="text-amber-400 animate-spin will-change-transform" />
+        </div>
+      )}
+      {photo.state === 'selected' && (
+        <div className="absolute top-0.5 right-0.5">
+          <Star size={10} fill="currentColor" className="text-yellow-400" />
+        </div>
+      )}
+    </button>
+  )
+})
 
 // ─── Session Card ─────────────────────────────────────────────────────────────
 function SessionCard({ session, catalogDir, onOpen, onDelete, onRename }: {
@@ -291,6 +347,14 @@ function SessionView({
   const [filterState, setFilterState] = useState<StudioPhoto['state'] | 'all'>('all')
   const lastSelectedRef = useRef<number | null>(null)
 
+  // ── Capture mode state ──────────────────────────────────────────────────────
+  const [bgStatus, setBgStatus] = useState<Map<string, 'queued' | 'loading-model' | 'processing' | 'done' | 'error'>>(new Map())
+  const [previewIdx, setPreviewIdx] = useState<number | null>(null)
+  const previewIdxRef = useRef<number | null>(null)
+  useEffect(() => { previewIdxRef.current = previewIdx }, [previewIdx])
+  const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(null)
+  const filmstripRef = useRef<HTMLDivElement>(null)
+
   // ── Camera tethering ────────────────────────────────────────────────────────
   const [cameraConnected, setCameraConnected] = useState(false)
   const [cameraModel, setCameraModel] = useState<string | null>(null)
@@ -396,6 +460,8 @@ function SessionView({
         }
         setPhotos(prev => [...prev, newPhoto])
         photosRef.current = [...photosRef.current, newPhoto]
+        setView('capture')
+        setPreviewIdx(photosRef.current.length - 1)
       }
     } catch (err) {
       console.error('[PhotoStudio] photo copy failed:', err)
@@ -413,6 +479,98 @@ function SessionView({
     })
     return () => unlisten()
   }, [processNextPhoto])
+
+  // Star/unstar a photo — optimistic update + auto-enqueue bg-removal
+  const starPhoto = useCallback((photo: StudioPhoto) => {
+    const newState: StudioPhoto['state'] = photo.state === 'selected' ? 'captured' : 'selected'
+    setPhotos(prev => prev.map(p => p.id === photo.id ? { ...p, state: newState } : p))
+    window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: photo.id, state: newState })
+    if (newState === 'selected') {
+      const toolDir = localStorage.getItem(LS_TOOL)
+      if (toolDir && window.electronAPI.photoStudioEnqueueBg) {
+        const outPng = sessionDir + '/_cleaned/' + photo.id + '.png'
+        window.electronAPI.photoStudioEnqueueBg({ sessionDir, photoId: photo.id, input: photo.absPath, output: outPng, toolDir })
+      }
+    }
+  }, [sessionDir])
+
+  // Listen for bg-removal worker events
+  useEffect(() => {
+    if (!window.electronAPI.onPhotoStudioBgEvent) return
+    const unlisten = window.electronAPI.onPhotoStudioBgEvent(e => {
+      if (e.sessionDir !== sessionDir) return
+      const status = e.status as 'queued' | 'loading-model' | 'processing' | 'done' | 'error'
+      setBgStatus(prev => {
+        const next = new Map(prev)
+        if (status === 'done' || status === 'error') next.delete(e.photoId)
+        else next.set(e.photoId, status)
+        return next
+      })
+      if (status === 'done' && e.output) {
+        window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: e.photoId, state: 'cleaned', cleanedPath: e.output })
+        setPhotos(prev => prev.map(p => p.id === e.photoId ? { ...p, state: 'cleaned', cleanedPath: e.output! } : p))
+      }
+    })
+    return () => unlisten()
+  }, [sessionDir])
+
+  // Auto-select last photo when entering capture mode
+  useEffect(() => {
+    if (view === 'capture' && photos.length > 0 && previewIdx === null) {
+      setPreviewIdx(photos.length - 1)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view])
+
+  // Load full-res preview when previewIdx changes
+  useEffect(() => {
+    if (previewIdx === null || view !== 'capture') return
+    const p = photos[previewIdx]
+    if (!p) return
+    setPreviewDataUrl(null)
+    window.electronAPI.readPhotoThumbnail(p.absPath, 1600).then(url => {
+      if (previewIdxRef.current === previewIdx) setPreviewDataUrl(url)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewIdx, view])
+
+  // Scroll filmstrip to keep active thumb in view
+  useEffect(() => {
+    if (previewIdx === null || !filmstripRef.current) return
+    const el = filmstripRef.current.children[previewIdx] as HTMLElement | undefined
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  }, [previewIdx])
+
+  // Keyboard navigation in capture mode
+  useEffect(() => {
+    if (view !== 'capture') return
+    const handler = (e: KeyboardEvent) => {
+      const cur = previewIdxRef.current
+      if (cur === null) return
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault()
+        const dir = e.key === 'ArrowLeft' ? -1 : 1
+        setPreviewIdx(i => (i !== null) ? Math.max(0, Math.min(photos.length - 1, i + dir)) : i)
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        const p = photos[cur]
+        if (!p) return
+        const newState: StudioPhoto['state'] = p.state === 'selected' ? 'captured' : 'selected'
+        setPhotos(prev => prev.map(q => q.id === p.id ? { ...q, state: newState } : q))
+        window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: p.id, state: newState })
+        if (newState === 'selected') {
+          const toolDir = localStorage.getItem(LS_TOOL)
+          if (toolDir && window.electronAPI.photoStudioEnqueueBg) {
+            const outPng = sessionDir + '/_cleaned/' + p.id + '.png'
+            window.electronAPI.photoStudioEnqueueBg({ sessionDir, photoId: p.id, input: p.absPath, output: outPng, toolDir })
+          }
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [view, photos, sessionDir])
 
   const visiblePhotos = filterState === 'all' ? photos : photos.filter(p => p.state === filterState)
 
@@ -529,6 +687,157 @@ function SessionView({
     ready:    photos.filter(p => p.state === 'ready').length,
   }
 
+  // ── Capture mode — full-screen with sidebar overlay ──────────────────────
+  if (view === 'capture') {
+    return (
+      <div className="relative h-full bg-black overflow-hidden">
+        {/* Sidebar — absolute overlay on the left, 176px wide */}
+        <div
+          className="absolute left-0 top-0 bottom-0 w-44 flex flex-col bg-black z-10 overflow-y-auto"
+          style={{ scrollbarWidth: 'none' }}
+        >
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1 px-3 pt-3 pb-1 text-xs text-gray-400 hover:text-white shrink-0"
+          >
+            <ChevronLeft size={12} /> Sessions
+          </button>
+          <div className="px-3 pb-2 text-white font-medium text-xs truncate">{session.name}</div>
+
+          {/* Camera status */}
+          <div className={`mx-2 mb-2 px-2 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shrink-0 ${
+            tethering ? 'bg-green-900/40 text-green-400' : 'bg-gray-900 text-gray-500'
+          }`}>
+            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${tethering ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
+            {tethering ? 'Live' : cameraConnected ? 'Camera ready' : 'No camera'}
+          </div>
+
+          {/* Switch to grid/list */}
+          <div className="flex gap-1 px-2 pb-2 shrink-0">
+            {(['icons', 'gallery', 'list'] as const).map(v => (
+              <button
+                key={v}
+                className="flex-1 py-1 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-800 text-xs"
+                onClick={() => { setView(v); localStorage.setItem(LS_VIEW, v) }}
+              >
+                {v === 'icons' ? <Grid3X3 size={11} className="mx-auto" /> : v === 'gallery' ? <Image size={11} className="mx-auto" /> : <List size={11} className="mx-auto" />}
+              </button>
+            ))}
+          </div>
+
+          {/* Filter tabs with counts */}
+          <div className="flex flex-col gap-0.5 px-2 pb-2 shrink-0">
+            {([
+              { value: 'all' as const,      label: 'All',      count: photos.length },
+              { value: 'captured' as const,  label: 'Captured', count: counts.captured },
+              { value: 'selected' as const,  label: 'Selected', count: counts.selected },
+              { value: 'cleaned' as const,   label: 'Cleaned',  count: counts.cleaned },
+              { value: 'ready' as const,     label: 'Ready',    count: counts.ready },
+            ]).map(opt => (
+              <button
+                key={opt.value}
+                className={`flex items-center justify-between px-2 py-1 rounded text-xs transition-colors ${
+                  filterState === opt.value ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'
+                }`}
+                onClick={() => setFilterState(opt.value)}
+              >
+                <span>{opt.label}</span>
+                <span className="text-gray-600 tabular-nums">{opt.count}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Active photo info + star button */}
+          {previewIdx !== null && photos[previewIdx] && (
+            <div className="px-2 pb-2 shrink-0">
+              <div className="text-[10px] text-gray-500 truncate mb-1">{photos[previewIdx].filename}</div>
+              <button
+                className={`w-full py-1.5 rounded text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                  photos[previewIdx].state === 'selected'
+                    ? 'bg-blue-700 text-white hover:bg-blue-600'
+                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                }`}
+                onClick={() => starPhoto(photos[previewIdx]!)}
+              >
+                <Star
+                  size={11}
+                  fill={photos[previewIdx].state === 'selected' ? 'currentColor' : 'none'}
+                />
+                {photos[previewIdx].state === 'selected' ? 'Starred' : 'Star (Enter)'}
+              </button>
+            </div>
+          )}
+
+          <div className="flex-1" />
+
+          {/* Import + Refresh */}
+          <div className="flex gap-1 px-2 pb-3 shrink-0">
+            <button
+              onClick={importPhotos}
+              className="flex-1 py-1.5 rounded bg-gray-900 text-gray-400 hover:text-white text-xs flex items-center justify-center gap-1"
+            >
+              <FolderInput size={10} /> Import
+            </button>
+            <button onClick={loadPhotos} className="p-1.5 rounded bg-gray-900 text-gray-400 hover:text-white">
+              <RefreshCw size={10} />
+            </button>
+          </div>
+        </div>
+
+        {/* Photo + filmstrip — 4px black safe zone after 176px sidebar */}
+        <div className="absolute top-0 right-0 bottom-0 flex flex-col" style={{ left: '180px' }}>
+          {/* Main preview */}
+          <div className="flex-1 relative flex items-center justify-center bg-black min-h-0">
+            {previewDataUrl ? (
+              <img
+                src={previewDataUrl}
+                alt=""
+                draggable={false}
+                className="max-w-full max-h-full object-contain select-none"
+              />
+            ) : (
+              <Loader2 size={28} className="text-gray-600 animate-spin will-change-transform" />
+            )}
+            {/* Nav arrows */}
+            {previewIdx !== null && previewIdx > 0 && (
+              <button
+                className="absolute left-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white"
+                onClick={() => setPreviewIdx(i => (i !== null && i > 0) ? i - 1 : i)}
+              >
+                <ArrowLeft size={18} />
+              </button>
+            )}
+            {previewIdx !== null && previewIdx < photos.length - 1 && (
+              <button
+                className="absolute right-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white"
+                onClick={() => setPreviewIdx(i => (i !== null && i < photos.length - 1) ? i + 1 : i)}
+              >
+                <ArrowRight size={18} />
+              </button>
+            )}
+          </div>
+
+          {/* Filmstrip */}
+          <div
+            ref={filmstripRef}
+            className="flex gap-1.5 px-2 py-2 bg-black shrink-0 overflow-x-auto"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            {photos.map((p, i) => (
+              <FilmstripThumb
+                key={p.id}
+                photo={p}
+                active={previewIdx === i}
+                bgActive={bgStatus.has(p.id)}
+                onClick={() => setPreviewIdx(i)}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Top bar */}
@@ -541,14 +850,14 @@ function SessionView({
 
         {/* View toggle */}
         <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
-          {(['icons', 'gallery', 'list'] as ViewMode[]).map(v => (
+          {(['icons', 'gallery', 'list', 'capture'] as ViewMode[]).map(v => (
             <button
               key={v}
               className={`p-1.5 rounded ${view === v ? 'bg-white dark:bg-gray-700 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
-              onClick={() => { setView(v); localStorage.setItem(LS_VIEW, v) }}
-              title={v}
+              onClick={() => { setView(v); if (v !== 'capture') localStorage.setItem(LS_VIEW, v) }}
+              title={v === 'capture' ? 'Capture mode' : v}
             >
-              {v === 'icons' ? <Grid3X3 size={14} /> : v === 'gallery' ? <Image size={14} /> : <List size={14} />}
+              {v === 'icons' ? <Grid3X3 size={14} /> : v === 'gallery' ? <Image size={14} /> : v === 'list' ? <List size={14} /> : <Camera size={14} />}
             </button>
           ))}
         </div>
@@ -705,6 +1014,7 @@ function SessionView({
                 selected={selected.has(p.id)}
                 onClick={() => setLightboxIdx(i)}
                 onSelect={shift => toggleSelect(i, shift)}
+                onStar={() => starPhoto(p)}
               />
             ))}
           </div>
@@ -720,6 +1030,7 @@ function SessionView({
                   selected={selected.has(p.id)}
                   onClick={() => setLightboxIdx(i)}
                   onSelect={shift => toggleSelect(i, shift)}
+                  onStar={() => starPhoto(p)}
                 />
                 {processing.has(p.id) && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg">

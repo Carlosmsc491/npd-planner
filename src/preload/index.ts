@@ -364,6 +364,15 @@ const electronAPI = {
     ipcRenderer.invoke('photostudio:open-in-finder', dir),
   photoStudioRenameSession: (sessionDir: string, newName: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('photostudio:rename-session', { sessionDir, newName }),
+  photoStudioEnqueueBg: (args: { sessionDir: string; photoId: string; input: string; output: string; toolDir: string }): Promise<void> =>
+    ipcRenderer.invoke('photostudio:enqueue-bg', args),
+  photoStudioKillBgWorker: (): Promise<void> =>
+    ipcRenderer.invoke('photostudio:kill-bg-worker'),
+  onPhotoStudioBgEvent: (cb: (e: { sessionDir: string; photoId: string; status: string; output?: string; error?: string }) => void): () => void => {
+    const listener = (_: Electron.IpcRendererEvent, e: { sessionDir: string; photoId: string; status: string; output?: string; error?: string }) => cb(e)
+    ipcRenderer.on('photostudio:bg-event', listener)
+    return () => ipcRenderer.removeListener('photostudio:bg-event', listener)
+  },
 
   // ── Excel / Python ──────────────────────────────────────────────────────────
   excelCheckDependencies: (): Promise<{ available: boolean; error?: string }> =>

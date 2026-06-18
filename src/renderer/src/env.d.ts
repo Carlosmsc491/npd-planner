@@ -151,6 +151,9 @@ interface IElectronAPI {
   photoStudioPickCatalog: () => Promise<string | null>
   photoStudioOpenInFinder: (dir: string) => Promise<void>
   photoStudioRenameSession: (sessionDir: string, newName: string) => Promise<{ ok: boolean; error?: string }>
+  photoStudioEnqueueBg: (args: { sessionDir: string; photoId: string; input: string; output: string; toolDir: string }) => Promise<void>
+  photoStudioKillBgWorker: () => Promise<void>
+  onPhotoStudioBgEvent: (cb: (e: { sessionDir: string; photoId: string; status: string; output?: string; error?: string }) => void) => () => void
   // Excel / Python
   excelCheckDependencies: () => Promise<{ available: boolean; error?: string }>
   insertPhotoInExcel: (args: { excelPath: string; jpgPath: string }) => Promise<{ success: boolean; error?: string }>

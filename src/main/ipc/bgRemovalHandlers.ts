@@ -15,6 +15,7 @@ import type {
   BgInstallState, BgInstallProgress,
 } from '../../shared/bgRemoval'
 import { BG_RUNTIME_VERSION, BG_RUNTIME_ASSET, BG_RUNTIME_REPO } from '../../shared/bgRemoval'
+import { enqueueBgRemoval, killBgWorker } from '../services/bgWorkerService'
 
 const IS_MAC = process.platform === 'darwin'
 const IS_ARM = process.arch === 'arm64'
@@ -579,5 +580,17 @@ export function registerBgRemovalHandlers(): void {
   ipcMain.handle('bgremoval:clean-cancel-all', async (): Promise<void> => {
     for (const c of cleanChildren) { try { c.kill() } catch { /* */ } }
     cleanChildren.clear()
+  })
+
+  // ── Photo Studio persistent bg worker ─────────────────────────────────────
+  ipcMain.handle('photostudio:enqueue-bg', async (
+    _event,
+    args: { sessionDir: string; photoId: string; input: string; output: string; toolDir: string }
+  ): Promise<void> => {
+    enqueueBgRemoval(args)
+  })
+
+  ipcMain.handle('photostudio:kill-bg-worker', async (): Promise<void> => {
+    killBgWorker()
   })
 }
