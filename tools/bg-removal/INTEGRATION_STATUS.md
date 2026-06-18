@@ -141,6 +141,19 @@ READY → PNG + JPG + Excel insert (existing)
 - **Re-editing READY** invalidates JPG + excelInserted → auto-regenerate/flag.
 - **Bulk actions:** Clean all selected · Retouch all cleaned · Send all done to READY.
 
+### Build status
+- [x] Engine + Photoshop IPC (`bgremoval:clean-photo`, `photoshop:open`, `photoshop:save-return`).
+- [x] `useCleanQueue` hook (concurrency-limited single-photo queue).
+- [x] Auto-clean on select → CLEANED + status bar + per-project toggle (PhotoManagerView).
+- [x] CLEANED round-trip: scripted "Open in Photoshop" + "Save & return".
+- [ ] READY-tab editing (open + save-return) — needs JPG regen from the edited PNG
+      + reset of the excelInserted flag, so deferred to its own pass.
+- [ ] Per-photo status overlay on SELECTED cards (currently a top status bar).
+- [ ] Bulk actions (Clean all selected / Retouch all / Send all to READY).
+- [ ] "Send to READY via auto-retouch" button (one-click RETOUCH action) — today
+      promotion is still the existing re-drop flow.
+- Requires an app restart after pulling to load the new main-process IPC.
+
 ### Files to touch (implementation plan)
 - `train/batch_run.py` — accept a single-image fast path (or app stages 1-file dir).
 - `src/main/ipc/bgRemovalHandlers.ts` — `bgremoval:clean-one(projectRoot, recipe, filename)`
