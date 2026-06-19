@@ -113,6 +113,10 @@ export class CameraManager extends EventEmitter {
       ['pkill', ['-9', '-f', 'ptpcamera']],
       ['launchctl', ['stop', 'com.apple.imagecaptured']],
       ['pkill', ['-9', '-f', 'imagecaptured']],
+      // Stray gphoto2 procs (a leftover --auto-detect poll or a crashed tether
+      // attempt) keep the USB interface claimed → "-53 / No such file or
+      // directory" on the next claim. Reap them, but never our live tether proc.
+      ['pkill', ['-9', '-x', 'gphoto2']],
     ]
     return cmds.reduce(
       (chain, [cmd, args]) =>
@@ -230,7 +234,9 @@ export class CameraManager extends EventEmitter {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         if (isMac) {
           await this.killMacOSCameraServices()
-          await new Promise(resolve => setTimeout(resolve, attempt === 1 ? 900 : 1500))
+          // Let the USB device re-enumerate after the kill before claiming it,
+          // otherwise the claim races the reset → "-53 / No such file or directory".
+          await new Promise(resolve => setTimeout(resolve, attempt === 1 ? 1200 : 1800))
         }
         result = await this.spawnGphoto2(outputDir)
         if (result.success) break
