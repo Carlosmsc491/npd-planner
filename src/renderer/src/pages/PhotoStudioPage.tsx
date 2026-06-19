@@ -1186,7 +1186,7 @@ function SessionView({
           </>
         )}
         {tetheringError && (
-          <span className="text-xs text-red-500 truncate max-w-xs" title={tetheringError}>{tetheringError}</span>
+          <span className="text-xs text-red-500 leading-snug max-w-md" title={tetheringError}>{tetheringError}</span>
         )}
       </div>
 

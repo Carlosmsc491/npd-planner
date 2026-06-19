@@ -103,11 +103,12 @@ export class CameraManager extends EventEmitter {
    */
   /**
    * macOS auto-loads PTPCamera / imagecaptured when a camera connects,
-   * taking exclusive USB ownership. Kill both and stop the launchd agent
-   * so gPhoto2 can claim the device.
+   * taking exclusive USB ownership. Kill them (by name and by command line)
+   * and stop the launchd agent so gPhoto2 can claim the device.
    */
   private killMacOSCameraServices(): Promise<void> {
     const cmds: [string, string[]][] = [
+      ['killall', ['-9', 'PTPCamera']],
       ['pkill', ['-9', '-f', 'PTPCamera']],
       ['pkill', ['-9', '-f', 'ptpcamera']],
       ['launchctl', ['stop', 'com.apple.imagecaptured']],
@@ -127,9 +128,20 @@ export class CameraManager extends EventEmitter {
     )
   }
 
-  /** Try to start gphoto2 tethering, retrying once if the USB device is busy. */
+  /** gPhoto2 errors that mean "the USB device is held by something else". */
+  private isDeviceBusyError(msg: string | undefined): boolean {
+    if (!msg) return false
+    return /could not claim|could not lock|resource busy|an error occurred in the io-library|usb device/i.test(msg)
+  }
+
+  /** Try to start gphoto2 tethering once. Resolves on EVERY exit path. */
   private spawnGphoto2(outputDir: string): Promise<{ success: boolean; error?: string }> {
     return new Promise((resolve) => {
+      let settled = false
+      const settle = (r: { success: boolean; error?: string }) => {
+        if (!settled) { settled = true; resolve(r) }
+      }
+
       const proc = spawn(this.gphoto2Bin, [
         '--capture-tethered',
         '--filename', nodePath.join(outputDir, '%Y%m%d-%H%M%S-%04n.%C'),
@@ -147,28 +159,33 @@ export class CameraManager extends EventEmitter {
       proc.stderr?.on('data', (data: Buffer) => {
         const msg = data.toString().trim()
         if (msg) { console.error('[gphoto2 stderr]', msg); this.emit('log', msg) }
-        if (msg.includes('Could not claim')) startupError = msg
+        // Capture the first meaningful error line so the caller can decide to retry
+        if (!startupError && (this.isDeviceBusyError(msg) || msg.includes('*** Error ***'))) {
+          startupError = msg
+        }
       })
 
       proc.on('error', (err: Error) => {
         console.error('[gphoto2 error]', err)
-        this.emit('tethering-error', err.message)
-        resolve({ success: false, error: err.message })
+        this.gphotoProcess = null
+        settle({ success: false, error: err.message })
       })
 
       proc.on('close', (code: number | null) => {
         console.log('[gphoto2] process closed with code', code)
         this.gphotoProcess = null
-        if (startupError) {
-          resolve({ success: false, error: startupError })
+        if (!settled) {
+          // Exited before the 2s success window → it failed to start
+          settle({ success: false, error: startupError || `gPhoto2 exited with code ${code}` })
         } else if (code !== 0 && code !== null) {
+          // Already reported success, then died → surface as a disconnect
           this.emit('tethering-error', `gPhoto2 exited with code ${code}`)
         }
       })
 
       // If gphoto2 is still running after 2 seconds it started successfully
       setTimeout(() => {
-        if (proc.exitCode === null) resolve({ success: true })
+        if (proc.exitCode === null) settle({ success: true })
       }, 2000)
     })
   }
@@ -185,12 +202,6 @@ export class CameraManager extends EventEmitter {
 
       // Stop previous session if any
       await this.stopTethering()
-
-      // macOS: kill PTPCamera / imagecaptured so gPhoto2 can claim the USB device
-      if (process.platform === 'darwin') {
-        await this.killMacOSCameraServices()
-        await new Promise(resolve => setTimeout(resolve, 1200))
-      }
 
       // Start chokidar BEFORE spawning gphoto2 so no file is missed during startup
       console.log('[CameraManager] starting chokidar watch on:', outputDir)
@@ -211,21 +222,32 @@ export class CameraManager extends EventEmitter {
         }
       })
 
-      // Attempt to start tethering; if USB claim fails, kill services again and retry once
-      let result = await this.spawnGphoto2(outputDir)
-      if (!result.success && result.error?.includes('Could not claim')) {
-        console.log('[gphoto2] USB claim failed — killing camera services and retrying...')
-        if (process.platform === 'darwin') await this.killMacOSCameraServices()
-        await new Promise(resolve => setTimeout(resolve, 2000))
+      // macOS keeps relaunching PTPCamera the instant the camera is enumerated,
+      // so kill it immediately before each spawn and retry a few times.
+      const isMac = process.platform === 'darwin'
+      const MAX_ATTEMPTS = isMac ? 3 : 1
+      let result: { success: boolean; error?: string } = { success: false }
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        if (isMac) {
+          await this.killMacOSCameraServices()
+          await new Promise(resolve => setTimeout(resolve, attempt === 1 ? 900 : 1500))
+        }
         result = await this.spawnGphoto2(outputDir)
+        if (result.success) break
+        // A non-busy error (e.g. gphoto2 missing) won't be fixed by retrying
+        if (!this.isDeviceBusyError(result.error)) break
+        console.log(`[gphoto2] attempt ${attempt}/${MAX_ATTEMPTS} failed (device busy) — retrying`)
       }
 
       if (!result.success) {
         // Close watcher if gphoto2 ultimately failed
         await this.watcher.close()
         this.watcher = null
-        this.emit('tethering-error', result.error ?? 'gPhoto2 failed to start')
-        return result
+        const friendly = this.isDeviceBusyError(result.error)
+          ? 'Camera is busy — macOS or another app is holding it. Quit Capture One / EOS Utility / Image Capture / Photos (or unplug and replug the camera), then press Start capture again.'
+          : (result.error ?? 'gPhoto2 failed to start')
+        this.emit('tethering-error', friendly)
+        return { success: false, error: friendly }
       }
 
       return { success: true }
