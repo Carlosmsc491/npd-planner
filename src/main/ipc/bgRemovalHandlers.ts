@@ -24,6 +24,22 @@ let installAbort: AbortController | null = null
 // Per-photo cut-out children (Photo Manager auto-clean queue) — for cancel-all.
 const cleanChildren = new Set<ChildProcess>()
 
+/** On-disk cache for bgremoval:thumb (so grid/filmstrip don't re-encode on every render). */
+function bgThumbCacheDir(): string {
+  return path.join(app.getPath('userData'), 'bg-thumb-cache')
+}
+function pruneBgThumbCache(): void {
+  try {
+    const dir = bgThumbCacheDir()
+    if (!fs.existsSync(dir)) return
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+    for (const name of fs.readdirSync(dir)) {
+      const p = path.join(dir, name)
+      try { if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p) } catch { /* skip */ }
+    }
+  } catch { /* best-effort */ }
+}
+
 /** Where the downloaded engine is installed (writable, survives app updates). */
 function runtimeDir(): string {
   return path.join(app.getPath('userData'), 'bg-removal-runtime')
@@ -314,6 +330,8 @@ async function installRuntime(win: BrowserWindow | null, signal: AbortSignal): P
 }
 
 export function registerBgRemovalHandlers(): void {
+  pruneBgThumbCache()
+
   ipcMain.handle('bgremoval:install-state', async (): Promise<BgInstallState> => installState())
 
   ipcMain.handle('bgremoval:install', async (event): Promise<{ ok: boolean; error?: string }> => {
@@ -383,17 +401,45 @@ export function registerBgRemovalHandlers(): void {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const sharp = require('sharp') as typeof import('sharp')
-      // Transparent cut-outs (PNG with alpha) → keep the alpha so the UI can put
-      // its own backdrop behind them (Apple-style gray). Opaque photos stay JPEG
-      // so a 100-thumb grid doesn't balloon in memory.
+
+      // Transparent cut-outs (PNG with alpha) keep the alpha so the UI can put its
+      // own backdrop behind them; opaque photos stay JPEG so the grid stays light.
       const meta = await sharp(absPath).metadata()
+      const wantsAlpha = !!meta.hasAlpha
+      const mime = wantsAlpha ? 'image/png' : 'image/jpeg'
+
+      // Disk cache (path+mtime+size+dim+alpha) → re-encoding every thumb on each
+      // tab switch / re-render was the source of the grid lag. Cache hit = instant.
+      let cachePath: string | null = null
+      try {
+        const stat = fs.statSync(absPath)
+        const key = crypto.createHash('sha1')
+          .update(`${absPath}|${stat.mtimeMs}|${stat.size}|${size}|${wantsAlpha ? 'p' : 'j'}`)
+          .digest('hex')
+        cachePath = path.join(bgThumbCacheDir(), `${key}.${wantsAlpha ? 'png' : 'jpg'}`)
+        if (fs.existsSync(cachePath)) {
+          const cached = await fs.promises.readFile(cachePath)
+          const now = new Date()
+          fs.utimes(cachePath, now, now, () => {})
+          return `data:${mime};base64,${cached.toString('base64')}`
+        }
+      } catch { /* stat/cache failure → generate fresh */ }
+
       const pipeline = sharp(absPath).rotate().resize(size, size, { fit: 'inside', withoutEnlargement: true })
-      if (meta.hasAlpha) {
-        const buf = await pipeline.png({ compressionLevel: 8 }).toBuffer()
-        return `data:image/png;base64,${buf.toString('base64')}`
+      const buf = wantsAlpha
+        ? await pipeline.png({ compressionLevel: 8 }).toBuffer()
+        : await pipeline.jpeg({ quality: 80 }).toBuffer()
+
+      if (cachePath) {
+        try {
+          await fs.promises.mkdir(bgThumbCacheDir(), { recursive: true })
+          const tmp = `${cachePath}.tmp-${process.pid}`
+          await fs.promises.writeFile(tmp, buf)
+          await fs.promises.rename(tmp, cachePath)
+        } catch { /* cache write is best-effort */ }
       }
-      const buf = await pipeline.jpeg({ quality: 80 }).toBuffer()
-      return `data:image/jpeg;base64,${buf.toString('base64')}`
+
+      return `data:${mime};base64,${buf.toString('base64')}`
     } catch {
       return null
     }

@@ -680,15 +680,25 @@ function SessionView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view])
 
-  // Load full-res preview when previewIdx changes
+  // Load the capture preview when previewIdx changes. Two-stage for snappiness:
+  // a small thumb appears almost instantly, then the 1600px sharpens it. Both are
+  // size-bounded + disk-cached, so re-viewing a photo is instant and memory stays flat.
   useEffect(() => {
     if (previewIdx === null || view !== 'capture') return
     const p = photos[previewIdx]
     if (!p) return
+    let cancelled = false
+    const fresh = () => !cancelled && previewIdxRef.current === previewIdx
     setPreviewDataUrl(null)
-    window.electronAPI.readPhotoThumbnail(p.absPath, 1600).then(url => {
-      if (previewIdxRef.current === previewIdx) setPreviewDataUrl(url)
+    // 1) instant low-res placeholder
+    window.electronAPI.bgRemovalThumb(p.absPath, 480).then(url => {
+      if (fresh() && url) setPreviewDataUrl(prev => prev ?? url)
     })
+    // 2) full-size preview replaces it when ready
+    window.electronAPI.readPhotoThumbnail(p.absPath, 1600).then(url => {
+      if (fresh() && url) setPreviewDataUrl(url)
+    })
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewIdx, view])
 
