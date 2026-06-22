@@ -505,10 +505,26 @@ export default function BackgroundRemovalPage() {
               <span className="font-medium text-gray-900 dark:text-white">
                 {phase === 'done' ? 'Done' : retouchPhase ? 'Retouching in Photoshop' : 'Processing batch'}
               </span>
-              <span className="text-sm text-gray-500 dark:text-gray-400">{status?.done ?? 0} / {status?.total ?? files.length} photos</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                {status?.done ?? 0} / {status?.total ?? files.length} photos · {phase === 'done' ? 100 : pct}%
+              </span>
             </div>
-            <div className="h-3 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-              <div className="h-full rounded-full transition-[width] duration-700 ease-linear" style={{ width: `${phase === 'done' ? 100 : pct}%`, background: ACCENT }} />
+            {/* Bar animated with transform (scaleX) + a sliding sheen — both run on
+                the compositor thread, so they keep moving smoothly even while the
+                model saturates CPU/GPU and the main JS thread janks. `width`
+                transitions (the old approach) force layout every frame and froze. */}
+            <style>{'@keyframes bgr-sheen{0%{transform:translateX(-130%)}100%{transform:translateX(360%)}}'}</style>
+            <div className="relative h-3 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+              <div
+                className="absolute inset-0 origin-left"
+                style={{ background: ACCENT, transform: `scaleX(${phase === 'done' ? 1 : Math.max(0.02, pct / 100)})`, transition: 'transform .7s linear', willChange: 'transform' }}
+              />
+              {phase === 'processing' && (
+                <div
+                  className="absolute inset-y-0 left-0 w-1/3"
+                  style={{ background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent)', animation: 'bgr-sheen 1.2s linear infinite', willChange: 'transform' }}
+                />
+              )}
             </div>
             <div className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               {phase === 'done'

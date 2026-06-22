@@ -21,6 +21,9 @@ const LS_TOOL    = 'npd:bgremoval_tool_path'
 function getCatalog(): string | null { return localStorage.getItem(LS_CATALOG) }
 function setCatalog(p: string): void { localStorage.setItem(LS_CATALOG, p) }
 
+// Dev-only timing logs (no-op in production builds).
+const perfLog = (msg: string): void => { if (import.meta.env.DEV) console.log(msg) }
+
 type ViewMode = 'icons' | 'gallery' | 'list' | 'capture'
 type StageFilter = StudioPhoto['state'] | 'all'
 
@@ -328,12 +331,12 @@ const FilmstripThumb = memo(function FilmstripThumb({
       {dataUrl
         ? <img src={dataUrl} alt={photo.filename} className="w-full h-full object-cover" />
         : <div className="w-full h-full bg-gray-700 flex items-center justify-center">
-            <Loader2 size={12} className="text-gray-500 animate-spin will-change-transform" />
+            <Spinner size={12} />
           </div>
       }
       {bgActive && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <Loader2 size={14} className="text-amber-400 animate-spin will-change-transform" />
+          <Spinner size={16} className="border-amber-300/30 border-t-amber-400" />
         </div>
       )}
       {photo.stages.selected && (
@@ -344,6 +347,54 @@ const FilmstripThumb = memo(function FilmstripThumb({
     </button>
   )
 })
+
+// ─── CSS spinner ring — compositor-driven (transform), survives JS/GPU jank ────
+function Spinner({ size = 16, className = '' }: { size?: number; className?: string }) {
+  return (
+    <span
+      className={`inline-block shrink-0 rounded-full border-white/25 border-t-purple-400 animate-spin ${className}`}
+      style={{ width: size, height: size, borderWidth: Math.max(2, Math.round(size / 8)), willChange: 'transform' }}
+    />
+  )
+}
+
+// ─── Smooth capture/clean progress ────────────────────────────────────────────
+// Determinate fill advances on each real app update (done/total); a moving stripe
+// runs purely on the compositor so the bar NEVER looks frozen even while the main
+// thread or GPU is hammered by inference. `tone` adapts to dark (capture) vs light.
+function CaptureProgress({ done, total, label, tone = 'dark' }: {
+  done: number; total: number; label?: string; tone?: 'dark' | 'light'
+}) {
+  if (total <= 0) return null
+  const complete = done >= total
+  const pct = complete ? 100 : Math.max(8, Math.round((done / total) * 100))
+  const track = tone === 'dark' ? 'bg-white/10' : 'bg-black/10'
+  const stripe = tone === 'dark' ? 'bg-white/40' : 'bg-purple-300/70'
+  const text = tone === 'dark' ? 'text-white/85' : 'text-gray-600 dark:text-white/85'
+  return (
+    <div className="pointer-events-none absolute top-0 inset-x-0 z-30">
+      <style>{'@keyframes cap-stripe{0%{transform:translateX(-120%)}100%{transform:translateX(440%)}}'}</style>
+      <div className={`relative h-[3px] w-full overflow-hidden ${track}`}>
+        <div
+          className="absolute inset-y-0 left-0 bg-purple-500"
+          style={{ width: `${pct}%`, transition: 'width .45s cubic-bezier(.4,0,.2,1)' }}
+        />
+        {!complete && (
+          <div
+            className={`absolute inset-y-0 left-0 w-1/3 ${stripe}`}
+            style={{ animation: 'cap-stripe 1.1s linear infinite', willChange: 'transform' }}
+          />
+        )}
+      </div>
+      {label && !complete && (
+        <div className="mt-1.5 flex items-center gap-2 px-3">
+          <Spinner size={14} />
+          <span className={`text-[11px] font-medium ${text}`}>{label}</span>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─── Session Card ─────────────────────────────────────────────────────────────
 function SessionCard({ session, catalogDir, onOpen, onDelete, onRename }: {
@@ -477,11 +528,17 @@ function SessionView({
 
   // ── Capture mode state ──────────────────────────────────────────────────────
   const [bgStatus, setBgStatus] = useState<Map<string, 'queued' | 'loading-model' | 'processing' | 'done' | 'error'>>(new Map())
+  // Smooth clean-queue progress: total enqueued vs finished in the current batch.
+  const [cleanProgress, setCleanProgress] = useState({ done: 0, total: 0 })
   const [previewIdx, setPreviewIdx] = useState<number | null>(null)
   const previewIdxRef = useRef<number | null>(null)
   useEffect(() => { previewIdxRef.current = previewIdx }, [previewIdx])
   const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(null)
   const filmstripRef = useRef<HTMLDivElement>(null)
+  // Preview encoded from the temp file in parallel with the copy, so a freshly
+  // captured photo shows instantly instead of waiting for the file copy first.
+  const pendingPreviewRef = useRef<Map<string, string>>(new Map())
+  const tabClickTs = useRef<number>(0)
 
   // ── Camera tethering ────────────────────────────────────────────────────────
   const [cameraConnected, setCameraConnected] = useState(false)
@@ -556,6 +613,7 @@ function SessionView({
     if (processingPhotoRef.current || !photoQueueRef.current.length) return
     processingPhotoRef.current = true
     const data = photoQueueRef.current.shift()!
+    const tStart = performance.now()
 
     try {
       // Sequence = max existing + 1
@@ -565,13 +623,21 @@ function SessionView({
       }, 0) + 1
       const ext = data.filename.slice(data.filename.lastIndexOf('.')).toLowerCase() || '.jpg'
       const destFilename = `${String(nextSeq).padStart(4, '0')}${ext}`
+      const id = destFilename.replace(/\.[^.]+$/, '')
       // stages sessions keep originals in capture/; flat sessions in the root
       const destPath = layout === 'stages'
         ? `${sessionDir}/capture/${destFilename}`
         : `${sessionDir}/${destFilename}`
+
+      // Encode a preview straight from the temp file IN PARALLEL with the copy, so
+      // the photo can show the instant the copy lands instead of waiting for a
+      // second encode from the destination.
+      window.electronAPI.readPhotoThumbnail(data.tempPath, 640)
+        .then(url => { if (url) pendingPreviewRef.current.set(id, url) })
+        .catch(() => {})
+
       const res = await window.electronAPI.cameraCopyFile(data.tempPath, destPath)
       if (res.success) {
-        const id = destFilename.replace(/\.[^.]+$/, '')
         // flat sessions track state in _states.json; stages derive it from disk
         if (layout !== 'stages') {
           await window.electronAPI.photoStudioUpdatePhotoState({ sessionDir, photoId: id, state: 'captured' })
@@ -596,6 +662,7 @@ function SessionView({
         photosRef.current = [...photosRef.current, newPhoto]
         setView('capture')
         setPreviewIdx(photosRef.current.length - 1)
+        perfLog(`[perf] received→onscreen ${(performance.now() - tStart).toFixed(0)}ms · ${id}`)
       }
     } catch (err) {
       console.error('[PhotoStudio] photo copy failed:', err)
@@ -620,6 +687,7 @@ function SessionView({
     const toolDir = engineToolDirRef.current
     if (toolDir && window.electronAPI.photoStudioEnqueueBg) {
       window.electronAPI.photoStudioEnqueueBg({ sessionDir, photoId: photo.id, input: photo.absPath, output: cleanedOut(photo.id), toolDir })
+      setCleanProgress(p => ({ ...p, total: p.total + 1 }))   // drives the progress bar
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionDir, layout])
@@ -659,6 +727,9 @@ function SessionView({
         else next.set(e.photoId, status)
         return next
       })
+      if (status === 'done' || status === 'error') {
+        setCleanProgress(p => ({ ...p, done: p.done + 1 }))   // advances the progress bar
+      }
       if (status === 'done' && e.output) {
         if (layout === 'stages') {
           setPhotos(prev => prev.map(p => p.id === e.photoId ? withStages({ ...p, cleanedPath: e.output! }, { cleaned: true }) : p))
@@ -689,18 +760,37 @@ function SessionView({
     if (!p) return
     let cancelled = false
     const fresh = () => !cancelled && previewIdxRef.current === previewIdx
-    setPreviewDataUrl(null)
-    // 1) instant low-res placeholder
-    window.electronAPI.bgRemovalThumb(p.absPath, 480).then(url => {
-      if (fresh() && url) setPreviewDataUrl(prev => prev ?? url)
-    })
+    const tStart = performance.now()
+    // 1) instant placeholder — prefer the preview already encoded from the temp
+    // file during the copy; otherwise a quick small thumb.
+    const pending = pendingPreviewRef.current.get(p.id)
+    if (pending) {
+      setPreviewDataUrl(pending)
+      pendingPreviewRef.current.delete(p.id)
+    } else {
+      setPreviewDataUrl(null)
+      window.electronAPI.bgRemovalThumb(p.absPath, 480).then(url => {
+        if (fresh() && url) setPreviewDataUrl(prev => prev ?? url)
+      })
+    }
     // 2) full-size preview replaces it when ready
     window.electronAPI.readPhotoThumbnail(p.absPath, 1600).then(url => {
-      if (fresh() && url) setPreviewDataUrl(url)
+      if (fresh() && url) {
+        setPreviewDataUrl(url)
+        perfLog(`[perf] preview full ${(performance.now() - tStart).toFixed(0)}ms · ${p.id}`)
+      }
     })
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewIdx, view])
+
+  // When the clean batch finishes, let the bar reach 100% then clear it. A new
+  // enqueue mid-wait just bumps total, so the bar keeps going instead of resetting.
+  useEffect(() => {
+    if (!(cleanProgress.total > 0 && cleanProgress.done >= cleanProgress.total)) return
+    const t = setTimeout(() => setCleanProgress({ done: 0, total: 0 }), 900)
+    return () => clearTimeout(t)
+  }, [cleanProgress])
 
   // Scroll filmstrip to keep active thumb in view
   useEffect(() => {
@@ -708,6 +798,15 @@ function SessionView({
     const el = filmstripRef.current.children[previewIdx] as HTMLElement | undefined
     el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
   }, [previewIdx])
+
+  // Tab switch + perf log (records the render-commit time after a tab click)
+  const selectTab = useCallback((v: StageFilter) => { tabClickTs.current = performance.now(); setFilterState(v) }, [])
+  useEffect(() => {
+    if (tabClickTs.current) {
+      perfLog(`[perf] tab → ${filterState} render ${(performance.now() - tabClickTs.current).toFixed(0)}ms`)
+      tabClickTs.current = 0
+    }
+  }, [filterState])
 
   // Keyboard navigation in capture mode
   useEffect(() => {
@@ -958,6 +1057,12 @@ function SessionView({
     const activePhoto = previewIdx !== null ? photos[previewIdx] : undefined
     return (
       <div className="fixed inset-0 z-40 bg-black overflow-hidden">
+        <CaptureProgress
+          done={cleanProgress.done}
+          total={cleanProgress.total}
+          tone="dark"
+          label={cleanProgress.total > 0 ? `Cleaning ${Math.min(cleanProgress.done + 1, cleanProgress.total)} of ${cleanProgress.total}…` : undefined}
+        />
         {/* Photo + filmstrip fill the whole window; the panel floats on top */}
         <div className="absolute inset-0 flex flex-col">
           {/* Main preview */}
@@ -970,7 +1075,7 @@ function SessionView({
                 className="max-w-full max-h-full object-contain select-none"
               />
             ) : (
-              <Loader2 size={28} className="text-gray-600 animate-spin will-change-transform" />
+              <Spinner size={28} />
             )}
             {/* Nav arrows */}
             {previewIdx !== null && previewIdx > 0 && (
@@ -1066,7 +1171,7 @@ function SessionView({
                     className={`flex items-center justify-between px-2 py-1 rounded text-xs transition-colors ${
                       filterState === opt.value ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-gray-200'
                     }`}
-                    onClick={() => setFilterState(opt.value)}
+                    onClick={() => selectTab(opt.value)}
                   >
                     <span>{opt.label}</span>
                     <span className="text-gray-500 tabular-nums">{opt.count}</span>
@@ -1113,7 +1218,8 @@ function SessionView({
 
   return (
     <AppLayout mainClassName="flex-1 overflow-hidden">
-    <div className="flex flex-col h-full">
+    <div className="relative flex flex-col h-full">
+      <CaptureProgress done={cleanProgress.done} total={cleanProgress.total} tone="light" />
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
         <button onClick={onBack} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white">
@@ -1208,7 +1314,7 @@ function SessionView({
             return (
               <button
                 key={opt.value}
-                onClick={() => setFilterState(opt.value)}
+                onClick={() => selectTab(opt.value)}
                 className={`flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 text-xs rounded-full transition-colors ${
                   active
                     ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'

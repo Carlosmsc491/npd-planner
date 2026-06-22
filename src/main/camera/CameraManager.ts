@@ -207,21 +207,22 @@ export class CameraManager extends EventEmitter {
       // Stop previous session if any
       await this.stopTethering()
 
-      // Start chokidar BEFORE spawning gphoto2 so no file is missed during startup
+      // Start chokidar BEFORE spawning gphoto2 so no file is missed during startup.
+      // stabilityThreshold trimmed 500→250ms: gphoto2 writes the JPEG fully before
+      // the file appears, so 250ms is a safe completeness margin and shaves ~250ms
+      // off the "time to appear".
       console.log('[CameraManager] starting chokidar watch on:', outputDir)
       this.watcher = chokidar.watch(outputDir, {
         ignoreInitial: true,
-        awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
+        awaitWriteFinish: { stabilityThreshold: 250, pollInterval: 50 },
       })
 
       this.watcher.on('ready', () => console.log('[chokidar] ready, watching:', outputDir))
       this.watcher.on('error', (err) => console.error('[chokidar] error:', err))
       this.watcher.on('add', (filePath: string) => {
-        console.log('[chokidar] add detected:', filePath)
         const ext = nodePath.extname(filePath).toLowerCase()
-        console.log('[chokidar] ext:', ext)
         if (['.jpg', '.jpeg', '.cr2', '.cr3', '.nef', '.arw'].includes(ext)) {
-          console.log('[chokidar] emitting photo-received')
+          console.log(`[perf] photo-received @${Date.now()} ${nodePath.basename(filePath)}`)
           this.emit('photo-received', { tempPath: filePath, filename: nodePath.basename(filePath) })
         }
       })

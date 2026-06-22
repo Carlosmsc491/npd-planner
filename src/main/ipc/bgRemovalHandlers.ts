@@ -532,6 +532,8 @@ export function registerBgRemovalHandlers(): void {
         env: { ...process.env, PYTORCH_ENABLE_MPS_FALLBACK: '1', ...modelEnv },
       })
       activeChild = child
+      // Lower CPU priority so the inference batch doesn't starve the UI thread.
+      if (child.pid) { try { os.setPriority(child.pid, 10) } catch { /* not permitted */ } }
 
       const emit = () => {
         const st = readStatus(statusFile)

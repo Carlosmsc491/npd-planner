@@ -6,6 +6,7 @@
 import { spawn, type ChildProcess } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as os from 'os'
 import { BrowserWindow } from 'electron'
 
 export interface BgWorkerEvent {
@@ -105,6 +106,12 @@ function startWorker(toolDir: string): void {
     env: { ...process.env, PYTORCH_ENABLE_MPS_FALLBACK: '1', ...modelEnv },
   })
   worker = child
+
+  // Run the cut-out worker at low CPU priority so its heavy pre/post-processing
+  // doesn't starve the UI while capturing/reviewing. Best-effort; ignore failures.
+  if (child.pid) {
+    try { os.setPriority(child.pid, 10) } catch { /* not permitted on some setups */ }
+  }
 
   child.stdout?.on('data', (data: Buffer) => {
     lineBuffer += data.toString()
