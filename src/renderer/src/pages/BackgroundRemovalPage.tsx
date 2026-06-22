@@ -32,13 +32,20 @@ const ACCENT_STYLE: CSSProperties = { color: ACCENT }
 // Memoized spinner — keeps the SVG DOM element untouched across parent re-renders so
 // the `animate-spin` CSS animation never gets interrupted by status-tick re-renders.
 const ProcessingSpinner = memo(function ProcessingSpinner({ size = 16 }: { size?: number }) {
+  // A single-border CSS ring (one composited layer) instead of an SVG with many
+  // paths — cheaper to keep spinning. will-change-transform pins it to the GPU
+  // compositor so the rotation runs independent of the janked JS/layout thread.
   return (
-    <Loader2
-      size={size}
-      // will-change-transform promotes the element to the GPU compositor layer so
-      // the rotation runs independent of the JS/layout thread.
-      className="animate-spin will-change-transform shrink-0"
-      style={ACCENT_STYLE}
+    <span
+      className="inline-block shrink-0 rounded-full animate-spin will-change-transform"
+      style={{
+        width: size,
+        height: size,
+        borderWidth: Math.max(2, Math.round(size / 8)),
+        borderStyle: 'solid',
+        borderColor: 'rgba(130,130,130,0.25)',
+        borderTopColor: ACCENT,
+      }}
     />
   )
 })
@@ -293,9 +300,16 @@ export default function BackgroundRemovalPage() {
   }, [])
 
   const start = async () => {
-    if (!files.length || !ready || !destDir) return
+    if (!files.length || !ready) return
+    // Ask where to save if no destination is set yet.
+    let dest = destDir
+    if (!dest) {
+      dest = (await window.electronAPI.selectFolder()) || ''
+      if (!dest) return
+      setDestDir(dest)
+    }
     setPhase('processing'); setStatus(null); setResult(null); setResultThumbs({}); fetched.current = new Set()
-    const res = await window.electronAPI.bgRemovalRun({ files, toolDir, destDir, retouch })
+    const res = await window.electronAPI.bgRemovalRun({ files, toolDir, destDir: dest, retouch })
     setResult(res); setPhase('done')
   }
   // Re-cut a single result with Photoshop Select Subject → compare engine vs
@@ -483,7 +497,7 @@ export default function BackgroundRemovalPage() {
             <div className="mt-5 flex gap-3">
               <button
                 onClick={start}
-                disabled={!files.length || !ready || !destDir}
+                disabled={!files.length || !ready}
                 className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40"
                 style={{ background: ACCENT }}
               >
@@ -528,7 +542,7 @@ export default function BackgroundRemovalPage() {
             </div>
             <div className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               {phase === 'done'
-                ? <><CheckCircle2 size={16} style={ACCENT_STYLE} /> {result?.success ? 'Completed.' : (result?.error || 'Finished with errors.')}</>
+                ? <><CheckCircle2 size={16} style={ACCENT_STYLE} /> {result?.success ? `Completed in ${fmtTime(status?.elapsed_s ?? 0)}` : (result?.error || 'Finished with errors.')}</>
                 : <><ProcessingSpinner /> {status?.current?.step || 'Preparing…'}</>}
             </div>
             {phase === 'processing' && (
@@ -536,6 +550,15 @@ export default function BackgroundRemovalPage() {
                 <span className="rounded-md bg-gray-100 px-2.5 py-1 dark:bg-gray-700/50">Elapsed {fmtTime(status?.elapsed_s ?? 0)}</span>
                 {!retouchPhase && <span className="rounded-md bg-gray-100 px-2.5 py-1 dark:bg-gray-700/50">~{fmtTime(status?.eta_s ?? 0)} left</span>}
                 {status?.avg_s ? <span className="rounded-md bg-gray-100 px-2.5 py-1 dark:bg-gray-700/50">{status.avg_s}s/photo</span> : null}
+              </div>
+            )}
+            {phase === 'done' && result?.success && destDir && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs dark:bg-gray-700/40">
+                <FolderOpen size={14} className="mt-0.5 shrink-0 text-gray-400" />
+                <span className="text-gray-600 dark:text-gray-300">
+                  Saved to <span className="font-medium text-gray-800 dark:text-gray-100 break-all">{destDir}</span>
+                  <span className="text-gray-400"> /PNG · /JPG</span>
+                </span>
               </div>
             )}
             <div className="mt-4 flex gap-3">
