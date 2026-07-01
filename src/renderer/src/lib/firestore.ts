@@ -72,6 +72,18 @@ export function subscribeToUsers(callback: (users: AppUser[]) => void): Unsubscr
   )
 }
 
+/**
+ * Active members only — the single source of truth for member PICKERS and any
+ * board/task UI that shows assignable people. Suspended, awaiting and rejected
+ * ("deleted") users still exist in Firestore (so existing assignments never
+ * break) and remain visible in Settings, but are hidden everywhere members are
+ * chosen or displayed on boards/tasks. Settings/Analytics/Emergency keep using
+ * subscribeToUsers to manage/report on the full roster.
+ */
+export function subscribeToActiveUsers(callback: (users: AppUser[]) => void): Unsubscribe {
+  return subscribeToUsers((users) => callback(users.filter((u) => u.status === 'active')))
+}
+
 export async function updateUserStatus(uid: string, status: AppUser['status']): Promise<void> {
   try {
     await updateDoc(doc(db, COLLECTIONS.USERS, uid), { status })

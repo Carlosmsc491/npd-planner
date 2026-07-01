@@ -9,12 +9,11 @@ import GroupBySelector from '../components/board/GroupBySelector'
 import TaskPagePanel from '../components/task/TaskPage'
 import RecurringModal from '../components/ui/RecurringModal'
 import NewTaskModal from '../components/ui/NewTaskModal'
-import UndoToast from '../components/ui/UndoToast'
 import { useBoard } from '../hooks/useBoard'
 import { useTasks } from '../hooks/useTasks'
 import { useClients } from '../hooks/useClients'
 import { useLabels } from '../hooks/useLabels'
-import { subscribeToUsers } from '../lib/firestore'
+import { subscribeToActiveUsers } from '../lib/firestore'
 import { useBoardStore } from '../store/boardStore'
 import { getBoardColor } from '../utils/colorUtils'
 import { exportTasksToCSV, downloadCSV } from '../utils/exportUtils'
@@ -43,7 +42,7 @@ export default function BoardPage() {
   const [showNewTask, setShowNewTask] = useState(false)
 
   useEffect(() => {
-    const unsub = subscribeToUsers(setUsers)
+    const unsub = subscribeToActiveUsers(setUsers)
     return unsub
   }, [])
 
@@ -282,8 +281,6 @@ export default function BoardPage() {
           onClose={() => { setShowNewTask(false); setNewTaskDate(undefined) }}
         />
       )}
-
-      <UndoToast />
     </AppLayout>
   )
 }

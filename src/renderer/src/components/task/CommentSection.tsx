@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, KeyboardEvent } from 'react'
 import { Timestamp } from 'firebase/firestore'
-import { subscribeToComments, addComment, subscribeToUsers, createNotification } from '../../lib/firestore'
+import { subscribeToComments, addComment, subscribeToActiveUsers, createNotification } from '../../lib/firestore'
 import { formatRelativeTime } from '../../utils/dateUtils'
 import { getInitials, getInitialsColor } from '../../utils/colorUtils'
 import { useAuthStore } from '../../store/authStore'
@@ -26,7 +26,7 @@ export default function CommentSection({ taskId, taskTitle, boardId, boardType, 
 
   useEffect(() => {
     const unsub1 = subscribeToComments(taskId, setComments)
-    const unsub2 = subscribeToUsers(setAllUsers)
+    const unsub2 = subscribeToActiveUsers(setAllUsers)
     return () => { unsub1(); unsub2() }
   }, [taskId])
 

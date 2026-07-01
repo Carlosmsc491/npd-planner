@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Timestamp } from 'firebase/firestore'
-import { createTask, createDivision, subscribeToUsers } from '../../lib/firestore'
+import { createTask, createDivision, subscribeToActiveUsers } from '../../lib/firestore'
 import { useAuthStore } from '../../store/authStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useDivisions } from '../../hooks/useDivisions'
@@ -48,7 +48,7 @@ export default function NewTaskModal({ board, defaultBucket, defaultDate, onClos
   const [users, setUsers] = useState<AppUser[]>([])
   const { divisions } = useDivisions(clientId)
 
-  useEffect(() => subscribeToUsers(setUsers), [])
+  useEffect(() => subscribeToActiveUsers(setUsers), [])
   const activeUsers = users.filter(u => u.status === 'active')
 
   const setField = useCallback((id: string, value: unknown) => {

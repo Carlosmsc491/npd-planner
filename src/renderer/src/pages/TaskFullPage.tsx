@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import AppLayout from '../components/ui/AppLayout'
 import TaskPagePanel from '../components/task/TaskPage'
-import { subscribeToTask, subscribeToUsers, duplicateTask, deleteTask } from '../lib/firestore'
+import { subscribeToTask, subscribeToActiveUsers, duplicateTask, deleteTask } from '../lib/firestore'
 import { useBoardStore } from '../store/boardStore'
 import { useAuthStore } from '../store/authStore'
 import type { Task, AppUser } from '../types'
@@ -27,7 +27,7 @@ export default function TaskFullPage() {
   }, [taskId])
 
   useEffect(() => {
-    const unsub = subscribeToUsers(setUsers)
+    const unsub = subscribeToActiveUsers(setUsers)
     return unsub
   }, [])
 

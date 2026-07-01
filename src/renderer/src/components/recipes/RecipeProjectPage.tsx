@@ -22,7 +22,7 @@ import {
   updateRecipeAfterRename,
   resolveAllRecipeNotes,
 } from '../../lib/recipeFirestore'
-import { subscribeToUsers, createNotification, getGlobalSettings } from '../../lib/firestore'
+import { subscribeToActiveUsers, createNotification, getGlobalSettings } from '../../lib/firestore'
 import { canEditArea } from '../../lib/permissions'
 import { useAuthStore } from '../../store/authStore'
 import { useRecipeLock } from '../../hooks/useRecipeLock'
@@ -175,7 +175,7 @@ export default function RecipeProjectPage() {
 
   // ── Subscribe to users ───────────────────────────────────────────────────
   useEffect(() => {
-    const unsub = subscribeToUsers(setUsers)
+    const unsub = subscribeToActiveUsers(setUsers)
     return unsub
   }, [])
 
@@ -189,7 +189,12 @@ export default function RecipeProjectPage() {
   // ── Keep selectedFile in sync with live file list ─────────────────────────
   useEffect(() => {
     if (!selectedFile) return
-    const updated = files.find((f) => f.id === selectedFile.id)
+    // Match by id first; fall back to the stable recipeUid. A rename (e.g. the
+    // "DONE BY" finalize) migrates the doc to a NEW fileId, so matching by id alone
+    // left the panel stale and "Open in Excel" pointed at the old filename.
+    const updated =
+      files.find((f) => f.id === selectedFile.id) ??
+      (selectedFile.recipeUid ? files.find((f) => f.recipeUid === selectedFile.recipeUid) : undefined)
     if (updated) setSelectedFile(updated)
   }, [files]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -233,6 +238,10 @@ export default function RecipeProjectPage() {
     await markRecipeDone(projectId, selectedFile.id, user.name, currentLock?.lockToken ?? '')
     // Only unclaim if we have an active in-memory lock to clean up
     if (currentLock) await unclaimFile()
+    // The validation step may have renamed the file ("… DONE BY <user>.xlsx").
+    // Re-scan so the merge re-links the doc to the new filename by recipeUid —
+    // otherwise the panel + "Open in Excel" keep pointing at the old name.
+    setScanKey((k) => k + 1)
   }, [projectId, selectedFile, user, currentLock, unclaimFile])
 
   const handleReopen = useCallback(async () => {
@@ -483,12 +492,17 @@ export default function RecipeProjectPage() {
     return grouped
   }, [filteredFiles])
 
-  // Auto-exit folder view when the active folder disappears from filter results
+  // Auto-exit folder view when the active folder disappears from filter results.
+  // Guarded against the mount-time empty state: while the project is still being
+  // scanned, filteredFilesByFolder is {} and this would wrongly bounce the user
+  // out of the folder they returned into (e.g. after finishing a capture). Only
+  // act once files have actually loaded.
   useEffect(() => {
+    if (filesLoading || files.length === 0) return
     if (currentFolder !== null && !filteredFilesByFolder[currentFolder]) {
       setCurrentFolder(null)
     }
-  }, [filteredFilesByFolder, currentFolder])
+  }, [filteredFilesByFolder, currentFolder, filesLoading, files.length])
 
 
   // ── Progress stats ───────────────────────────────────────────────────────
@@ -514,7 +528,7 @@ export default function RecipeProjectPage() {
       <AppLayout mainClassName="flex-1 overflow-hidden">
         <div className="flex items-center justify-center h-full text-gray-400 gap-2">
           <Loader2 size={18} className="animate-spin" />
-          <span className="text-sm">Loading project…</span>
+          <span className="text-sm">Opening project…</span>
         </div>
       </AppLayout>
     )
@@ -929,9 +943,12 @@ export default function RecipeProjectPage() {
             )}
 
             {filesLoading ? (
-              <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
-                <Loader2 size={16} className="animate-spin" />
-                <span className="text-sm">Scanning files…</span>
+              <div className="flex flex-col items-center justify-center py-12 text-center text-gray-400 gap-2">
+                <Loader2 size={18} className="animate-spin text-green-500" />
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Reading recipes…</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">
+                  First time opening this project — it'll be instant next time.
+                </span>
               </div>
             ) : Object.keys(filesByFolder).length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
