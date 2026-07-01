@@ -4,6 +4,17 @@ directories:
   buildResources: build
   output: dist-electron
 files:
+  # ── Exclude non-app directories that must NEVER ship. tools/ (19 GB: the
+  #    bg-removal training repo + models) ballooned the app.asar — in production
+  #    the runtime is downloaded to userData, so tools/ is a dev-only fallback.
+  #    dist-electron/ is build output, .venv a Python venv, the rest dev-only.
+  - '!tools{,/**/*}'
+  - '!dist-electron{,/**/*}'
+  - '!.venv{,/**/*}'
+  - '!graphify-out{,/**/*}'
+  - '!web{,/**/*}'
+  - '!outlook-addin{,/**/*}'
+  - '!fix and implementations{,/**/*}'
   - '!.chromium-bundle{,/**/*}'
   - '!**/.vscode/*'
   - '!src/*'
