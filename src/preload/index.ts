@@ -117,6 +117,18 @@ const electronAPI = {
   getCrashReportsDir: () =>
     ipcRenderer.invoke('crash:get-reports-dir'),
 
+  getSystemInfo: () =>
+    ipcRenderer.invoke('app:get-system-info'),
+
+  // Main-process fatal errors are forwarded here so the SAME crash modal shows
+  // (one crash UI, not two).
+  onFatalError: (callback: (data: { errorType: string; errorMessage: string; stackTrace?: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: unknown) =>
+      callback(data as { errorType: string; errorMessage: string; stackTrace?: string })
+    ipcRenderer.on('app:fatal-error', handler)
+    return () => ipcRenderer.removeListener('app:fatal-error', handler)
+  },
+
   deleteTrashFolder: (folderPath: string) =>
     ipcRenderer.invoke('trash:delete-folder', folderPath),
 
@@ -135,6 +147,9 @@ const electronAPI = {
 
   recipeRenameFile: (oldPath: string, newPath: string) =>
     ipcRenderer.invoke('recipe:renameFile', oldPath, newPath),
+
+  recipeMoveItem: (args: { sourcePath: string; destDir: string }) =>
+    ipcRenderer.invoke('recipe:move-item', args),
 
   recipeIsFileOpen: (filePath: string) =>
     ipcRenderer.invoke('recipe:isFileOpen', filePath),
@@ -163,11 +178,15 @@ const electronAPI = {
   recipePathExists: (folderPath: string) =>
     ipcRenderer.invoke('recipe:pathExists', folderPath),
 
-  recipeCreateImportTemplate: (destPath: string) =>
-    ipcRenderer.invoke('recipe:createImportTemplate', destPath),
+  recipeCreateImportTemplate: (): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('recipe:createImportTemplate'),
 
-  recipeParseImportExcel: (filePath: string) =>
-    ipcRenderer.invoke('recipe:parseImportExcel', filePath),
+  recipeParseImportExcel: (): Promise<{
+    rows: { name: string; price: string; option: string; pickNeeded: string }[]
+    errors: string[]
+    path?: string
+  }> =>
+    ipcRenderer.invoke('recipe:parseImportExcel'),
 
   recipeBatchWriteCells: (batch: Array<{ filePath: string; updates: Array<{ sheet: string; cell: string; value: string }> }>) =>
     ipcRenderer.invoke('recipe:batchWriteCells', batch),
@@ -385,6 +404,15 @@ const electronAPI = {
   // ── Excel / Python ──────────────────────────────────────────────────────────
   excelCheckDependencies: (): Promise<{ available: boolean; error?: string }> =>
     ipcRenderer.invoke('excel:check-dependencies'),
+
+  excelInstallDeps: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('excel:install-deps'),
+
+  onExcelInstallProgress: (callback: (line: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, line: string) => callback(line)
+    ipcRenderer.on('excel:install-progress', handler)
+    return () => ipcRenderer.removeListener('excel:install-progress', handler)
+  },
 
   insertPhotoInExcel: (args: { excelPath: string; jpgPath: string }): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('excel:insert-photo', args),

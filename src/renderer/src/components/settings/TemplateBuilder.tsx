@@ -86,7 +86,7 @@ export default function TemplateBuilder({ properties, onChange, isOwner, boardTy
   function handleDeleteProperty(propertyId: string) {
     const SYSTEM = ['builtin-client', 'builtin-status', 'builtin-priority', 'builtin-date', 'builtin-assignees', 'builtin-bucket', 'builtin-awb', 'builtin-po']
     if (SYSTEM.includes(propertyId) && !isOwner) {
-      setToast({ id: crypto.randomUUID(), type: 'error', message: 'Only owners can delete system properties' })
+      setToast({ id: crypto.randomUUID(), type: 'warning', message: 'Only owners can delete system properties' })
       return
     }
     setDeletingId(propertyId)

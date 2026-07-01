@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 import App from './App'
 import './assets/main.css'
+import 'sileo/styles.css'
+import './assets/sileo-overrides.css'
 import { CrashReportModal } from './components/ui/CrashReportModal'
 
 const isDev = import.meta.env.DEV

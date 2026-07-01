@@ -61,6 +61,23 @@ export default function RecipeFileManagerDialog({
   // Confirm delete
   const [confirm, setConfirm] = useState<ConfirmState>(null)
 
+  // Drag & drop reorg: the path being dragged (null = nothing)
+  const [draggingPath, setDraggingPath] = useState<string | null>(null)
+
+  async function handleMove(sourcePath: string, destDir: string) {
+    setDraggingPath(null)
+    if (!sourcePath || !destDir || sourcePath === destDir) return
+    if (sourcePath.replace(/\\/g, '/').split('/').slice(0, -1).join('/') === destDir.replace(/\\/g, '/')) return // already there
+    const res = await window.electronAPI.recipeMoveItem({ sourcePath, destDir })
+    if (res.success) {
+      setToast({ id: nanoid(), message: `Moved ${sourcePath.split(/[\\/]/).pop()}`, type: 'success' })
+      await loadFolder(currentPath)
+      onRefresh?.()   // re-scan so the recipe re-links to its new path by recipeUid
+    } else {
+      setToast({ id: nanoid(), message: res.error ?? 'Move failed', type: 'error' })
+    }
+  }
+
   // ── Load folder ────────────────────────────────────────────────────────
 
   const loadFolder = useCallback(async (folderPath: string) => {
@@ -255,7 +272,7 @@ export default function RecipeFileManagerDialog({
         setToast({
           id: nanoid(),
           message: `This recipe is currently locked by ${locked.lockedBy ?? 'another user'}`,
-          type: 'error',
+          type: 'warning',
         })
         setConfirm(null)
         return
@@ -302,7 +319,11 @@ export default function RecipeFileManagerDialog({
                 {i > 0 && <ChevronRight size={13} className="text-gray-300 dark:text-gray-600 shrink-0" />}
                 <button
                   onClick={() => navigateTo(crumb.path)}
-                  className={`truncate transition-colors ${
+                  onDragOver={draggingPath && crumb.path !== currentPath ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' } : undefined}
+                  onDrop={draggingPath && crumb.path !== currentPath ? (e) => { e.preventDefault(); handleMove(draggingPath, crumb.path) } : undefined}
+                  className={`truncate transition-colors rounded px-1 ${
+                    draggingPath && crumb.path !== currentPath ? 'hover:ring-2 hover:ring-green-400' : ''
+                  } ${
                     i === breadcrumbs.length - 1
                       ? 'font-semibold text-gray-900 dark:text-white cursor-default'
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -425,6 +446,11 @@ export default function RecipeFileManagerDialog({
                     onRenameCancel={cancelRename}
                     onStartRename={() => startRename(entry)}
                     onConfirmDelete={() => setConfirm({ type: 'delete', entry })}
+                    isDragging={draggingPath === entry.fullPath}
+                    canDrop={!!draggingPath && entry.isDirectory && entry.fullPath !== draggingPath}
+                    onDragStartItem={() => setDraggingPath(entry.fullPath)}
+                    onDragEndItem={() => setDraggingPath(null)}
+                    onDropItem={() => { if (draggingPath) handleMove(draggingPath, entry.fullPath) }}
                   />
                 ))}
               </tbody>
@@ -534,6 +560,11 @@ function EntryRow({
   onRenameCancel,
   onStartRename,
   onConfirmDelete,
+  isDragging,
+  canDrop,
+  onDragStartItem,
+  onDragEndItem,
+  onDropItem,
 }: {
   entry: RecipeFSEntry
   isSelected: boolean
@@ -548,7 +579,13 @@ function EntryRow({
   onRenameCancel: () => void
   onStartRename: () => void
   onConfirmDelete: () => void
+  isDragging: boolean
+  canDrop: boolean
+  onDragStartItem: () => void
+  onDragEndItem: () => void
+  onDropItem: () => void
 }) {
+  const [dragOver, setDragOver] = useState(false)
   const Icon = entry.isDirectory
     ? FolderOpen
     : entry.name.endsWith('.xlsx')
@@ -569,13 +606,21 @@ function EntryRow({
 
   return (
     <tr
+      draggable={!isRenaming}
+      onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartItem() }}
+      onDragEnd={onDragEndItem}
+      onDragOver={canDrop ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true) } : undefined}
+      onDragLeave={canDrop ? () => setDragOver(false) : undefined}
+      onDrop={canDrop ? (e) => { e.preventDefault(); setDragOver(false); onDropItem() } : undefined}
       onClick={onSelect}
       onDoubleClick={() => { if (entry.isDirectory) onNavigate() }}
       className={`cursor-pointer transition-colors ${
-        isSelected
+        dragOver && canDrop
+          ? 'ring-2 ring-inset ring-green-400 bg-green-50 dark:bg-green-900/20'
+          : isSelected
           ? 'bg-green-50 dark:bg-green-900/10'
           : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
-      }`}
+      } ${isDragging ? 'opacity-40' : ''}`}
     >
       {/* Name */}
       <td className="px-4 py-2 min-w-0">

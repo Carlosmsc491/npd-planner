@@ -3,24 +3,37 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { subscribeToRecipeFiles, upsertRecipeFile, migrateRecipeFile, writeRecipeUid } from '../lib/recipeFirestore'
+import { getCachedScan, setCachedScan } from '../lib/recipeScanCache'
 import { DEFAULT_RECIPE_DISTRIBUTION } from '../types'
 import type { RecipeFile, RecipeScannedFile } from '../types'
 import { Timestamp } from 'firebase/firestore'
 
 export function useRecipeFiles(projectId: string, rootPath: string, scanKey = 0) {
-  const [fsFiles, setFsFiles] = useState<RecipeScannedFile[]>([])
+  // Seed from the cached scan so a re-opened project paints its file list instantly.
+  const [fsFiles, setFsFiles] = useState<RecipeScannedFile[]>(() => getCachedScan(projectId) ?? [])
   const [firestoreFiles, setFirestoreFiles] = useState<RecipeFile[]>([])
   const [isScanning, setIsScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   // Track which fileIds have had their recipeUid backfilled this session (avoids repeated writes)
   const backfilledUids = useRef<Set<string>>(new Set())
 
+  // Re-hydrate from cache when switching to another already-scanned project
+  // (the component instance is reused across :projectId changes).
+  useEffect(() => {
+    const cached = getCachedScan(projectId)
+    if (cached) setFsFiles(cached)
+    else setFsFiles([])
+  }, [projectId])
+
   // ── EFECTO 1: Escaneo del filesystem (solo cuando scanKey cambia) ──────────
   useEffect(() => {
     if (!projectId || !rootPath) return
 
     let cancelled = false
-    setIsScanning(true)
+    // Only block with the "scanning" state on a true first load. When we already
+    // have a cached list, refresh silently in the background so the UI never flashes.
+    const hadCache = (getCachedScan(projectId)?.length ?? 0) > 0
+    setIsScanning(!hadCache)
     setScanError(null)
 
     // Verificar primero que la carpeta existe
@@ -40,6 +53,7 @@ export function useRecipeFiles(projectId: string, rootPath: string, scanKey = 0)
       .then((scanned) => {
         if (cancelled || !scanned) return
         setFsFiles(scanned)
+        setCachedScan(projectId, scanned)   // warm the cache for next time
         setIsScanning(false)
       })
       .catch((err) => {

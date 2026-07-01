@@ -3,6 +3,7 @@
 
 import { readExcelCells } from '../lib/recipeExcel'
 import { normalizeRecipeName, parseRecipeNameFromFilename } from './recipeNaming'
+import { detectHolidayFromName } from './holidayDetect'
 import type {
   RecipeProjectConfig,
   RecipeSettings,
@@ -81,20 +82,18 @@ export async function validateRecipeFile(
   // ── R2 — Holiday Detection Alignment ────────────────────────────────────
   const effectiveName = normalized || rawName
   const currentHoliday = get(rc.holiday)
-  for (const [keyword, holidayValue] of Object.entries(settings.holidayMap)) {
-    if (effectiveName.toUpperCase().includes(keyword.toUpperCase())) {
-      if (currentHoliday !== holidayValue) {
-        changes.push({
-          field:          'Holiday',
-          cell:           rc.holiday,
-          currentValue:   currentHoliday,
-          suggestedValue: holidayValue,
-          autoApply:      true,
-          type:           'warning',
-        })
-      }
-      break
-    }
+  // Same detection the creation wizard uses (dictionary substring, longest keyword
+  // first) — detects the holiday from the name without ever changing the name.
+  const detectedHoliday = detectHolidayFromName(effectiveName, settings.holidayMap)
+  if (detectedHoliday && currentHoliday !== detectedHoliday) {
+    changes.push({
+      field:          'Holiday',
+      cell:           rc.holiday,
+      currentValue:   currentHoliday,
+      suggestedValue: detectedHoliday,
+      autoApply:      true,
+      type:           'warning',
+    })
   }
 
   // ── R3 — Dry Pack Sync ───────────────────────────────────────────────────
@@ -234,16 +233,22 @@ export async function validateRecipeFile(
   }
 
   // ── R11 — Final Naming (informational) ──────────────────────────────────
+  // Only propose the rename when the file isn't already named correctly. A recipe
+  // completed before is already "… DONE BY <user>.xlsx", and suggesting a rename to
+  // the SAME name made the apply step try to rename a file onto itself — which
+  // failed with "Could not rename file — check it is not open in another app".
   const firstName = currentUser.trim().split(/\s+/)[0]
   const finalName = `${effectiveName} DONE BY ${firstName.toUpperCase()}.xlsx`
-  changes.push({
-    field:          'Final File Name',
-    cell:           '—',
-    currentValue:   fileName,
-    suggestedValue: finalName,
-    autoApply:      true,
-    type:           'info',
-  })
+  if (finalName !== fileName) {
+    changes.push({
+      field:          'Final File Name',
+      cell:           '—',
+      currentValue:   fileName,
+      suggestedValue: finalName,
+      autoApply:      true,
+      type:           'info',
+    })
+  }
 
   const valid = !changes.some((c) => c.type === 'error')
   return { valid, changes, requiresManualUpdate }

@@ -15,7 +15,7 @@ import type {
   BgInstallState, BgInstallProgress,
 } from '../../shared/bgRemoval'
 import { BG_RUNTIME_VERSION, BG_RUNTIME_ASSET, BG_RUNTIME_REPO } from '../../shared/bgRemoval'
-import { enqueueBgRemoval, killBgWorker } from '../services/bgWorkerService'
+import { enqueueBgRemoval, killBgWorker, runBgRemoval, bgWorkerAvailable, cancelQueuedBgRemoval } from '../services/bgWorkerService'
 
 const IS_MAC = process.platform === 'darwin'
 const IS_ARM = process.arch === 'arm64'
@@ -609,6 +609,19 @@ export function registerBgRemovalHandlers(): void {
       if (!fs.existsSync(job.input)) return { ok: false, error: 'Source photo not found.' }
       fs.mkdirSync(path.dirname(job.output), { recursive: true })
 
+      // Warm path — reuse the persistent worker (studio_worker.py), the SAME engine
+      // Photo Studio uses, so there's no per-photo model cold start and nothing to
+      // keep in sync. Older runtimes that predate studio_worker.py fall through to
+      // the cold infer.py spawn below, so a stale install still works (just slower).
+      if (bgWorkerAvailable(toolDir)) {
+        try {
+          await runBgRemoval({ input: job.input, output: job.output, toolDir })
+          return { ok: true }
+        } catch (err) {
+          return { ok: false, error: (err as Error).message }
+        }
+      }
+
       const modelsDir = path.join(toolDir, 'models')
       const modelEnv: Record<string, string> = {}
       if (fs.existsSync(modelsDir)) {
@@ -635,8 +648,11 @@ export function registerBgRemovalHandlers(): void {
   )
 
   ipcMain.handle('bgremoval:clean-cancel-all', async (): Promise<void> => {
+    // Cold children (legacy infer.py spawns) …
     for (const c of cleanChildren) { try { c.kill() } catch { /* */ } }
     cleanChildren.clear()
+    // … and queued warm-worker jobs (Photo Manager auto-clean).
+    cancelQueuedBgRemoval()
   })
 
   // ── Photo Studio persistent bg worker ─────────────────────────────────────

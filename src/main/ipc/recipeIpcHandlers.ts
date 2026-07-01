@@ -2,7 +2,7 @@
 // IPC handlers for Recipe Manager — runs in Electron main process (Node.js)
 // Uses exceljs for Excel read/write operations
 
-import { ipcMain, shell } from 'electron'
+import { ipcMain, shell, dialog, BrowserWindow } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto'
 import ExcelJS from 'exceljs'
 import { readAndHealManifest, atomicWriteJson, manifestPath } from './photoManifestHandlers'
 import { parseRecipeFilename } from '../lib/recipeFilename'
+import { runExclusiveExcel } from '../lib/excelQueue'
 
 const execAsync = promisify(exec)
 
@@ -294,6 +295,11 @@ async function writeExcelViaAppleScript(files: ExcelFileWrite[]): Promise<void> 
     }
 
     blocks.push(
+      // The real fix for the "external sources" / "Update Links?" prompt is that the
+      // bundled template no longer contains external links (stripped at the XML
+      // level), so copied recipe files open clean. `display alerts`/`ask to update
+      // links` + the timeout below remain as defence for any legacy file that still
+      // has links.
       `  set wb to open workbook workbook file name (POSIX file "${safePath}" as text)\n` +
       sheetBlocks.join('\n') + '\n' +
       `  close wb saving yes`
@@ -303,7 +309,17 @@ async function writeExcelViaAppleScript(files: ExcelFileWrite[]): Promise<void> 
   const script = [
     'tell application "Microsoft Excel"',
     '  set display alerts to false',
+    // The "Update Links?" prompt is NOT a normal alert — `display alerts` does not
+    // suppress it, so a template with external links froze Excel automation (and the
+    // whole project-creation wizard) waiting for a click. Disable it explicitly.
+    '  set ask to update links to false',
+    // Excel's default AppleEvent reply timeout (~60s) is too short for opening/saving
+    // a OneDrive-synced workbook (hydration + sync), which surfaced as
+    // "AppleEvent timed out (-1712)". Give each command up to 4 minutes.
+    '  with timeout of 240 seconds',
     ...blocks,
+    '  end timeout',
+    '  set ask to update links to true',
     '  set display alerts to true',
     'end tell',
   ].join('\n')
@@ -375,6 +391,9 @@ async function writeExcelViaCOMWindows(files: ExcelFileWrite[]): Promise<void> {
     'Start-Sleep -Milliseconds 800',
     '$excel.Visible = $false',
     '$excel.DisplayAlerts = $false',
+    // Suppress the "Update Links?" dialog (a template with external links otherwise
+    // freezes the COM session waiting for a click during project creation).
+    '$excel.AskToUpdateLinks = $false',
     'try {',
     ...inner,
     '} finally {',
@@ -411,22 +430,27 @@ async function writeExcelViaCOMWindows(files: ExcelFileWrite[]): Promise<void> {
  * Cross-platform dispatcher: uses AppleScript on Mac, PowerShell COM on Windows.
  * On Windows, retries up to 2 extra times if the whole COM session is rejected.
  */
-async function writeExcelViaCOM(files: ExcelFileWrite[]): Promise<void> {
-  if (process.platform === 'darwin') {
-    return writeExcelViaAppleScript(files)
-  }
-  let lastErr: unknown
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      return await writeExcelViaCOMWindows(files)
-    } catch (err) {
-      lastErr = err
-      const msg = String(err)
-      if (!msg.includes('RPC_E_CALL_REJECTED') && !msg.includes('0x80010001')) throw err
-      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)))
+// Serialized through the global Excel queue so a project-creation batch and a
+// mark-done edit can never drive Excel at the same time (the cause of -1712 /
+// RPC-rejection collisions).
+function writeExcelViaCOM(files: ExcelFileWrite[]): Promise<void> {
+  return runExclusiveExcel(async () => {
+    if (process.platform === 'darwin') {
+      return writeExcelViaAppleScript(files)
     }
-  }
-  throw lastErr
+    let lastErr: unknown
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await writeExcelViaCOMWindows(files)
+      } catch (err) {
+        lastErr = err
+        const msg = String(err)
+        if (!msg.includes('RPC_E_CALL_REJECTED') && !msg.includes('0x80010001')) throw err
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)))
+      }
+    }
+    throw lastErr
+  })
 }
 
 export function registerRecipeHandlers(): void {
@@ -551,6 +575,45 @@ export function registerRecipeHandlers(): void {
       } catch (err) {
         console.error('recipe:renameFile error:', err)
         throw err
+      }
+    }
+  )
+
+  // ── Move a file or folder into another directory (drag & drop reorg) ───────
+  ipcMain.handle(
+    'recipe:move-item',
+    async (_event, { sourcePath, destDir }: { sourcePath: string; destDir: string }):
+      Promise<{ success: boolean; newPath?: string; error?: string }> => {
+      try {
+        const src  = np(sourcePath)
+        const dest = path.join(np(destDir), path.basename(src))
+        if (src === dest) return { success: false, error: 'Source and destination are the same.' }
+        // Don't allow dropping a folder into itself or a descendant.
+        const srcWithSep = src.endsWith(path.sep) ? src : src + path.sep
+        if (np(destDir).startsWith(srcWithSep) || np(destDir) === src) {
+          return { success: false, error: "Can't move a folder into itself." }
+        }
+        if (fs.existsSync(dest)) {
+          return { success: false, error: `"${path.basename(src)}" already exists in the destination.` }
+        }
+        if (src.toLowerCase().endsWith('.xlsx') && isFileLockedByExcel(src)) {
+          return { success: false, error: 'That file is open in Excel. Close it first.' }
+        }
+        try {
+          fs.renameSync(src, dest)
+        } catch (err) {
+          const e = err as NodeJS.ErrnoException
+          if (e.code === 'EXDEV') {
+            // Cross-device move (e.g. project on C:, target on D:) — copy then remove.
+            fs.cpSync(src, dest, { recursive: true })
+            fs.rmSync(src, { recursive: true, force: true })
+          } else {
+            throw err
+          }
+        }
+        return { success: true, newPath: dest }
+      } catch (err) {
+        return { success: false, error: String(err) }
       }
     }
   )
@@ -762,33 +825,42 @@ export function registerRecipeHandlers(): void {
     }
   )
 
-  // ── Create a blank import template Excel ─────────────────────────────────
+  // ── Create a blank import template (Name / Price / Option / Required Pick) ──
+  // Option and Required Pick are droplists so invalid values can't be typed.
   ipcMain.handle(
     'recipe:createImportTemplate',
-    async (_event, destPath: string): Promise<{ success: boolean; error?: string }> => {
+    async (): Promise<{ success: boolean; path?: string; error?: string }> => {
+      const win = BrowserWindow.getFocusedWindow() ?? undefined
+      const res = await dialog.showSaveDialog(win!, {
+        title: 'Save import template',
+        defaultPath: 'NPD Recipe Import Template.xlsx',
+        filters: [{ name: 'Excel', extensions: ['xlsx'] }],
+      })
+      if (res.canceled || !res.filePath) return { success: false }
       try {
-        fs.mkdirSync(path.dirname(np(destPath)), { recursive: true })
         const workbook = new ExcelJS.Workbook()
-        const ws = workbook.addWorksheet('Import')
-
-        // Headers
-        ws.getCell('A1').value = 'Folder'
-        ws.getCell('B1').value = 'Name'
-        ws.getRow(1).font = { bold: true }
-
-        // Example rows so user understands the format
-        ws.getCell('A2').value = 'Valentine'
-        ws.getCell('B2').value = '$12.99 A VALENTINE'
-        ws.getCell('A3').value = 'Everyday'
-        ws.getCell('B3').value = '$9.99 ROSE'
-        ws.getCell('A4').value = 'Christmas'
-        ws.getCell('B4').value = '$14.99 B XMAS'
-
-        ws.getColumn('A').width = 36
-        ws.getColumn('B').width = 22
-
-        await workbook.xlsx.writeFile(destPath)
-        return { success: true }
+        const ws = workbook.addWorksheet('Recipes')
+        ws.columns = [
+          { header: 'NAME',          key: 'name',   width: 42 },
+          { header: 'PRICE',         key: 'price',  width: 12 },
+          { header: 'OPTION',        key: 'option', width: 10 },
+          { header: 'REQUIRED PICK', key: 'pick',   width: 16 },
+        ]
+        const header = ws.getRow(1)
+        header.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+        header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1D9E75' } }
+        header.alignment = { horizontal: 'center' }
+        // Example rows so the format is obvious.
+        ws.addRow(['VALENTINE RED', '$12.99', 'A', 'N'])
+        ws.addRow(['SPRING MIX',    '$9.99',  'B', 'Y'])
+        // Droplists: OPTION = A..G (letters only), REQUIRED PICK = Y/N.
+        for (let r = 2; r <= 1000; r++) {
+          ws.getCell(`C${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['"A,B,C,D,E,F,G"'] }
+          ws.getCell(`D${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['"Y,N"'] }
+        }
+        ws.views = [{ state: 'frozen', ySplit: 1 }]
+        await workbook.xlsx.writeFile(res.filePath)
+        return { success: true, path: res.filePath }
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) }
       }
@@ -829,53 +901,88 @@ export function registerRecipeHandlers(): void {
     }
   )
 
-  // ── Parse Excel file for recipe import (A=name/folder, B=SRP, C=BoxType, D=PickNeeded, E=holiday) ──
+  // ── Import: read + validate a filled template (Name / Price / Option / Required Pick) ──
+  // Shows an open dialog, validates every row (numbers-only price, single-letter
+  // option, Y/N pick, no illegal chars) and normalizes text to UPPERCASE.
   ipcMain.handle(
     'recipe:parseImportExcel',
-    async (_, filePath: string): Promise<{
-      success: boolean
-      rows?: Array<{
-        name: string
-        srp: string
-        boxType: string
-        pickNeeded: string
-        holiday: string
-      }>
-      error?: string
+    async (): Promise<{
+      rows: Array<{ name: string; price: string; option: string; pickNeeded: string }>
+      errors: string[]
+      path?: string
     }> => {
+      const win = BrowserWindow.getFocusedWindow() ?? undefined
+      const sel = await dialog.showOpenDialog(win!, {
+        title: 'Choose the filled import file',
+        properties: ['openFile'],
+        filters: [{ name: 'Excel', extensions: ['xlsx'] }],
+      })
+      if (sel.canceled || sel.filePaths.length === 0) return { rows: [], errors: [] }
+      const filePath = sel.filePaths[0]
       try {
         const workbook = new ExcelJS.Workbook()
         await workbook.xlsx.readFile(np(filePath))
+        const sheet = workbook.getWorksheet('Recipes') ?? workbook.getWorksheet(1)
+        if (!sheet) return { rows: [], errors: ['No worksheet found in the file.'] }
 
-        const sheet = workbook.getWorksheet(1)
-        if (!sheet) return { success: false, error: 'No worksheet found' }
-
-        const rows: Array<{ name: string; srp: string; boxType: string; pickNeeded: string; holiday: string }> = []
-
-        // Auto-detect starting column: find which column has the header "name" in row 1
-        let startCol = 1
-        const headerRow = sheet.getRow(1)
-        for (let c = 1; c <= 10; c++) {
-          const v = String(headerRow.getCell(c).value ?? '').trim().toLowerCase()
-          if (v === 'name') { startCol = c; break }
+        const cellStr = (c: ExcelJS.Cell): string => {
+          const v = c.value as unknown
+          if (v == null) return ''
+          if (typeof v === 'object') {
+            const o = v as { result?: unknown; text?: unknown }
+            if ('result' in o) return String(o.result ?? '').trim()
+            if ('text' in o)   return String(o.text ?? '').trim()
+          }
+          return String(v).trim()
         }
 
+        const rows: Array<{ name: string; price: string; option: string; pickNeeded: string }> = []
+        const errors: string[] = []
+
         sheet.eachRow((row, rowNumber) => {
-          if (rowNumber === 1) return // saltar header
-          const name = String(row.getCell(startCol).value ?? '').trim()
-          if (!name) return
-          rows.push({
-            name,
-            srp:        String(row.getCell(startCol + 1).value ?? '').trim(),
-            boxType:    String(row.getCell(startCol + 2).value ?? '').trim(),
-            pickNeeded: String(row.getCell(startCol + 3).value ?? '').trim(),
-            holiday:    String(row.getCell(startCol + 4).value ?? '').trim(),
-          })
+          if (rowNumber === 1) return // header
+          const nameRaw   = cellStr(row.getCell(1))
+          const priceRaw  = cellStr(row.getCell(2))
+          const optionRaw = cellStr(row.getCell(3))
+          const pickRaw    = cellStr(row.getCell(4))
+          if (!nameRaw && !priceRaw && !optionRaw && !pickRaw) return // blank row
+
+          // NAME — required; strip illegal filename chars; normalize to UPPERCASE.
+          const name = nameRaw.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim().toUpperCase()
+          if (!name) { errors.push(`Row ${rowNumber}: name is required.`); return }
+
+          // PRICE — numbers only (optional $), up to 2 decimals. Reject letters.
+          let price = ''
+          if (priceRaw) {
+            const cleaned = priceRaw.replace(/\s/g, '')
+            if (!/^\$?\d+(\.\d{1,2})?$/.test(cleaned)) {
+              errors.push(`Row ${rowNumber}: price "${priceRaw}" is not a valid amount (numbers only, e.g. $12.99).`); return
+            }
+            price = cleaned.startsWith('$') ? cleaned : `$${cleaned}`
+          }
+
+          // OPTION — a single letter A..G (or blank). Reject numbers/others.
+          let option = ''
+          if (optionRaw) {
+            const up = optionRaw.toUpperCase()
+            if (!/^[A-G]$/.test(up)) { errors.push(`Row ${rowNumber}: option "${optionRaw}" must be a single letter A-G.`); return }
+            option = up
+          }
+
+          // REQUIRED PICK — Y / N (blank -> N).
+          let pickNeeded = 'N'
+          if (pickRaw) {
+            const up = pickRaw.toUpperCase()
+            if (up !== 'Y' && up !== 'N') { errors.push(`Row ${rowNumber}: required pick "${pickRaw}" must be Y or N.`); return }
+            pickNeeded = up
+          }
+
+          rows.push({ name, price, option, pickNeeded })
         })
 
-        return { success: true, rows }
+        return { rows, errors, path: filePath }
       } catch (err) {
-        return { success: false, error: String(err) }
+        return { rows: [], errors: [`Could not read the file: ${err instanceof Error ? err.message : String(err)}`] }
       }
     }
   )
@@ -1015,9 +1122,15 @@ export function registerRecipeHandlers(): void {
         return newFilePath
       }
 
+      // Photos are named after the recipe's CLEAN name (price/option stripped),
+      // e.g. "$16.99 EASTER.xlsx" → photos "EASTER - 1.jpg". The new photo base is
+      // the clean form of the new display name, so renamed photos stay consistent
+      // with how the capture page names new shots.
+      const newPhotoBase = parseRecipeFilename(`${newDisplayName}.xlsx`).name || newDisplayName
+
       // 6. Rename all captured photos (CAMERA + SELECTED on project root)
       const updatedPhotos: CapturedPhotoPOJO[] = capturedPhotos.map(photo => {
-        const newFilename = `${newDisplayName} - ${photo.sequence}.jpg`
+        const newFilename = `${newPhotoBase} - ${photo.sequence}.jpg`
         const newCameraPath   = renamePhotoFile(photo.cameraPath,   newFilename)
         const newPicturePath  = renamePhotoFile(photo.picturePath,  newFilename)
 
@@ -1081,12 +1194,19 @@ export function registerRecipeHandlers(): void {
           const root = np(projectRoot)
           const manifest = await readAndHealManifest(root, recipeUid)
           if (manifest) {
-            const oldBaseName = path.basename(np(excelPath), '.xlsx')
+            // Derive the OLD photo base from the actual photo filenames (strip the
+            // trailing " - N.ext"), NOT from the Excel basename. Photos are named by
+            // the clean recipe name ("EASTER - 1.jpg") while the Excel keeps its
+            // price prefix ("$16.99 EASTER.xlsx"); matching against the Excel
+            // basename never hit, so renames silently left photos untouched.
+            const stripSeq = (fn: string): string => fn.replace(/\s*-\s*\d+\.[^.]+$/i, '')
+            const firstCam = manifest.camera[0]?.filename
+            const oldBaseName = (firstCam ? stripSeq(firstCam) : (manifest.recipeName || path.basename(np(excelPath), '.xlsx'))).trim()
             const sub = manifest.subfolderName ?? ''
 
             const renameIn = (folderRel: string, filename: string): string => {
               if (!filename.toLowerCase().startsWith(oldBaseName.toLowerCase())) return filename
-              const newFilename = newDisplayName + filename.slice(oldBaseName.length)
+              const newFilename = newPhotoBase + filename.slice(oldBaseName.length)
               const oldAbs = path.join(root, folderRel, sub, filename)
               const newAbs = path.join(root, folderRel, sub, newFilename)
               try {
@@ -1120,7 +1240,9 @@ export function registerRecipeHandlers(): void {
             // Tombstones keep their OLD filenames on purpose: stale conflict
             // copies from other machines still reference pre-rename names and
             // the tombstones must keep suppressing those entries.
-            manifest.recipeName = newDisplayName
+            // Keep recipeName as the clean (price-stripped) base so future captures
+            // name their files identically to the existing ones.
+            manifest.recipeName = newPhotoBase
             manifest.excelRelativePath = path.relative(root, newExcelPath).replace(/\\/g, '/')
             manifest.lastModified = new Date().toISOString()
             await atomicWriteJson(manifestPath(root, recipeUid), manifest)

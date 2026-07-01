@@ -1,13 +1,14 @@
 // src/renderer/src/components/recipes/wizard/NewRecipeProjectWizard.tsx
 // 3-step wizard: Basics → Rules → Structure → Create Project
 
-import React, { useState } from 'react'
-import { nanoid } from 'nanoid'
+import React, { useState, useEffect } from 'react'
+import { customAlphabet } from 'nanoid'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Loader2, Check, FolderPlus, Copy, FileSpreadsheet, Database, CheckCircle2 } from 'lucide-react'
 import { useAuthStore } from '../../../store/authStore'
-import { createRecipeProject, upsertRecipeFile } from '../../../lib/recipeFirestore'
+import { createRecipeProject, upsertRecipeFile, getRecipeSettings } from '../../../lib/recipeFirestore'
 import { normalizeRecipeName, sanitizeWindowsName } from '../../../utils/recipeNaming'
+import { detectHolidayFromName } from '../../../utils/holidayDetect'
 import { toLibraryRelativePath } from '../../../utils/photoUtils'
 import {
   RECIPE_CUSTOMER_OPTIONS,
@@ -21,8 +22,16 @@ import { Timestamp } from 'firebase/firestore'
 import WizardStepBasics from './WizardStepBasics'
 import WizardStepRules from './WizardStepRules'
 import WizardStepStructure from './WizardStepStructure'
-import type { WizardFolder, WizardDefaults } from './WizardStepStructure'
+import WizardStepReview from './WizardStepReview'
+import type { WizardFolder, WizardDefaults, WizardRecipe } from './WizardStepStructure'
+import type { ImportRow } from './WizardStepBasics'
 import AppLayout from '../../ui/AppLayout'
+
+// recipeUid must be filesystem/manifest-safe: alphanumeric only. nanoid's default
+// alphabet includes "_" and "-", which the photo-manifest layer treats as
+// conflict-copy separators — a uid containing "_" got truncated and its manifest
+// file deleted. Generating uids without those characters avoids that class entirely.
+const genRecipeUid = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 16)
 
 // ─────────────────────────────────────────
 // Progress overlay types
@@ -59,7 +68,7 @@ interface WizardData {
   folders: WizardFolder[]
 }
 
-const STEP_LABELS = ['Basics', 'Rules', 'Structure']
+const STEP_LABELS = ['Basics', 'Rules', 'Structure', 'Review']
 
 // ─────────────────────────────────────────
 // Component
@@ -95,6 +104,41 @@ export default function NewRecipeProjectWizard() {
     setData((prev) => ({ ...prev, ...updates }))
   }
 
+  // Load the recipe settings maps up front so step 3 can show the holiday/sleeve
+  // that will be auto-detected from each recipe name (live preview).
+  const [holidayMap, setHolidayMap] = useState<Record<string, string>>({})
+  const [sleeveMap, setSleeveMap] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!user) return
+    getRecipeSettings(user.uid)
+      .then((s) => { setHolidayMap(s?.holidayMap ?? {}); setSleeveMap(s?.sleeveByPrice ?? {}) })
+      .catch(() => { /* defaults stay empty */ })
+  }, [user])
+
+  // Build the structure from validated import rows (all into one folder named after
+  // the project). Applies the current project defaults to each recipe.
+  function handleImportRows(rows: ImportRow[]) {
+    if (rows.length === 0) return
+    const recipes: WizardRecipe[] = rows.map((r) => ({
+      id: genRecipeUid(),
+      price: r.price,
+      option: r.option,
+      name: r.name,
+      customerOverride: data.customerDefault,
+      holidayOverride: data.holidayDefault,
+      wetPackOverride: data.wetPackDefault ? 'Y' : 'N',
+      boxTypeOverride: 'QUARTER',
+      pickNeededOverride: r.pickNeeded,
+      distributionOverride: { ...data.distribution },
+    }))
+    const folder: WizardFolder = {
+      id: genRecipeUid(),
+      name: (data.name.trim() || 'IMPORTED').toUpperCase(),
+      recipes,
+    }
+    patchData({ folders: [folder] })
+  }
+
   // ── Validation ──────────────────────────────────────────────────────────
 
   function isStep1Valid(): boolean {
@@ -102,8 +146,11 @@ export default function NewRecipeProjectWizard() {
   }
 
   function isStep2Valid(): boolean {
+    // Distribution is how the ordered bouquets split across production locations,
+    // so it MUST total exactly 100% (e.g. 100% Miami, or 20% + 80%). Less or more
+    // makes no sense for billing, so we block advancing until it's exactly 100.
     const total = Object.values(data.distribution).reduce((a, b) => a + b, 0)
-    return total <= 100
+    return total === 100
   }
 
   function canGoNext(): boolean {
@@ -127,7 +174,7 @@ export default function NewRecipeProjectWizard() {
         }
       } catch { /* ignore — let creation step surface any real FS error */ }
     }
-    if (step < 3) setStep(step + 1)
+    if (step < 4) setStep(step + 1)
   }
 
   function goBack() {
@@ -156,6 +203,12 @@ export default function NewRecipeProjectWizard() {
       return
     }
     setError(null)
+
+    // Use the SAME configurable maps as the mark-done validation, so creation and
+    // review never disagree. Fall back to the static map if settings aren't set.
+    const recipeSettings = await getRecipeSettings(user.uid).catch(() => null)
+    const sleeveMap  = recipeSettings?.sleeveByPrice ?? {}
+    const holidayMap = recipeSettings?.holidayMap ?? {}
 
     const totalFiles = data.folders.reduce((n, f) => n + f.recipes.length, 0)
     let steps = initProgress(totalFiles)
@@ -216,8 +269,17 @@ export default function NewRecipeProjectWizard() {
 
           const outputPath = `${folderPath}/${normalizedName}.xlsx`
           const priceKey = recipe.price.startsWith('$') ? recipe.price : `$${recipe.price}`
-          const sleevePrice = SLEEVE_PRICE_MAP[priceKey] ?? ''
+          // Sleeve: configurable settings map first, static map as fallback.
+          const sleevePrice = sleeveMap[priceKey] || SLEEVE_PRICE_MAP[priceKey] || ''
           const requiresManualUpdate = !sleevePrice
+          // Holiday: detect from the NAME via the dictionary (never changes the name).
+          // Respect an explicit user pick (override ≠ default); otherwise use the
+          // detected holiday, else the project default.
+          const detectedHoliday = detectHolidayFromName(recipe.name, holidayMap)
+          const userPickedHoliday = !!recipe.holidayOverride && recipe.holidayOverride !== data.holidayDefault
+          const resolvedHoliday = userPickedHoliday
+            ? recipe.holidayOverride
+            : (detectedHoliday || recipe.holidayOverride || data.holidayDefault || '')
 
           console.log(`[WIZARD]   copy [${copied + 1}/${totalFiles}]: ${normalizedName}`)
           console.log('[WIZARD]     → output:', outputPath)
@@ -230,7 +292,7 @@ export default function NewRecipeProjectWizard() {
             price: recipe.price,
             option: recipe.option,
             name: recipe.name,
-            holidayOverride: recipe.holidayOverride,
+            holidayOverride: resolvedHoliday,
             customerOverride: recipe.customerOverride,
             wetPackOverride: recipe.wetPackOverride,
             boxTypeOverride: recipe.boxTypeOverride,
@@ -254,7 +316,7 @@ export default function NewRecipeProjectWizard() {
               value: String((recipe.distributionOverride[key] ?? 0) / 100),
             }))
 
-          const recipeUid = nanoid()
+          const recipeUid = genRecipeUid()
           recipeUidByPath.set(outputPath, recipeUid)
 
           batchUpdates.push({
@@ -262,7 +324,7 @@ export default function NewRecipeProjectWizard() {
             updates: [
               { sheet: 'Quote',      cell: 'D3',   value: normalizedName },
               { sheet: 'Quote',      cell: 'Z52',  value: recipeUid },
-              { sheet: 'Quote',      cell: 'D6',   value: recipe.holidayOverride    || '' },
+              { sheet: 'Quote',      cell: 'D6',   value: resolvedHoliday },
               { sheet: 'Quote',      cell: 'D7',   value: recipe.customerOverride   || '' },
               { sheet: 'Quote',      cell: 'AA40', value: recipe.wetPackOverride    || '' },
               { sheet: 'Quote',      cell: 'Z6',   value: recipe.boxTypeOverride    || '' },
@@ -350,9 +412,13 @@ export default function NewRecipeProjectWizard() {
           const relativePath = `${sanitizeWindowsName(folder.name)}/${normalizedName}.xlsx`
           const fileId = `${projectId}::${relativePath.replace(/\//g, '|')}`
           const priceKey2 = recipe.price.startsWith('$') ? recipe.price : `$${recipe.price}`
-          const hasSleevePrice = !!SLEEVE_PRICE_MAP[priceKey2]
+          const hasSleevePrice = !!(sleeveMap[priceKey2] || SLEEVE_PRICE_MAP[priceKey2])
+          const detectedHoliday2 = detectHolidayFromName(recipe.name, holidayMap)
+          const resolvedHoliday2 = (recipe.holidayOverride && recipe.holidayOverride !== data.holidayDefault)
+            ? recipe.holidayOverride
+            : (detectedHoliday2 || recipe.holidayOverride || data.holidayDefault || '')
           const outputPath2 = `${projectRoot}/${sanitizeWindowsName(folder.name)}/${normalizedName}.xlsx`
-          const storedUid = recipeUidByPath.get(outputPath2) ?? nanoid()
+          const storedUid = recipeUidByPath.get(outputPath2) ?? genRecipeUid()
 
           console.log(`[WIZARD]   upsertRecipeFile [${saved + 1}/${totalFiles}]: ${normalizedName}`)
 
@@ -367,7 +433,7 @@ export default function NewRecipeProjectWizard() {
             price: recipe.price,
             option: recipe.option,
             recipeName: recipe.name,
-            holidayOverride: recipe.holidayOverride,
+            holidayOverride: resolvedHoliday2,
             customerOverride: recipe.customerOverride,
             wetPackOverride: recipe.wetPackOverride,
             boxTypeOverride: recipe.boxTypeOverride,
@@ -515,6 +581,7 @@ export default function NewRecipeProjectWizard() {
                 specSheetName: data.specSheetName,
               }}
               onChange={patchData}
+              onImportRows={handleImportRows}
             />
           )}
           {step === 2 && (
@@ -538,10 +605,26 @@ export default function NewRecipeProjectWizard() {
                 distributionDefault: data.distribution,
               } satisfies WizardDefaults}
               sourceMode={data.sourceMode}
+              holidayMap={holidayMap}
+              sleeveMap={sleeveMap}
               onChange={(folders) => patchData({ folders })}
               onValidityChange={() => {
                 // Optional: handle validity state
               }}
+            />
+          )}
+          {step === 4 && (
+            <WizardStepReview
+              name={data.name}
+              dueDate={data.dueDate}
+              location={data.rootPath ? `${data.rootPath}/${sanitizeWindowsName(data.name.trim())}` : ''}
+              defaults={{
+                customerDefault: data.customerDefault,
+                holidayDefault: data.holidayDefault,
+                wetPackDefault: data.wetPackDefault,
+                distribution: data.distribution,
+              }}
+              folders={data.folders}
             />
           )}
         </div>
@@ -572,7 +655,7 @@ export default function NewRecipeProjectWizard() {
             Back
           </button>
 
-          {step < 3 ? (
+          {step < 4 ? (
             <button
               onClick={goNext}
               disabled={!canGoNext()}

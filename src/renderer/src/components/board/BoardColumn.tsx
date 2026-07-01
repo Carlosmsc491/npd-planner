@@ -51,12 +51,12 @@ export default function BoardColumn({
     })
   }, [active])
 
+  // Newest completed first — the task you just finished shows at the top of the
+  // completed list (fall back to updated/created time for legacy docs).
   const sortedCompleted = useMemo(() => {
-    return [...completed].sort((a, b) => {
-      const orderA = a.sortOrder ?? a.createdAt?.toMillis() ?? 0
-      const orderB = b.sortOrder ?? b.createdAt?.toMillis() ?? 0
-      return orderA - orderB
-    })
+    const ms = (t: typeof completed[number]) =>
+      t.completedAt?.toMillis() ?? t.updatedAt?.toMillis() ?? t.createdAt?.toMillis() ?? 0
+    return [...completed].sort((a, b) => ms(b) - ms(a))
   }, [completed])
 
   const visible = isShowingCompleted ? [...sortedActive, ...sortedCompleted] : sortedActive
@@ -145,6 +145,19 @@ export default function BoardColumn({
           </button>
         )}
       </div>
+
+      {/* Show/Hide completed — pinned at the top of the column so it's reachable
+          without scrolling to the bottom of a long active list. */}
+      {completed.length > 0 && (
+        <button
+          onClick={() => toggleShowCompleted(groupKey)}
+          className="mb-1.5 self-start rounded-lg px-1 py-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors text-left"
+        >
+          {isShowingCompleted
+            ? `Hide completed (${completed.length})`
+            : `Show completed (${completed.length})`}
+        </button>
+      )}
 
       {/* Task cards */}
       <div
@@ -241,18 +254,6 @@ export default function BoardColumn({
             )}
           </div>
         ))}
-
-        {/* Show completed toggle */}
-        {completed.length > 0 && (
-          <button
-            onClick={() => toggleShowCompleted(groupKey)}
-            className="mt-1 rounded-lg py-1.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors text-left px-1"
-          >
-            {isShowingCompleted
-              ? `Hide completed (${completed.length})`
-              : `Show completed (${completed.length})`}
-          </button>
-        )}
 
         {/* External drag drop zone hint */}
         {externalDragActive && externalDragOver && (

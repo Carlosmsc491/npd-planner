@@ -1,7 +1,15 @@
 // src/main/services/bgWorkerService.ts
-// Persistent bg-removal worker for Photo Studio.
-// Spawns studio_worker.py once, keeps it alive, and feeds it one job at a time
-// via stdin/stdout. Eliminates the 2-3s model cold-start on every photo.
+// Persistent bg-removal worker — the single warm engine shared by Photo Studio
+// AND the recipe Photo Manager auto-clean. Spawns studio_worker.py once, keeps it
+// alive, and feeds it one job at a time via stdin/stdout. Eliminates the 2-3s
+// model cold-start that the per-photo `infer.py` spawn paid on every photo.
+//
+// Two ways to submit a job:
+//   • enqueueBgRemoval(...)  — fire-and-forget, reports via 'photostudio:bg-event'
+//                              window messages (Photo Studio UI).
+//   • runBgRemoval(...)      — returns a Promise that resolves when THAT job is
+//                              done (Photo Manager useCleanQueue).
+// Both feed the same queue and the same worker process, so the engine is identical.
 
 import { spawn, type ChildProcess } from 'child_process'
 import * as fs from 'fs'
@@ -23,6 +31,11 @@ interface QueueJob {
   photoId: string
   input: string
   output: string
+  /** Emit 'photostudio:bg-event' window messages (Photo Studio). */
+  emitEvents: boolean
+  /** Promise resolvers (Photo Manager) — optional. */
+  resolve?: (output: string) => void
+  reject?: (err: Error) => void
 }
 
 let worker: ChildProcess | null = null
@@ -40,6 +53,17 @@ function emit(data: BgWorkerEvent): void {
   try { getWin()?.webContents.send('photostudio:bg-event', data) } catch { /* window gone */ }
 }
 
+/** Notify a job's listeners (window event and/or promise) of a terminal result. */
+function settle(job: QueueJob, result: { ok: true; output: string } | { ok: false; error: string }): void {
+  if (result.ok) {
+    if (job.emitEvents) emit({ sessionDir: job.sessionDir, photoId: job.photoId, status: 'done', output: result.output })
+    job.resolve?.(result.output)
+  } else {
+    if (job.emitEvents) emit({ sessionDir: job.sessionDir, photoId: job.photoId, status: 'error', error: result.error })
+    job.reject?.(new Error(result.error))
+  }
+}
+
 function pythonExe(toolDir: string): string {
   return path.join(toolDir, '.venv', 'bin', 'python')
 }
@@ -48,11 +72,16 @@ function workerScript(toolDir: string): string {
   return path.join(toolDir, 'train', 'studio_worker.py')
 }
 
+/** True when this toolDir can run the warm worker (script + venv present). */
+export function bgWorkerAvailable(toolDir: string): boolean {
+  return !!toolDir && fs.existsSync(pythonExe(toolDir)) && fs.existsSync(workerScript(toolDir))
+}
+
 function processNext(): void {
   if (!workerReady || !worker || jobQueue.length === 0 || pendingJobs.size > 0) return
   const job = jobQueue.shift()!
   pendingJobs.set(job.id, job)
-  emit({ sessionDir: job.sessionDir, photoId: job.photoId, status: 'processing' })
+  if (job.emitEvents) emit({ sessionDir: job.sessionDir, photoId: job.photoId, status: 'processing' })
   worker.stdin?.write(JSON.stringify({ id: job.id, input: job.input, output: job.output }) + '\n')
 }
 
@@ -75,20 +104,21 @@ function handleLine(line: string): void {
   pendingJobs.delete(id)
 
   if (msg.ok) {
-    emit({ sessionDir: job.sessionDir, photoId: job.photoId, status: 'done', output: msg.output as string })
+    settle(job, { ok: true, output: (msg.output as string) ?? job.output })
   } else {
-    emit({ sessionDir: job.sessionDir, photoId: job.photoId, status: 'error', error: msg.error as string })
+    settle(job, { ok: false, error: (msg.error as string) || 'Cut-out failed.' })
   }
   processNext()
 }
 
-function startWorker(toolDir: string): void {
-  if (workerStarting || workerReady) return
+/** Spawn the worker process. Returns false when the engine isn't available. */
+function startWorker(toolDir: string): boolean {
+  if (workerStarting || workerReady) return true
   const py = pythonExe(toolDir)
   const script = workerScript(toolDir)
   if (!fs.existsSync(py) || !fs.existsSync(script)) {
     console.warn('[bg-worker] engine not found at', toolDir)
-    return
+    return false
   }
 
   workerStarting = true
@@ -129,13 +159,40 @@ function startWorker(toolDir: string): void {
     worker = null
     workerReady = false
     workerStarting = false
-    for (const job of pendingJobs.values()) {
-      emit({ sessionDir: job.sessionDir, photoId: job.photoId, status: 'error', error: 'Worker exited unexpectedly' })
-    }
+    // Reject/notify everything in flight AND everything still queued so no
+    // promise hangs forever and Photo Studio sees the failure.
+    const orphans = [...pendingJobs.values(), ...jobQueue]
     pendingJobs.clear()
+    jobQueue.length = 0
+    for (const job of orphans) settle(job, { ok: false, error: 'Worker exited unexpectedly' })
   })
+
+  return true
 }
 
+/** Shared enqueue. Starts the worker on demand; rejects/notifies if it can't start. */
+function submit(job: QueueJob, toolDir: string): void {
+  if (process.platform !== 'darwin') {
+    settle(job, { ok: false, error: 'Mac only.' })
+    return
+  }
+  jobQueue.push(job)
+  if (job.emitEvents) emit({ sessionDir: job.sessionDir, photoId: job.photoId, status: 'queued' })
+
+  if (!workerReady && !workerStarting) {
+    if (job.emitEvents) emit({ sessionDir: job.sessionDir, photoId: job.photoId, status: 'loading-model' })
+    const started = startWorker(toolDir)
+    if (!started) {
+      const idx = jobQueue.indexOf(job)
+      if (idx >= 0) jobQueue.splice(idx, 1)
+      settle(job, { ok: false, error: 'Background-removal engine not available (studio_worker.py missing).' })
+    }
+  } else {
+    processNext()
+  }
+}
+
+/** Fire-and-forget enqueue used by Photo Studio (reports via window events). */
 export function enqueueBgRemoval(args: {
   sessionDir: string
   photoId: string
@@ -143,18 +200,35 @@ export function enqueueBgRemoval(args: {
   output: string
   toolDir: string
 }): void {
-  if (process.platform !== 'darwin') return
   const { toolDir, ...rest } = args
-  const id = `${rest.photoId}-${Date.now()}`
-  jobQueue.push({ id, ...rest })
-  emit({ sessionDir: rest.sessionDir, photoId: rest.photoId, status: 'queued' })
+  submit({ id: `${rest.photoId}-${Date.now()}`, ...rest, emitEvents: true }, toolDir)
+}
 
-  if (!workerReady && !workerStarting) {
-    emit({ sessionDir: rest.sessionDir, photoId: rest.photoId, status: 'loading-model' })
-    startWorker(toolDir)
-  } else {
-    processNext()
-  }
+/** Promise-based enqueue used by the recipe Photo Manager auto-clean. */
+export function runBgRemoval(args: {
+  input: string
+  output: string
+  toolDir: string
+}): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    submit({
+      id: `pm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sessionDir: '',
+      photoId: '',
+      input: args.input,
+      output: args.output,
+      emitEvents: false,
+      resolve,
+      reject,
+    }, args.toolDir)
+  })
+}
+
+/** Drop queued (not-yet-started) jobs and reject them — used by clean-cancel-all.
+ *  The in-flight job is left to finish (a single inference can't be cleanly cut). */
+export function cancelQueuedBgRemoval(): void {
+  const dropped = jobQueue.splice(0, jobQueue.length)
+  for (const job of dropped) settle(job, { ok: false, error: 'cancelled' })
 }
 
 export function killBgWorker(): void {
@@ -162,6 +236,8 @@ export function killBgWorker(): void {
   worker = null
   workerReady = false
   workerStarting = false
+  const orphans = [...pendingJobs.values(), ...jobQueue]
   jobQueue.length = 0
   pendingJobs.clear()
+  for (const job of orphans) settle(job, { ok: false, error: 'cancelled' })
 }

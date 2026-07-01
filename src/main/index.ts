@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, globalShortcut, Menu, MenuItem } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as os from 'os'
 import { setupAutoUpdater, deferInstallOnShutdown } from './updater'
 import { join } from 'path'
 import { registerFileHandlers } from './ipc/fileHandlers'
@@ -200,8 +201,12 @@ function createWindow(): BrowserWindow {
   return win
 }
 
-// Set app user model ID so Windows notifications show "NPD Planner" not "electron.app.NPD Planner"
-app.setAppUserModelId('NPD Planner')
+// Windows AppUserModelID — MUST match the installer's appId (electron-builder.yml:
+// com.eliteflower.npdplanner). The NSIS shortcut is created with the appId as its
+// AUMID; if the running app declares a different one ('NPD Planner'), Windows can't
+// keep the taskbar pin associated and the pinned icon disappears over time. Matching
+// them fixes the vanishing-pin bug and still groups notifications correctly.
+app.setAppUserModelId('com.eliteflower.npdplanner')
 
 // ── Single-instance lock ──────────────────────────────────────────────────────
 // Prevents multiple windows when the user double/triple-clicks the .exe
@@ -231,6 +236,15 @@ app.whenReady().then(() => {
 
   // ── App utility handlers ───────────────────────────────────────────────────
   ipcMain.handle('app:get-user-data-path', () => app.getPath('userData'))
+
+  // Machine + OS + version info for crash/bug reports.
+  ipcMain.handle('app:get-system-info', () => ({
+    hostname: os.hostname(),
+    platform: process.platform,
+    osRelease: os.release(),
+    arch: process.arch,
+    appVersion: app.getVersion(),
+  }))
 
   ipcMain.handle('app:clear-firebase-cache', async () => {
     try {

@@ -1,0 +1,24 @@
+/* sileo-overrides.css — load AFTER sileo/styles.css.
+ *
+ * Electron 25 ships Chromium ~114, which shifts hue toward red when mixing an
+ * oklch color with `transparent`: sileo computes the icon-badge halo as
+ *   color-mix(in oklch, <state color> 20%, transparent)
+ * so a GREEN success badge rendered PINK. Recomputing the same tint in sRGB
+ * removes the hue shift, so each state's halo matches its color (success → light
+ * green, error → light red, warning → light amber, info → light blue). */
+[data-sileo-viewport] [data-sileo-badge] {
+  --sileo-tone-bg: color-mix(in srgb, var(--sileo-tone, currentColor) 16%, transparent);
+}
+
+/* Action button (Undo): solid blue with white text — not the washed-out pink the
+   per-state tint produced. Consistent across every toast type. */
+[data-sileo-viewport] [data-sileo-button] {
+  --sileo-btn-bg: #3b82f6;        /* blue-500 */
+  --sileo-btn-bg-hover: #2563eb;  /* blue-600 */
+  --sileo-btn-color: #ffffff;
+  background-color: #3b82f6;
+  color: #ffffff;
+}
+[data-sileo-viewport] [data-sileo-button]:hover {
+  background-color: #2563eb;
+}

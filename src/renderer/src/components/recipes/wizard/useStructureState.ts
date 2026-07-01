@@ -50,15 +50,19 @@ interface Defaults {
 
 // ── Helper functions ───────────────────────────────────────────────────────
 
-function createNewRecipe(defaults: Defaults): RecipeNode {
+function createNewRecipe(
+  defaults: Defaults,
+  initial?: { name?: string; price?: string; option?: string },
+  expand = true,
+): RecipeNode {
   return {
     id: nanoid(),
     type: 'recipe',
-    name: '',
-    option: '',
-    price: '',
+    name: initial?.name ?? '',
+    option: initial?.option ?? '',
+    price: initial?.price ?? '',
     fileName: '',
-    expanded: true, // Auto-expand on creation
+    expanded: expand,
     overrideOpen: false,
     customerOverride: defaults.customerDefault,
     holidayOverride: defaults.holidayDefault,
@@ -350,10 +354,12 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
     [notifyChange, pushHistory]
   )
 
-  // Add recipe
+  // Add recipe. `initial` pre-fills name/price/option (quick-add); when `expand`
+  // is false the new row stays collapsed (used by quick-add / bulk so the panel
+  // doesn't pop open on every keystroke).
   const addRecipe = useCallback(
-    (parentId?: string) => {
-      const newRecipe = createNewRecipe(defaults)
+    (parentId?: string, initial?: { name?: string; price?: string; option?: string }, expand = true) => {
+      const newRecipe = createNewRecipe(defaults, initial, expand)
       setNodes((prev) => {
         pushHistory(prev)
         let updated: TreeNode[]
@@ -365,8 +371,27 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
         notifyChange(updated)
         return updated
       })
-      setExpandedRecipeId(newRecipe.id) // auto-expand new, collapse all others
+      if (expand) setExpandedRecipeId(newRecipe.id) // auto-expand new, collapse all others
       return newRecipe.id
+    },
+    [defaults, notifyChange, pushHistory]
+  )
+
+  // Bulk add many recipes at once (paste-from-Excel). One history entry for the
+  // whole batch; rows stay collapsed.
+  const bulkAddRecipes = useCallback(
+    (parentId: string | undefined, items: { name?: string; price?: string; option?: string }[]) => {
+      if (items.length === 0) return
+      const newRecipes = items.map((it) => createNewRecipe(defaults, it, false))
+      setNodes((prev) => {
+        pushHistory(prev)
+        let updated = prev
+        for (const r of newRecipes) {
+          updated = parentId ? addToFolder(updated, parentId, r) : [...updated, r]
+        }
+        notifyChange(updated)
+        return updated
+      })
     },
     [defaults, notifyChange, pushHistory]
   )
@@ -609,6 +634,7 @@ export function useStructureState({ initialFolders = [], defaults, onChange, onV
     setFilterQuery,
     addFolder,
     addRecipe,
+    bulkAddRecipes,
     toggleFolder,
     toggleRecipe,
     toggleOverride,

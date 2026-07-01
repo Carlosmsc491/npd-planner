@@ -57,7 +57,28 @@ interface RecipeRef {
   userId: string
 }
 
-async function writeManifestAndSummary(
+// Per-recipe write serialization. Every manifest mutation is read→modify→write;
+// if two run at once for the same recipe (e.g. auto-clean + approve + save) the
+// later read happens before the earlier write, so one clobbers the other and the
+// UI shows stale/empty stages. Chaining writes per recipeUid removes that race at
+// the source (the Photo Manager reconcile remains a safety net).
+const writeChains = new Map<string, Promise<unknown>>()
+function serializeByRecipe<T>(uid: string, fn: () => Promise<T>): Promise<T> {
+  const prev = (writeChains.get(uid) ?? Promise.resolve()).catch(() => { /* ignore */ })
+  const run = prev.then(fn)
+  writeChains.set(uid, run.catch(() => { /* keep the chain alive after a failure */ }))
+  return run
+}
+
+function writeManifestAndSummary(
+  projectRoot: string,
+  ref: RecipeRef,
+  mutator: (m: PhotoManifest) => PhotoManifest,
+): Promise<PhotoManifest> {
+  return serializeByRecipe(ref.recipeUid, () => doWriteManifestAndSummary(projectRoot, ref, mutator))
+}
+
+async function doWriteManifestAndSummary(
   projectRoot: string,
   ref: RecipeRef,
   mutator: (m: PhotoManifest) => PhotoManifest,

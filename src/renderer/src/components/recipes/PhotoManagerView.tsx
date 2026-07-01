@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Camera, Star, Upload, ImageOff, Loader2, AlertTriangle,
-  ExternalLink, CheckCircle2, Check, Trash2, FolderDown, Archive, Scissors, Wand2,
+  ExternalLink, CheckCircle2, Check, Trash2, FolderDown, Archive, Scissors, Wand2, Maximize2, List, LayoutGrid,
 } from 'lucide-react'
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
@@ -145,6 +145,10 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
   // ── CLEANED tab state ───────────────────────────────────────────────────────
   const [cleanedProcessing, setCleanedProcessing] = useState<string | null>(null)
   const [cleanedErrors, setCleanedErrors]         = useState<string[]>([])
+  const [cleanedLayout, setCleanedLayout]         = useState<'list' | 'grid'>(
+    () => (localStorage.getItem('npd:cleanedLayout') as 'list' | 'grid') || 'list'
+  )
+  useEffect(() => { localStorage.setItem('npd:cleanedLayout', cleanedLayout) }, [cleanedLayout])
   // Select Subject comparison (engine vs Photoshop)
   const [compare, setCompare] = useState<{ cleanedAbs: string; subjectPng: string; engineUrl: string | null; subjectUrl: string | null; name: string } | null>(null)
   const [compareBusy, setCompareBusy] = useState(false)
@@ -235,6 +239,29 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
     setManifests(prev => ({ ...prev, [m.recipeUid]: m }))
   }, [])
 
+  // ── Reconcile manifests with disk after EVERY step ──────────────────────────
+  // The on-disk manifests are the source of truth (re-entering Photo Manager — a
+  // full reload — always showed the photos again). After any operation a summary
+  // is pushed to Firestore, so recipesRaw changes here; we debounce-reload all
+  // manifests from disk and MERGE them in, so the photos never "disappear" until a
+  // manual re-enter. Merge (not replace) keeps any in-flight optimistic upsert.
+  useEffect(() => {
+    if (!effectiveRootPath || recipesRaw.length === 0) return
+    const t = setTimeout(() => {
+      loadAllManifests(effectiveRootPath)
+        .then(ms => {
+          if (ms.length === 0) return
+          setManifests(prev => {
+            const map = { ...prev }
+            for (const m of ms) map[m.recipeUid] = m
+            return map
+          })
+        })
+        .catch(() => { /* best-effort reconcile */ })
+    }, 600)
+    return () => clearTimeout(t)
+  }, [recipesRaw, effectiveRootPath])
+
   // ── Auto-clean on select (background removal) ───────────────────────────────
   // Selecting a candidate enqueues a single-photo cut-out; the transparent PNG
   // lands in CLEANED (needs_retouch). Mac + installed engine only.
@@ -273,6 +300,20 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
       },
     })
   }
+
+  // Auto-clean any SELECTED photo that doesn't yet have a cut-out — this covers
+  // candidates picked in the Capture page, not just stars toggled here (the engine
+  // never fired for those before). Idempotent: enqueue dedups by id and
+  // enqueueAutoClean skips photos already cleaned in the manifest.
+  useEffect(() => {
+    if (!isMac || !engineReady || !canEdit || !autoClean) return
+    for (const recipe of recipes) {
+      for (const photo of recipe.capturedPhotos ?? []) {
+        if (photo.isSelected) enqueueAutoClean(recipe, photo)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipes, manifests, isMac, engineReady, canEdit, autoClean])
 
   // ── KPIs ─────────────────────────────────────────────────────────────────────
 
@@ -870,6 +911,25 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
     setGalleryPhotos(photos); setGalleryIndex(idx); setGalleryRecipeName(recipeName); setGalleryOpen(true)
   }
 
+  /** Open the lightbox for arbitrary photo paths (CLEANED / READY tabs, which don't
+   *  carry full CapturedPhoto objects). Builds the minimal shape the gallery needs. */
+  function openGalleryFromPaths(paths: (string | null | undefined)[], idx: number, recipeName: string) {
+    const photos: CapturedPhoto[] = paths
+      .filter((p): p is string => !!p)
+      .map((p, i) => ({
+        sequence: i + 1,
+        filename: p.split(/[\\/]/).pop() ?? p,
+        subfolderName: '',
+        picturePath: p,
+        cameraPath: '',
+        ssdPath: null,
+        capturedAt: Timestamp.now(),
+        capturedBy: '',
+        isSelected: false,
+      }))
+    if (photos.length > 0) openGallery(photos, Math.min(Math.max(idx, 0), photos.length - 1), recipeName)
+  }
+
   // ── Tab config ────────────────────────────────────────────────────────────────
 
   const tabs: { id: Tab; label: string; badge?: number }[] = [
@@ -883,6 +943,19 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
+
+      {/* Cleaning progress — a prominent header so the photographer always knows the
+          background-removal engine is working through the selected photos. */}
+      {isMac && (cleanQueue.activeCount + cleanQueue.pendingCount) > 0 && (
+        <div className="shrink-0 flex items-center justify-center gap-2.5 px-4 py-2.5 border-b border-green-200 dark:border-green-800/40 bg-green-50 dark:bg-green-900/20">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-green-100 dark:bg-green-800/40">
+            <Loader2 size={15} className="animate-spin" style={{ color: '#1D9E75' }} />
+          </span>
+          <span className="text-sm font-semibold text-green-700 dark:text-green-400">
+            Cleaning {cleanQueue.activeCount + cleanQueue.pendingCount} photo{(cleanQueue.activeCount + cleanQueue.pendingCount) !== 1 ? 's' : ''}…
+          </span>
+        </div>
+      )}
 
       {/* Path not found banner — shown for Windows/new-machine users who need to locate the project folder */}
       {pathNotFound && (
@@ -1057,13 +1130,28 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
               projectId: project.id,
               recipeName,
             })}
+            onRemoveBg={activeTab === 'camera' && isMac && engineReady && canEdit
+              ? (photo) => { const rec = recipes.find(r => r.id === photo.recipeId); if (rec) enqueueAutoClean(rec, photo) }
+              : undefined}
           />
         ) : activeTab === 'cleaned' ? (
           /* ── 3. CLEANED tab ── */
           <div className="space-y-3">
-            <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider mb-1">
-              Selected photos are cut out automatically. Open in Photoshop to retouch, Save &amp; return, then re-drop to send to Ready.
-            </p>
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider mb-1 flex-1">
+                Selected photos are cut out automatically. Open in Photoshop to retouch, Save &amp; return, then re-drop to send to Ready.
+              </p>
+              <div className="shrink-0 flex items-center rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <button onClick={() => setCleanedLayout('list')} title="List view"
+                  className={`p-1.5 transition-colors ${cleanedLayout === 'list' ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}>
+                  <List size={14} />
+                </button>
+                <button onClick={() => setCleanedLayout('grid')} title="Grid view"
+                  className={`p-1.5 transition-colors ${cleanedLayout === 'grid' ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}>
+                  <LayoutGrid size={14} />
+                </button>
+              </div>
+            </div>
             {cleanedErrors.map((err, i) => (
               <div key={i} className="flex items-start gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
                 <AlertTriangle size={12} className="shrink-0 mt-0.5" />{err}
@@ -1076,12 +1164,15 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
             )}
             {recipes.length === 0
               ? <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2"><Camera size={32} strokeWidth={1} /><p className="text-sm">No recipes in this project.</p></div>
-              : recipes.map(recipe => (
+              : <div className={cleanedLayout === 'grid' ? 'grid grid-cols-2 md:grid-cols-3 gap-3' : 'space-y-3'}>{recipes.map(recipe => (
                   <CleanedRecipeRow
                     key={recipe.id}
                     recipe={recipe}
                     isProcessing={cleanedProcessing === recipe.id}
                     canEdit={canEdit}
+                    layout={cleanedLayout}
+                    rootPath={effectiveRootPath}
+                    onExpand={idx => openGalleryFromPaths(recipe.cleanedPhotoPaths ?? [], idx, recipe.recipeName || recipe.displayName)}
                     onDrop={file => handleCleanedDrop(file, recipe)}
                     onApprove={() => approveCleaned(recipe)}
                     onOpenPhotoshop={async path => {
@@ -1113,7 +1204,7 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
                     } : undefined}
                     onWarningClick={() => setNotesModal({ recipeId: recipe.id, projectId: project.id, recipeName: recipe.recipeName || recipe.displayName })}
                   />
-                ))
+                ))}</div>
             }
           </div>
         ) : (
@@ -1179,6 +1270,7 @@ export function PhotoManagerView({ project, effectiveRootPath, pathNotFound, onL
                       onToggle={() => toggleReadyRecipe(recipe.id)}
                       onWarningClick={() => setNotesModal({ recipeId: recipe.id, projectId: project.id, recipeName: recipe.recipeName || recipe.displayName })}
                       onManifestUpdate={upsertManifest}
+                      onExpand={() => openGalleryFromPaths([recipe.readyPngPath, recipe.readyJpgPath], 0, recipe.recipeName || recipe.displayName)}
                     />
                   ))}
                 </div>
@@ -1389,7 +1481,32 @@ function KpiCard({ label, value, total, subtitle, color, alert }: {
 
 // ── CLEANED recipe row ─────────────────────────────────────────────────────────
 
-function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onApprove, onOpenPhotoshop, onSaveReturn, onSelectSubject, onWarningClick }: {
+/** Path-based thumbnail used in the CLEANED tab — clickable to open the lightbox. */
+function CleanedThumb({ path, rootPath, onClick, size = 128, className = 'shrink-0 h-11 w-11' }: {
+  path?: string; rootPath: string; onClick?: () => void; size?: number; className?: string
+}) {
+  const [url, setUrl] = useState<string | null | undefined>(undefined)
+  useEffect(() => {
+    if (!path) { setUrl(null); return }
+    let alive = true
+    window.electronAPI.readPhotoThumbnail(resolvePhotoPath(path, rootPath), size)
+      .then(u => { if (alive) setUrl(u) })
+      .catch(() => { if (alive) setUrl(null) })
+    return () => { alive = false }
+  }, [path, rootPath, size])
+  return (
+    <button
+      onClick={onClick}
+      title="Click to expand"
+      className={`${className} rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 cursor-zoom-in`}
+    >
+      {url ? <img src={url} alt="" className="w-full h-full object-cover" />
+        : <div className="w-full h-full animate-pulse bg-gray-200 dark:bg-gray-700" />}
+    </button>
+  )
+}
+
+function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onApprove, onOpenPhotoshop, onSaveReturn, onSelectSubject, onWarningClick, onExpand, rootPath, layout = 'list' }: {
   recipe: RecipeFile; isProcessing: boolean
   canEdit: boolean
   onDrop: (file: File) => void; onOpenPhotoshop: (path: string) => void
@@ -1397,6 +1514,9 @@ function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onApprove, on
   onSaveReturn?: (path: string) => Promise<void>   // Mac scripted save-back to same path
   onSelectSubject?: (path: string) => Promise<void> // Mac re-cut with Photoshop Select Subject
   onWarningClick?: () => void
+  onExpand?: (idx: number) => void
+  rootPath: string
+  layout?: 'list' | 'grid'
 }) {
   const [dragOver, setDragOver] = useState(false)
   const [saving, setSaving]     = useState(false)
@@ -1406,52 +1526,57 @@ function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onApprove, on
   const hasCleaned   = (recipe.cleanedPhotoPaths?.length ?? 0) > 0
   const isDone       = recipe.cleanedPhotoStatus === 'done'
   const needsRetouch = hasCleaned && !isDone
+  const first        = recipe.cleanedPhotoPaths?.[0]
 
-  return (
-    <div className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors ${
-      dragOver ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/10' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
-    }`}>
-      <div className="shrink-0">
-        {isDone ? <CheckCircle2 size={14} className="text-green-500" />
-          : needsRetouch ? <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-purple-500 text-white text-[8px] font-bold">{recipe.cleanedPhotoPaths!.length}</span>
-          : <span className="h-3.5 w-3.5 rounded-full border-2 border-gray-300 dark:border-gray-600 block" />}
+  const statusIcon = isDone
+    ? <CheckCircle2 size={14} className="text-green-500" />
+    : needsRetouch
+      ? <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-purple-500 text-white text-[8px] font-bold">{recipe.cleanedPhotoPaths!.length}</span>
+      : <span className="h-3.5 w-3.5 rounded-full border-2 border-gray-300 dark:border-gray-600 block" />
+
+  const nameBlock = (
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center gap-1.5 min-w-0">
+        {hasCleaned
+          ? <button onClick={() => onExpand?.(0)} title="Click to expand" className="text-sm font-medium text-gray-900 dark:text-white truncate hover:underline cursor-zoom-in text-left">{recipe.displayName}</button>
+          : <span className="text-sm font-medium text-gray-900 dark:text-white truncate">{recipe.displayName}</span>}
+        {(recipe.activeNotesCount ?? 0) > 0 && (
+          <button
+            onClick={onWarningClick}
+            title={`${recipe.activeNotesCount} active note(s) — click to view`}
+            className="shrink-0 flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50 transition-colors"
+          >
+            <AlertTriangle size={8} />{recipe.activeNotesCount}
+          </button>
+        )}
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-sm font-medium text-gray-900 dark:text-white truncate">{recipe.displayName}</span>
-          {(recipe.activeNotesCount ?? 0) > 0 && (
-            <button
-              onClick={onWarningClick}
-              title={`${recipe.activeNotesCount} active note(s) — click to view`}
-              className="shrink-0 flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50 transition-colors"
-            >
-              <AlertTriangle size={8} />{recipe.activeNotesCount}
-            </button>
-          )}
-        </div>
-        {needsRetouch && <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-0.5">{recipe.cleanedPhotoPaths!.length} cleaned · Approve to send to Ready, or retouch first</p>}
-        {isDone && <p className="text-[10px] text-green-600 dark:text-green-400 mt-0.5">Retouch accepted — moved to Ready</p>}
-      </div>
-      {hasCleaned && recipe.cleanedPhotoPaths![0] && (
-        <button onClick={() => onOpenPhotoshop(recipe.cleanedPhotoPaths![0])} title="Open in Photoshop"
+      {needsRetouch && <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-0.5">{recipe.cleanedPhotoPaths!.length} cleaned · Approve to send to Ready, or retouch first</p>}
+      {isDone && <p className="text-[10px] text-green-600 dark:text-green-400 mt-0.5">Retouch accepted — moved to Ready</p>}
+    </div>
+  )
+
+  const actions = (
+    <>
+      {hasCleaned && first && (
+        <button onClick={() => onOpenPhotoshop(first)} title="Open in Photoshop"
           className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 transition-colors">
           <ExternalLink size={10} /><span className="hidden sm:inline">Open in Photoshop</span>
         </button>
       )}
-      {hasCleaned && recipe.cleanedPhotoPaths![0] && onSelectSubject && canEdit && (
+      {hasCleaned && first && onSelectSubject && canEdit && (
         <button
           disabled={recut}
-          onClick={async () => { setRecut(true); try { await onSelectSubject(recipe.cleanedPhotoPaths![0]) } finally { setRecut(false) } }}
+          onClick={async () => { setRecut(true); try { await onSelectSubject(first) } finally { setRecut(false) } }}
           title="Re-cut this photo with Photoshop Select Subject"
           className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400 transition-colors disabled:opacity-50">
           {recut ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
           <span className="hidden sm:inline">Select Subject</span>
         </button>
       )}
-      {hasCleaned && recipe.cleanedPhotoPaths![0] && onSaveReturn && canEdit && (
+      {hasCleaned && first && onSaveReturn && canEdit && (
         <button
           disabled={saving}
-          onClick={async () => { setSaving(true); try { await onSaveReturn(recipe.cleanedPhotoPaths![0]) } finally { setSaving(false) } }}
+          onClick={async () => { setSaving(true); try { await onSaveReturn(first) } finally { setSaving(false) } }}
           title="Save the edited file back to the app (no dialog)"
           className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 transition-colors disabled:opacity-50">
           {saving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
@@ -1484,6 +1609,36 @@ function CleanedRecipeRow({ recipe, isProcessing, canEdit, onDrop, onApprove, on
           <span>{needsRetouch ? 'Drop retouched' : 'Drop cleaned PNG'}</span>
         </div>
       )}
+    </>
+  )
+
+  // ── Grid card ──
+  if (layout === 'grid') {
+    return (
+      <div className={`flex flex-col gap-2 rounded-xl border p-2 transition-colors ${
+        dragOver ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/10' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
+      }`}>
+        <div className="relative">
+          {hasCleaned && first
+            ? <CleanedThumb path={first} rootPath={rootPath} size={512} className="w-full aspect-square" onClick={() => onExpand?.(0)} />
+            : <div className="w-full aspect-square rounded-lg bg-gray-50 dark:bg-gray-800 flex items-center justify-center text-gray-300 dark:text-gray-600"><ImageOff size={24} /></div>}
+          <div className="absolute top-1 left-1 rounded-full bg-white/80 dark:bg-black/50 p-0.5">{statusIcon}</div>
+        </div>
+        {nameBlock}
+        <div className="flex flex-wrap gap-1">{actions}</div>
+      </div>
+    )
+  }
+
+  // ── List row (default) ──
+  return (
+    <div className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors ${
+      dragOver ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/10' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
+    }`}>
+      <div className="shrink-0">{statusIcon}</div>
+      {hasCleaned && <CleanedThumb path={first} rootPath={rootPath} onClick={() => onExpand?.(0)} />}
+      {nameBlock}
+      {actions}
     </div>
   )
 }
@@ -1546,7 +1701,7 @@ function ReadyWarningDialog({ file, recipe, dataUrl, onConfirm, onCancel }: {
 
 // ── Photo group grid (CAMERA + SELECTED tabs) ──────────────────────────────────
 
-function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, projectRootPath, showStarButton, allowSelection = true, onToggle, onToggleStar, onOpen, onWarningClick }: {
+function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, projectRootPath, showStarButton, allowSelection = true, onToggle, onToggleStar, onOpen, onWarningClick, onRemoveBg }: {
   groups: PhotoGroup[]; emptyMessage: string; allSelected?: boolean
   selectedKeys: Set<string>; projectRootPath: string; showStarButton?: boolean
   allowSelection?: boolean
@@ -1554,6 +1709,7 @@ function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, proje
   onToggleStar?: (photo: CapturedPhoto & { recipeId: string; recipeName: string }) => void
   onOpen: (photos: CapturedPhoto[], idx: number, recipeName: string) => void
   onWarningClick?: (recipeId: string, recipeName: string) => void
+  onRemoveBg?: (photo: CapturedPhoto & { recipeId: string; recipeName: string }) => void
 }) {
   if (groups.length === 0) {
     return (
@@ -1593,6 +1749,7 @@ function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, proje
                 onToggle={() => onToggle(photo.picturePath, photo.recipeId, photo.recipeName)}
                 onToggleStar={onToggleStar ? () => onToggleStar(photo) : undefined}
                 onDoubleClick={() => onOpen(group.photos, idx, photo.recipeName)}
+                onRemoveBg={onRemoveBg ? () => onRemoveBg(photo) : undefined}
               />
             ))}
           </div>
@@ -1604,11 +1761,12 @@ function PhotoGroupGrid({ groups, emptyMessage, allSelected, selectedKeys, proje
 
 // ── Manager thumbnail ──────────────────────────────────────────────────────────
 
-function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, showStarButton, allowSelection = true, onToggle, onToggleStar, onDoubleClick }: {
+function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, showStarButton, allowSelection = true, onToggle, onToggleStar, onDoubleClick, onRemoveBg }: {
   photo: CapturedPhoto; projectRootPath: string; forceSelected?: boolean; isChecked: boolean
   showStarButton?: boolean
   allowSelection?: boolean
   onToggle: () => void; onToggleStar?: () => void; onDoubleClick: () => void
+  onRemoveBg?: () => void
 }) {
   const [dataUrl, setDataUrl] = useState<string | null | undefined>(undefined)
   const [hovered, setHovered] = useState(false)
@@ -1662,15 +1820,37 @@ function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, sh
       {/* Hover overlay */}
       {hovered && (
         <div className="absolute inset-0 bg-black/40 flex flex-col items-end justify-between p-1 pointer-events-none">
-          {/* Select button — only for editors */}
-          {allowSelection && (
+          <div className="w-full flex items-center justify-between">
+            {/* Expand — opens the lightbox (single click; double-click also works) */}
             <button
-              onClick={e => { e.stopPropagation(); onToggle() }}
-              className="pointer-events-auto rounded px-1.5 py-0.5 text-[9px] font-semibold bg-white/20 text-white hover:bg-white/40 backdrop-blur-sm"
+              onClick={e => { e.stopPropagation(); onDoubleClick() }}
+              title="Expand"
+              className="pointer-events-auto rounded p-0.5 text-white bg-white/20 hover:bg-white/40 backdrop-blur-sm"
             >
-              {isChecked ? '✓ Selected' : 'Select'}
+              <Maximize2 size={11} />
             </button>
-          )}
+            <div className="flex items-center gap-1">
+              {/* Remove background — cut out this specific photo (camera tab) */}
+              {onRemoveBg && (
+                <button
+                  onClick={e => { e.stopPropagation(); onRemoveBg() }}
+                  title="Remove background"
+                  className="pointer-events-auto rounded px-1.5 py-0.5 text-[9px] font-semibold bg-white/20 text-white hover:bg-white/40 backdrop-blur-sm flex items-center gap-0.5"
+                >
+                  <Scissors size={9} /> Remove BG
+                </button>
+              )}
+              {/* Select button — only for editors */}
+              {allowSelection && (
+                <button
+                  onClick={e => { e.stopPropagation(); onToggle() }}
+                  className="pointer-events-auto rounded px-1.5 py-0.5 text-[9px] font-semibold bg-white/20 text-white hover:bg-white/40 backdrop-blur-sm"
+                >
+                  {isChecked ? '✓ Selected' : 'Select'}
+                </button>
+              )}
+            </div>
+          </div>
           {/* Filename — bottom */}
           <span className="w-full text-[9px] text-white leading-tight line-clamp-2 pointer-events-none">{photo.filename}</span>
         </div>
@@ -1696,7 +1876,7 @@ function ManagerThumbnail({ photo, projectRootPath, forceSelected, isChecked, sh
 
 // ── Ready card ─────────────────────────────────────────────────────────────────
 
-function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, onToggle, onWarningClick, onManifestUpdate }: {
+function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, onToggle, onWarningClick, onManifestUpdate, onExpand }: {
   recipe: RecipeFile
   effectiveRootPath: string
   userId: string
@@ -1705,6 +1885,7 @@ function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, on
   onToggle: () => void
   onWarningClick?: () => void
   onManifestUpdate?: (m: PhotoManifest) => void
+  onExpand?: () => void
 }) {
   const [dataUrl, setDataUrl]           = useState<string | null | undefined>(undefined)
   const [inserting, setInserting]       = useState(false)
@@ -1715,6 +1896,23 @@ function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, on
   const isMac = window.electronAPI.platform === 'darwin'
   const [psEditing, setPsEditing] = useState(false)
   const [psSaving, setPsSaving]   = useState(false)
+  // One-click install of the Python helper deps when they're missing.
+  const [installingDeps, setInstallingDeps] = useState(false)
+  const [depsInstalled, setDepsInstalled]   = useState(false)
+  const [installLine, setInstallLine]       = useState('')
+  const needsDeps = !!insertError && /module|openpyxl|pillow|pip|dependency|python/i.test(insertError)
+
+  async function handleInstallDeps(e: React.MouseEvent) {
+    e.stopPropagation()
+    setInstallingDeps(true)
+    setInstallLine('Starting…')
+    const off = window.electronAPI.onExcelInstallProgress(line => setInstallLine(line))
+    const res = await window.electronAPI.excelInstallDeps()
+    off()
+    setInstallingDeps(false)
+    if (res.success) { setDepsInstalled(true); setInsertError(null) }
+    else setInsertError(res.error ?? 'Install failed.')
+  }
 
   /**
    * If another user holds the Excel insert lock (and it's not stale), block our
@@ -1801,7 +1999,11 @@ function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, on
         isSelected ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
       }`}
     >
-      <div className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
+      <div
+        className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 cursor-zoom-in"
+        onClick={e => { e.stopPropagation(); onExpand?.() }}
+        title="Click to expand"
+      >
         {dataUrl === undefined ? (
           <div className="w-full h-full animate-pulse bg-gray-200 dark:bg-gray-700" />
         ) : dataUrl === null ? (
@@ -1876,7 +2078,7 @@ function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, on
         </div>
       )}
 
-      {/* Insertar en Excel — only show when JPG is available */}
+      {/* Insert into Excel — only show when JPG is available */}
       {recipe.readyJpgPath && (
         <div className="flex flex-col gap-0.5 px-0.5" onClick={e => e.stopPropagation()}>
           {isLockedByOther ? (
@@ -1890,14 +2092,14 @@ function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, on
             <div className="flex gap-1 items-center">
               <span className="text-[9px] text-green-600 dark:text-green-400 font-medium flex items-center gap-0.5 flex-1 truncate">
                 <Check size={9} strokeWidth={3} />
-                Insertado {insertedAt.toLocaleDateString()}
+                Inserted {insertedAt.toLocaleDateString()}
               </span>
               <button
                 onClick={handleInsertExcel}
                 disabled={inserting}
                 className="text-[8px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline shrink-0"
               >
-                Reinsertar
+                Reinsert
               </button>
             </div>
           ) : (
@@ -1907,10 +2109,45 @@ function ReadyCard({ recipe, effectiveRootPath, userId, userName, isSelected, on
               className="flex items-center justify-center gap-1 text-[9px] font-semibold rounded-md px-1.5 py-1 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white transition-colors"
             >
               {inserting ? <Loader2 size={9} className="animate-spin" /> : null}
-              {inserting ? 'Insertando…' : 'Insertar en Excel'}
+              {inserting ? 'Inserting…' : 'Insert into Excel'}
             </button>
           )}
-          {insertError && (
+          {/* Missing Python helper deps → one-click install (no terminal needed). */}
+          {needsDeps && !depsInstalled && (
+            <>
+              {installingDeps ? (
+                <div className="rounded-md bg-amber-100 dark:bg-amber-900/30 px-1.5 py-1">
+                  <div className="flex items-center gap-1 text-[9px] font-semibold text-amber-700 dark:text-amber-300">
+                    <Loader2 size={9} className="animate-spin" /> Installing…
+                  </div>
+                  {/* Indeterminate bar — always moving, so it never looks frozen */}
+                  <div className="mt-1 h-1 rounded-full bg-amber-200 dark:bg-amber-800/50 overflow-hidden">
+                    <div className="h-full w-1/3 rounded-full bg-amber-500" style={{ animation: 'npdIndeterminate 1.1s ease-in-out infinite' }} />
+                  </div>
+                  {installLine && (
+                    <p className="text-[8px] text-amber-700/80 dark:text-amber-300/80 truncate mt-0.5">{installLine}</p>
+                  )}
+                </div>
+              ) : (
+                <button
+                  onClick={handleInstallDeps}
+                  className="flex items-center justify-center gap-1 text-[9px] font-semibold rounded-md px-1.5 py-1 bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+                >
+                  Install required components
+                </button>
+              )}
+              <p className="text-[8px] text-gray-400 dark:text-gray-500 leading-tight px-0.5">
+                One-time setup — restart the app afterward.
+              </p>
+              <style>{`@keyframes npdIndeterminate { 0% { transform: translateX(-110%) } 100% { transform: translateX(330%) } }`}</style>
+            </>
+          )}
+          {depsInstalled && (
+            <p className="text-[8px] text-green-600 dark:text-green-400 leading-tight px-0.5">
+              Installed ✓ Please restart the app, then insert.
+            </p>
+          )}
+          {insertError && !needsDeps && (
             <p className="text-[8px] text-red-500 dark:text-red-400 leading-tight px-0.5">{insertError}</p>
           )}
         </div>

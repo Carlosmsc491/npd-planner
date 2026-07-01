@@ -52,6 +52,7 @@ interface IElectronAPI {
   recipeWriteCells: (filePath: string, changes: { cell: string; value: string | number | boolean | null }[]) => Promise<{ success: boolean }>
   recipeGenerateFromTemplate: (templatePath: string, outputPath: string, recipeData: unknown) => Promise<{ success: boolean }>
   recipeRenameFile: (oldPath: string, newPath: string) => Promise<{ success: boolean }>
+  recipeMoveItem: (args: { sourcePath: string; destDir: string }) => Promise<{ success: boolean; newPath?: string; error?: string }>
   recipeIsFileOpen: (filePath: string) => Promise<boolean>
   recipeCreateFolder: (folderPath: string) => Promise<{ success: boolean }>
   recipeScanProject: (rootPath: string) => Promise<Array<{ relativePath: string; displayName: string; price: string; option: string; name: string; recipeUid: string }>>
@@ -61,12 +62,12 @@ interface IElectronAPI {
   recipePathExists: (folderPath: string) => Promise<boolean>
   recipeRenameItem: (oldPath: string, newPath: string) => Promise<{ success: boolean; error?: string }>
   recipeCreateFileFromTemplate: (templatePath: string, destFolder: string, fileName: string) => Promise<{ success: boolean; destPath?: string; error?: string }>
-  recipeCreateImportTemplate: (destPath: string) => Promise<{ success: boolean; error?: string }>
+  recipeCreateImportTemplate: () => Promise<{ success: boolean; path?: string; error?: string }>
   recipeBatchWriteCells: (batch: Array<{ filePath: string; updates: Array<{ sheet: string; cell: string; value: string }> }>) => Promise<{ success: boolean }>
-  recipeParseImportExcel: (filePath: string) => Promise<{
-    success: boolean
-    rows?: Array<{ name: string; srp: string; boxType: string; pickNeeded: string; holiday: string }>
-    error?: string
+  recipeParseImportExcel: () => Promise<{
+    rows: Array<{ name: string; price: string; option: string; pickNeeded: string }>
+    errors: string[]
+    path?: string
   }>
   recipeValidateProjectFolder: (folderPath: string) => Promise<{
     valid: boolean
@@ -160,6 +161,8 @@ interface IElectronAPI {
   onPhotoStudioBgEvent: (cb: (e: { sessionDir: string; photoId: string; status: string; output?: string; error?: string }) => void) => () => void
   // Excel / Python
   excelCheckDependencies: () => Promise<{ available: boolean; error?: string }>
+  excelInstallDeps: () => Promise<{ success: boolean; error?: string }>
+  onExcelInstallProgress: (callback: (line: string) => void) => () => void
   insertPhotoInExcel: (args: { excelPath: string; jpgPath: string }) => Promise<{ success: boolean; error?: string }>
   photoSaveAs: (entries: { srcPath: string; archivePath: string }[], destFolder: string) => Promise<{ success: boolean; errors: string[] }>
   photoShowSaveDialog: (defaultFilename: string) => Promise<string | null>
@@ -167,6 +170,8 @@ interface IElectronAPI {
   // Crash reporting
   saveCrashLocal: (report: unknown) => Promise<{ success: boolean; filePath?: string }>
   getCrashReportsDir: () => Promise<string>
+  getSystemInfo: () => Promise<{ hostname: string; platform: string; osRelease: string; arch: string; appVersion: string }>
+  onFatalError: (callback: (data: { errorType: string; errorMessage: string; stackTrace?: string }) => void) => () => void
   // App utilities
   getUserDataPath: () => Promise<string>
   clearFirebaseCache: () => Promise<{ success: boolean; error?: string }>

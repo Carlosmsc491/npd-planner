@@ -112,7 +112,7 @@ export function useTasks(boardId: string | undefined, boardType?: string) {
         setToast({
           id: `undo-${task.id}`,
           message: `Completed: ${task.title}`,
-          type: 'info',
+          type: 'success',
           undoAction: async () => {
             try {
               await updateTaskField(task.id, 'completed', false, user.uid, user.name, true, boardType)

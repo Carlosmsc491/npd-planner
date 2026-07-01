@@ -158,15 +158,15 @@ export function DistributionEditor({ value, onChange }: DistributionEditorProps)
         })}
       </div>
 
-      {/* Total */}
+      {/* Total — must be exactly 100% (bouquets split across production locations) */}
       <div className={`flex items-center justify-between rounded-lg px-3 py-1.5 text-xs font-medium ${
-        isOver
-          ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400'
-          : 'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+        total === 100
+          ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
+          : 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'
       }`}>
         <span>Total</span>
-        <span className={isOver ? 'text-red-600 dark:text-red-400' : ''}>
-          {total}% {isOver && '— exceeds 100%'}
+        <span>
+          {total}%{total === 100 ? ' ✓' : isOver ? ' — exceeds 100%' : ' — must total 100% to continue'}
         </span>
       </div>
     </div>

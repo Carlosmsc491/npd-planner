@@ -6,7 +6,7 @@ import { Bell, CalendarDays, AlertTriangle, Plane, X, CheckCircle2 } from 'lucid
 import { useAuthStore } from '../../store/authStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useNotificationStore } from '../../store/notificationStore'
-import { updateLastSeen } from '../../lib/firestore'
+import { updateLastSeen, markNotificationRead } from '../../lib/firestore'
 import type { Task, AppNotification, AwbEntry } from '../../types'
 
 interface Props {
@@ -123,9 +123,14 @@ export default function WhatYouMissedModal({ onClose }: Props) {
   const isEmpty = unreadNotifs.length === 0 && upcomingTasks.length === 0 && urgentTasks.length === 0 && awbArrivals.length === 0
 
   const handleClose = useCallback(() => {
-    if (user) void updateLastSeen(user.uid)
+    if (user) {
+      void updateLastSeen(user.uid)
+      // Mark the notifications shown here as read so the SAME ones never pop up
+      // again — clears them from the bell badge and from this modal next session.
+      unreadNotifs.forEach((n) => { void markNotificationRead(n.id) })
+    }
     onClose()
-  }, [user, onClose])
+  }, [user, onClose, unreadNotifs])
 
   if (!user) return null
 

@@ -37,6 +37,35 @@ import pipeline  # square_crop, make_comparison
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 
+# ── Default processing parameters — the SINGLE SOURCE OF TRUTH ────────────────
+# Both the CLI (argparse in main) and the persistent studio_worker.py read these,
+# so the warm worker (Photo Studio + Photo Manager) and the command-line tool can
+# never drift. To retune the cut-out, change the value here once.
+DEFAULTS = {
+    "bire_size":     2048,
+    "gf_radius":     8,
+    "gf_eps":        1e-4,
+    "sharp":         2.0,
+    "decontam_sat":  32,
+    "decontam_val":  200,
+    "decontam_cov":  0.65,
+    "decontam_win":  25,
+    "no_decontam":   False,
+    "edge_shift":    2,
+    "min_component": 0.005,
+    "no_trash":      False,
+    "canvas":        3600,
+    "margin":        0.03,
+    "dpi":           300,
+    "compare":       False,
+}
+
+
+def default_args() -> argparse.Namespace:
+    """A Namespace pre-filled with DEFAULTS, so studio_worker.py runs the cut-out
+    with exactly the same parameters as `python infer.py`."""
+    return argparse.Namespace(**DEFAULTS)
+
 
 def _boxf(x: np.ndarray, r: int) -> np.ndarray:
     return cv2.boxFilter(x, -1, (r, r), borderType=cv2.BORDER_REFLECT)
@@ -189,27 +218,27 @@ def main() -> int:
     ap.add_argument("input")
     ap.add_argument("output")
     ap.add_argument("--checkpoint", type=Path, default=HERE.parent / "checkpoints" / "refiner_best.pt")
-    ap.add_argument("--bire-size", type=int, default=2048)
-    ap.add_argument("--gf-radius", type=int, default=8)
-    ap.add_argument("--gf-eps", type=float, default=1e-4)
-    ap.add_argument("--sharp", type=float, default=2.0)
+    ap.add_argument("--bire-size", type=int, default=DEFAULTS["bire_size"])
+    ap.add_argument("--gf-radius", type=int, default=DEFAULTS["gf_radius"])
+    ap.add_argument("--gf-eps", type=float, default=DEFAULTS["gf_eps"])
+    ap.add_argument("--sharp", type=float, default=DEFAULTS["sharp"])
     # A) white decontamination
-    ap.add_argument("--decontam-sat", type=int, default=32, help="HSV S below = neutral")
-    ap.add_argument("--decontam-val", type=int, default=200, help="HSV V above = bright")
-    ap.add_argument("--decontam-cov", type=float, default=0.65,
+    ap.add_argument("--decontam-sat", type=int, default=DEFAULTS["decontam_sat"], help="HSV S below = neutral")
+    ap.add_argument("--decontam-val", type=int, default=DEFAULTS["decontam_val"], help="HSV V above = bright")
+    ap.add_argument("--decontam-cov", type=float, default=DEFAULTS["decontam_cov"],
                     help="remove near-white only where local alpha coverage is below this")
-    ap.add_argument("--decontam-win", type=int, default=25, help="coverage window (px)")
+    ap.add_argument("--decontam-win", type=int, default=DEFAULTS["decontam_win"], help="coverage window (px)")
     ap.add_argument("--no-decontam", action="store_true")
     # C) anti-halo defringe — contract the matte at bright/washed edges (px @ full res)
-    ap.add_argument("--edge-shift", type=int, default=2,
+    ap.add_argument("--edge-shift", type=int, default=DEFAULTS["edge_shift"],
                     help="contract the matte by N px on washed-out edges (0 = off) — kills the white halo on thin foliage")
     # B) trash removal
-    ap.add_argument("--min-component", type=float, default=0.005,
+    ap.add_argument("--min-component", type=float, default=DEFAULTS["min_component"],
                     help="drop blobs smaller than this fraction of the largest")
     ap.add_argument("--no-trash", action="store_true")
-    ap.add_argument("--canvas", type=int, default=3600)
-    ap.add_argument("--margin", type=float, default=0.03)
-    ap.add_argument("--dpi", type=int, default=300)
+    ap.add_argument("--canvas", type=int, default=DEFAULTS["canvas"])
+    ap.add_argument("--margin", type=float, default=DEFAULTS["margin"])
+    ap.add_argument("--dpi", type=int, default=DEFAULTS["dpi"])
     ap.add_argument("--compare", action="store_true")
     ap.add_argument("--device", choices=["mps", "cpu"], default=None,
                     help="force device; default mps if available (use cpu to avoid "

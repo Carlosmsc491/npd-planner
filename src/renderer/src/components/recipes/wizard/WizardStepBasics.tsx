@@ -2,7 +2,9 @@
 // Step 1: Project name, root folder, template file, creation mode
 
 import { useEffect, useState } from 'react'
-import { FolderOpen, FileSpreadsheet, Package, AlertTriangle } from 'lucide-react'
+import { FolderOpen, FileSpreadsheet, Package, AlertTriangle, Download, Upload, Loader2, CheckCircle2 } from 'lucide-react'
+
+export interface ImportRow { name: string; price: string; option: string; pickNeeded: string }
 
 const DEFAULT_TEMPLATE_NAME = 'ELITE QUOTE BOUQUET 2026'
 
@@ -19,10 +21,35 @@ interface BasicsData {
 interface Props {
   data: BasicsData
   onChange: (updates: Partial<BasicsData>) => void
+  onImportRows?: (rows: ImportRow[]) => void
 }
 
-export default function WizardStepBasics({ data, onChange }: Props) {
+export default function WizardStepBasics({ data, onChange, onImportRows }: Props) {
   const [loadingTemplate, setLoadingTemplate] = useState(false)
+
+  // ── Import from Excel state ────────────────────────────────────────────────
+  const [importBusy, setImportBusy] = useState(false)
+  const [importErrors, setImportErrors] = useState<string[]>([])
+  const [importCount, setImportCount] = useState<number | null>(null)
+
+  async function handleDownloadTemplate() {
+    setImportBusy(true)
+    const res = await window.electronAPI.recipeCreateImportTemplate()
+    setImportBusy(false)
+    setImportErrors(res.error ? [res.error] : [])
+  }
+
+  async function handleLoadFile() {
+    setImportBusy(true)
+    setImportErrors([])
+    setImportCount(null)
+    const res = await window.electronAPI.recipeParseImportExcel()
+    setImportBusy(false)
+    if (res.errors.length > 0) { setImportErrors(res.errors); return }
+    if (res.rows.length === 0) return   // cancelled or empty file
+    setImportCount(res.rows.length)
+    onImportRows?.(res.rows)
+  }
 
   // Keep rootPath in sync with npd:projects_root from localStorage
   const projectsRoot = localStorage.getItem('npd:projects_root') ?? ''
@@ -90,6 +117,49 @@ export default function WizardStepBasics({ data, onChange }: Props) {
           ))}
         </div>
       </div>
+
+      {/* Import from Excel panel */}
+      {data.sourceMode === 'import' && (
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 space-y-2.5">
+          <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+            Fill in the template — columns <span className="font-semibold">Name · Price · Option · Required Pick</span>.
+            Option and Required Pick are droplists. The app validates every row before creating anything
+            (numbers only in Price, a letter in Option, Y/N in Required Pick) and normalizes text to UPPERCASE.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleDownloadTemplate}
+              disabled={importBusy}
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            >
+              <Download size={13} /> Download template
+            </button>
+            <button
+              onClick={handleLoadFile}
+              disabled={importBusy}
+              className="flex items-center gap-1.5 rounded-lg bg-green-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
+            >
+              {importBusy ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} Load filled file
+            </button>
+          </div>
+          {importCount !== null && importErrors.length === 0 && (
+            <p className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 font-medium">
+              <CheckCircle2 size={13} /> {importCount} recipe{importCount !== 1 ? 's' : ''} imported — review them in step 3.
+            </p>
+          )}
+          {importErrors.length > 0 && (
+            <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-2 max-h-40 overflow-y-auto">
+              <p className="flex items-center gap-1 text-xs font-semibold text-red-700 dark:text-red-400 mb-1">
+                <AlertTriangle size={12} /> Fix these and load again — nothing was imported:
+              </p>
+              <ul className="text-[11px] text-red-600 dark:text-red-400 space-y-0.5 list-disc pl-4">
+                {importErrors.slice(0, 40).map((e, i) => <li key={i}>{e}</li>)}
+                {importErrors.length > 40 && <li>…and {importErrors.length - 40} more</li>}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Project name */}
       <div className="space-y-2">

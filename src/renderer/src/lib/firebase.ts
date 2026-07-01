@@ -12,7 +12,7 @@ import {
 import {
   initializeFirestore,
   persistentLocalCache,
-  persistentMultipleTabManager,
+  persistentSingleTabManager,
   getFirestore,
   Firestore
 } from 'firebase/firestore'
@@ -65,8 +65,16 @@ setPersistence(auth, browserLocalPersistence).catch((err) => {
 let db: Firestore
 try {
   db = initializeFirestore(app, {
+    // SINGLE-tab manager with forced ownership. NPD Planner is a one-window
+    // Electron app, so multi-tab coordination has no upside and a real downside:
+    // with persistentMultipleTabManager only the "primary" tab can commit writes;
+    // if a stale/zombie instance held the primary lease in IndexedDB (seen on Mac),
+    // the visible window became a "secondary" and every write hung forever waiting
+    // for a primary that no longer exists — while reads still served from cache.
+    // forceOwnership makes this window unconditionally own persistence, so writes
+    // (create task, approve member, delete, assign…) commit locally and never stall.
     localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager(),
+      tabManager: persistentSingleTabManager({ forceOwnership: true }),
     }),
     // Electron's WebChannel streaming transport stalls on some networks: the
     // cache served instantly but the first SERVER snapshot took ~3 minutes

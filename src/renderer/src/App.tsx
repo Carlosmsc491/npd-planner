@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useEffect, useState, lazy, Suspense } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { onSnapshot, doc } from 'firebase/firestore'
@@ -15,6 +15,9 @@ import TaskFullPage from './pages/TaskFullPage'
 import GlobalSearch from './components/search/GlobalSearch'
 import { useKeyboardShortcuts, useGlobalSearchState } from './hooks/useKeyboardShortcuts'
 import WelcomeWizard from './components/ui/WelcomeWizard'
+import { Toaster } from 'sileo'
+import { CrashReportModal } from './components/ui/CrashReportModal'
+import { installBreadcrumbCapture, addBreadcrumb } from './lib/breadcrumbs'
 
 // Heavy routes load on demand — FullCalendar, Recharts, the recipe module and
 // the capture page (camera, sharp previews) stay out of the initial bundle so
@@ -54,9 +57,26 @@ export default function App() {
   const [updateReady, setUpdateReady] = useState(false)
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [updaterError, setUpdaterError] = useState<string | null>(null)
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
+  const [fatalError, setFatalError] = useState<{ error: Error; type: string } | null>(null)
   const navigate = useNavigate()
+  const location = useLocation()
 
   useKeyboardShortcuts(openSearch)
+
+  // ── Crash diagnostics ──────────────────────────────────────────────────────
+  // Record the user's action trail (breadcrumbs) so a crash report can show what
+  // led up to it, and surface main-process fatal errors in the SAME crash modal.
+  useEffect(() => installBreadcrumbCapture(), [])
+  useEffect(() => { addBreadcrumb('nav', location.pathname) }, [location.pathname])
+  useEffect(() => {
+    return window.electronAPI.onFatalError((data) => {
+      const err = new Error(data.errorMessage || 'A background error occurred.')
+      if (data.stackTrace) err.stack = data.stackTrace
+      addBreadcrumb('error', `main: ${data.errorMessage}`)
+      setFatalError({ error: err, type: data.errorType || 'main' })
+    })
+  }, [])
 
   // Weekly Firestore backup → SharePoint/_backups (admins only, 60s after
   // login so it never competes with startup). OneDrive versions the file.
@@ -146,10 +166,27 @@ export default function App() {
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
       document.documentElement.classList.toggle('dark', prefersDark)
     }
+    // Keep the toast theme in sync with the app's dark-mode class.
+    setIsDark(document.documentElement.classList.contains('dark'))
   }, [user?.preferences?.theme])
 
   return (
     <>
+    {/* Global toast host — every toast in the app renders here (see lib/toast.ts).
+        NOTE: sileo's `theme` is inverted vs intuition — theme="light" paints a DARK
+        toast and theme="dark" paints a LIGHT one. We pass the OPPOSITE of the app's
+        mode so the toast matches it (light app → light toast). */}
+    <Toaster theme={isDark ? 'light' : 'dark'} position="bottom-center" />
+
+    {/* Main-process fatal errors show the same crash modal as renderer crashes */}
+    {fatalError && (
+      <CrashReportModal
+        error={fatalError.error}
+        route={window.location.hash.replace(/^#/, '') || '/'}
+        errorType={fatalError.type}
+      />
+    )}
+
     {searchOpen && <GlobalSearch onClose={closeSearch} />}
 
     {/* Welcome Wizard — shown on first login when SharePoint path not set */}

@@ -19,7 +19,9 @@ import {
   appendCameraEntry,
   replaceCameraEntries,
   removeCameraEntries,
+  loadManifest,
 } from '../lib/photoManifestApi'
+import { manifestToCapturedPhotos } from '../lib/photoManifestProjection'
 import { resolvePhotoPath, toRelativePhotoPath, resolveProjectRootPath } from '../utils/photoUtils'
 
 /** Derive the values the manifest API needs from a recipe + user. Returns null if recipeUid missing. */
@@ -115,6 +117,7 @@ export default function CapturePage() {
   const effectiveRootRef    = useRef('')
   const settingsRef      = useRef<GlobalSettings | null>(null)
   const filmstripRef     = useRef<HTMLDivElement>(null)
+  const wheelTsRef       = useRef(0)   // throttle gallery wheel-advance
   const modeRef          = useRef<PageMode>('capture')
 
   // Keep refs in sync with state
@@ -182,16 +185,29 @@ export default function CapturePage() {
           watchFolderRef.current = settings.captureWatchPath
         }
 
-        // Pre-populate from previously captured photos in Firestore
-        // Paths stored in Firestore may be relative (new) or absolute (legacy) — resolve both.
-        if (loadedRecipe.capturedPhotos?.length) {
-          // Compute inline because effectiveRootRef hasn't been updated yet
-          // (project state was just set above; its useEffect fires on next render)
-          const projForResolve = projectRef.current
-          const cached = projForResolve ? localStorage.getItem(`npd:project_path_${projForResolve.id}`) : null
-          const projRoot = cached
-            || resolveProjectRootPath(projForResolve?.relativeRootPath ?? projForResolve?.rootPath ?? '', sharePointPath)
-          const existing: LocalPhoto[] = loadedRecipe.capturedPhotos.map(cp => ({
+        // ── Hydrate the session from the photo MANIFEST (the source of truth) ──
+        // Manifest-era recipes (those with a recipeUid) write photos ONLY to the
+        // on-disk manifest at _project/photos/{uid}.json — the Firestore
+        // capturedPhotos[] stays empty for them. Reading Firestore alone made the
+        // photos "disappear" on reopen even though the files were on disk. Read the
+        // manifest first; fall back to Firestore only for legacy (no-UID) recipes.
+        const projRoot = effectiveRootRef.current.replace(/\\/g, '/')
+        let sourcePhotos: CapturedPhoto[] = loadedRecipe.capturedPhotos ?? []
+        if (loadedRecipe.recipeUid && projRoot) {
+          try {
+            const manifest = await loadManifest(projRoot, loadedRecipe.recipeUid)
+            if (manifest && manifest.camera.length > 0) {
+              sourcePhotos = manifestToCapturedPhotos(manifest)
+            }
+          } catch (err) {
+            console.warn('[CapturePage] manifest load failed, using Firestore fallback:', err)
+          }
+        }
+
+        if (sourcePhotos.length) {
+          // Paths from the manifest are relative; legacy Firestore paths may be
+          // absolute — resolvePhotoPath handles both.
+          const existing: LocalPhoto[] = sourcePhotos.map(cp => ({
             sequence:    cp.sequence,
             filename:    cp.filename,
             picturePath: resolvePhotoPath(cp.picturePath, projRoot),
@@ -205,20 +221,14 @@ export default function CapturePage() {
 
           // Restore selection state
           const sel: Record<string, boolean> = {}
-          loadedRecipe.capturedPhotos.forEach(p => {
-            sel[p.filename] = p.isSelected ?? false
-          })
+          sourcePhotos.forEach(p => { sel[p.filename] = p.isSelected ?? false })
           setLocalSelection(sel)
         }
 
-        // If session already has photos, open gallery mode for 'complete' / 'selected' status
-        const status = loadedRecipe.photoStatus
-        if (status === 'complete' || status === 'selected') {
-          setMode('gallery')
-          modeRef.current = 'gallery'
-          const count = loadedRecipe.capturedPhotos?.length ?? 0
-          if (count > 0) setGalleryIndex(count - 1)
-        }
+        // Stay in the unified capture view (large preview + filmstrip with inline
+        // star) on reopen too — selecting candidates happens right here now, so
+        // there's no separate gallery step to jump into. previewIndex was already
+        // set to the latest photo above.
       } catch (err) {
         console.error('CapturePage load error:', err)
         setNotFound(true)
@@ -514,6 +524,12 @@ export default function CapturePage() {
 
     function handleWheel(e: WheelEvent) {
       e.preventDefault()
+      // Ignore tiny/inertial scrolls (a trackpad click jitters a few px of deltaY,
+      // which used to advance the photo and made starring feel broken) and throttle
+      // so one gesture = one step.
+      const now = Date.now()
+      if (Math.abs(e.deltaY) < 12 || now - wheelTsRef.current < 250) return
+      wheelTsRef.current = now
       if (e.deltaY > 0) setGalleryIndex(i => Math.min(photosRef.current.length - 1, i + 1))
       if (e.deltaY < 0) setGalleryIndex(i => Math.max(0, i - 1))
     }
@@ -923,6 +939,20 @@ export default function CapturePage() {
               <p className="text-sm">Trigger the camera to take the first photo</p>
             </div>
           )}
+          {/* Star the photo you're previewing — select right here, no extra step */}
+          {previewPhoto && (
+            <button
+              onClick={() => toggleSelection(previewPhoto.filename)}
+              title={localSelection[previewPhoto.filename] ? 'Deselect candidate' : 'Select as candidate'}
+              className="absolute top-4 right-4 z-10 rounded-full bg-black/40 hover:bg-black/60 p-2.5 transition-colors"
+              style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}
+            >
+              <Star size={26}
+                fill={localSelection[previewPhoto.filename] ? '#F59E0B' : 'none'}
+                className={localSelection[previewPhoto.filename] ? 'text-yellow-400' : 'text-white'}
+              />
+            </button>
+          )}
           {processingPhoto && (
             <div className="absolute bottom-4 right-4 flex items-center gap-2 bg-gray-900/80 px-3 py-1.5 rounded-full text-xs text-green-400">
               <Loader2 size={11} className="animate-spin" />
@@ -1053,12 +1083,15 @@ export default function CapturePage() {
                     <Camera size={16} className="text-gray-600" />
                   </div>
                 )}
-                {/* Selection star on filmstrip thumbnail */}
-                {isSelected && (
-                  <div className="absolute top-1 right-1 pointer-events-none">
-                    <Star size={12} fill="#F59E0B" className="text-yellow-400 drop-shadow" />
-                  </div>
-                )}
+                {/* Star toggle — click to mark this photo as a candidate, inline
+                    (no separate select window needed, like Photo Studio). */}
+                <button
+                  onClick={e => { e.stopPropagation(); toggleSelection(photo.filename) }}
+                  title={isSelected ? 'Deselect' : 'Select as candidate'}
+                  className={`absolute top-1 right-1 rounded p-0.5 transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                >
+                  <Star size={13} fill={isSelected ? '#F59E0B' : 'none'} className={isSelected ? 'text-yellow-400 drop-shadow' : 'text-white drop-shadow'} />
+                </button>
                 {/* Delete button — appears on hover */}
                 <button
                   onClick={e => { e.stopPropagation(); setDeleteConfirm(photo.filename) }}
@@ -1077,21 +1110,20 @@ export default function CapturePage() {
       <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800 bg-gray-950 shrink-0">
         {mode === 'capture' ? (
           <>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-400">
               {photoCount === 0
-                ? 'No photos in this session'
-                : `${photoCount} photo${photoCount === 1 ? '' : 's'} in this session`
+                ? 'No photos yet — trigger the camera'
+                : selectedCount > 0
+                  ? `${selectedCount} candidate${selectedCount !== 1 ? 's' : ''} starred · ${photoCount} photo${photoCount !== 1 ? 's' : ''}`
+                  : `${photoCount} photo${photoCount !== 1 ? 's' : ''} — tap the ★ to pick your candidate`
               }
             </span>
             <button
-              onClick={() => {
-                setGalleryIndex(Math.max(0, photos.length - 1))
-                setMode('gallery')
-              }}
+              onClick={() => setShowFinishModal(true)}
               disabled={photoCount === 0}
               className="flex items-center gap-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
-              NEXT →
+              <CheckCircle size={15} /> Done — Next Recipe
             </button>
           </>
         ) : (

@@ -54,6 +54,10 @@ fi
 "$PYBIN" --version
 
 echo "==> 2/6  Copy tool sources + checkpoint + config"
+# Clean the previous copy first — on a resumable run `cp -R src existing-dir`
+# nests as $STAGE/train/train and can leave stale files (e.g. an old build that
+# predated studio_worker.py). Always ship the current train/ verbatim.
+rm -rf "$STAGE/train"
 cp -R "$TOOL/train" "$STAGE/train"
 # Root-level modules batch_run.py imports via HERE.parent (sys.path) — required.
 cp "$TOOL/pipeline.py" "$STAGE/"

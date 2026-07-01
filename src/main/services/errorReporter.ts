@@ -19,6 +19,7 @@ class ErrorReporter {
   private pendingError: ErrorReport | null = null
   private logBuffer: string[] = []
   private readonly maxLogs = 100
+  private lastShownAt = 0
 
   constructor() {
     this.setupGlobalHandlers()
@@ -49,10 +50,10 @@ class ErrorReporter {
   }
 
   public handleError(type: string, message: string, stack?: string) {
-    if (this.errorWindow) {
-      // Already showing error window
-      return
-    }
+    // Debounce cascading errors (one crash often fires several in a row).
+    const now = Date.now()
+    if (this.errorWindow || now - this.lastShownAt < 3000) return
+    this.lastShownAt = now
 
     this.pendingError = {
       timestamp: new Date().toISOString(),
@@ -64,6 +65,25 @@ class ErrorReporter {
       logs: [...this.logBuffer]
     }
 
+    this.forwardToRenderer()
+  }
+
+  /** Show the ONE crash modal in the renderer; fall back to the standalone native
+   *  window only when there's no renderer window to show it. */
+  private forwardToRenderer() {
+    const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+    if (win && this.pendingError) {
+      try {
+        win.webContents.send('app:fatal-error', {
+          errorType: this.pendingError.errorType,
+          errorMessage: this.pendingError.errorMessage,
+          stackTrace: this.pendingError.stackTrace,
+        })
+        return
+      } catch {
+        /* renderer unreachable — fall through to the native window */
+      }
+    }
     this.showErrorWindow()
   }
 

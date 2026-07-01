@@ -14,7 +14,9 @@ import RecipeValidationDialog from './RecipeValidationDialog'
 import PhotoGalleryPopup from './PhotoGalleryPopup'
 import RenameRecipeModal from './RenameRecipeModal'
 import NotesSection from './NotesSection'
-import type { RecipeFile, RecipeProject, RecipeSettings, ValidationChange, AppUser, CapturedPhoto, RenameWithPhotosResult } from '../../types'
+import { loadManifest } from '../../lib/photoManifestApi'
+import { projectManifestOntoRecipe } from '../../lib/photoManifestProjection'
+import type { RecipeFile, RecipeProject, RecipeSettings, ValidationChange, AppUser, RenameWithPhotosResult } from '../../types'
 import { resolvePhotoPath } from '../../utils/photoUtils'
 import { nanoid } from 'nanoid'
 
@@ -100,6 +102,28 @@ export default function RecipeDetailPanel({
 
   // Rename modal
   const [renameOpen, setRenameOpen] = useState(false)
+
+  // Hydrate photos from the on-disk MANIFEST — Firestore capturedPhotos is empty
+  // for manifest-era recipes, so the sidebar showed no photos and the timeline had
+  // no real status. The projection gives camera/selected/cleaned/ready + photoStatus.
+  const [photoFile, setPhotoFile] = useState<RecipeFile | null>(null)
+  useEffect(() => {
+    if (!file?.recipeUid || !effectiveRootPath) { setPhotoFile(null); return }
+    let cancelled = false
+    loadManifest(effectiveRootPath, file.recipeUid)
+      .then(m => { if (!cancelled) setPhotoFile(m ? projectManifestOntoRecipe(file, m) : null) })
+      .catch(() => { if (!cancelled) setPhotoFile(null) })
+    return () => { cancelled = true }
+    // Re-read the manifest when the photo summary changes (photoStatus / counts)
+    // so a stage transition reflects here instead of going stale until re-select.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file?.id, file?.recipeUid, effectiveRootPath, file?.photoStatus, file?.photoCount, file?.selectedCount, file?.cleanedCount, file?.hasReady])
+
+  // Collapsed/expanded state per photo stage (Camera open by default).
+  const [stageOpen, setStageOpen] = useState<Record<string, boolean>>({ camera: true })
+  const toggleStage = useCallback((key: string) => {
+    setStageOpen(prev => ({ ...prev, [key]: !prev[key] }))
+  }, [])
 
   const canSeePhotoFeatures = true   // all users can view photos
   const canActOnPhotos = currentUser ? canTakePhotos(currentUser) : false
@@ -217,7 +241,9 @@ export default function RecipeDetailPanel({
     setActionState('finalizing')
     try {
       const namingChange = acceptedChanges.find((c) => c.field === 'Final File Name')
-      if (namingChange) {
+      // Skip when the file is already named correctly (current === suggested) —
+      // renaming a file onto itself throws "already exists".
+      if (namingChange && namingChange.currentValue !== namingChange.suggestedValue) {
         const dir = fullPath.substring(0, fullPath.lastIndexOf('\\'))
         const newPath = `${dir}\\${namingChange.suggestedValue}`
         await window.electronAPI.recipeRenameFile(fullPath, newPath)
@@ -544,39 +570,56 @@ export default function RecipeDetailPanel({
 
           {/* ── Photo Timeline + camera button ── */}
           <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
-            <PhotoTimeline photoStatus={file.photoStatus ?? 'pending'} recipeStatus={file.status} />
+            <PhotoTimeline photoStatus={(photoFile ?? file).photoStatus ?? 'pending'} recipeStatus={file.status} />
             <div className="mt-3">
               <PhotoCaptureButton
-                photoStatus={file.photoStatus ?? 'pending'}
+                photoStatus={(photoFile ?? file).photoStatus ?? 'pending'}
                 canAct={canActOnPhotos}
                 onNavigate={() => navigate(`/capture/${encodeURIComponent(file.id)}`)}
               />
             </div>
           </div>
         </div>
-        {/* ── Photo preview grid ── owner + photographer only */}
-        {canSeePhotoFeatures && (file.capturedPhotos?.length ?? 0) > 0 && (
-          <div className="flex-1 min-h-0 flex flex-col px-4 pb-4 border-t border-gray-100 dark:border-gray-700 pt-3">
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <div className="grid grid-cols-3 gap-1.5">
-                {file.capturedPhotos!.map((photo, idx) => (
-                  <PhotoThumbnail
-                    key={photo.filename}
-                    photo={photo}
-                    projectRootPath={effectiveRootPath}
-                    onDoubleClick={() => { setGalleryIndex(idx); setGalleryOpen(true) }}
-                  />
-                ))}
-              </div>
+        {/* ── Photos by stage — collapsible (CAMERA · SELECTED · CLEANED · READY) ── */}
+        {canSeePhotoFeatures && (() => {
+          const pf = photoFile ?? file
+          const camera = pf.capturedPhotos ?? []
+          const selected = camera.filter(p => p.isSelected)
+          const cleaned = pf.cleanedPhotoPaths ?? []
+          const ready = [pf.readyPngPath, pf.readyJpgPath].filter(Boolean) as string[]
+          if (camera.length + cleaned.length + ready.length === 0) return null
+          return (
+            <div className="flex-1 min-h-0 overflow-y-auto border-t border-gray-100 dark:border-gray-700">
+              <PhotoStageSection
+                label="Camera" count={camera.length} stageKey="camera"
+                open={stageOpen.camera ?? true} onToggle={toggleStage}
+                paths={camera.map(p => p.picturePath)} projectRootPath={effectiveRootPath}
+                onOpen={(idx) => { setGalleryIndex(idx); setGalleryOpen(true) }}
+              />
+              <PhotoStageSection
+                label="Selected" count={selected.length} stageKey="selected"
+                open={stageOpen.selected ?? false} onToggle={toggleStage}
+                paths={selected.map(p => p.picturePath)} projectRootPath={effectiveRootPath}
+              />
+              <PhotoStageSection
+                label="Cleaned" count={cleaned.length} stageKey="cleaned"
+                open={stageOpen.cleaned ?? false} onToggle={toggleStage}
+                paths={cleaned} projectRootPath={effectiveRootPath}
+              />
+              <PhotoStageSection
+                label="Ready" count={ready.length} stageKey="ready"
+                open={stageOpen.ready ?? false} onToggle={toggleStage}
+                paths={ready} projectRootPath={effectiveRootPath}
+              />
             </div>
-          </div>
-        )}
+          )
+        })()}
       </div>
 
-      {/* Gallery popup */}
-      {galleryOpen && file.capturedPhotos && (
+      {/* Gallery popup — camera photos (projected from the manifest) */}
+      {galleryOpen && (photoFile ?? file).capturedPhotos && (
         <PhotoGalleryPopup
-          photos={file.capturedPhotos}
+          photos={(photoFile ?? file).capturedPhotos!}
           initialIndex={galleryIndex}
           recipeName={file.recipeName || file.displayName}
           projectRootPath={effectiveRootPath}
@@ -683,64 +726,67 @@ function formatTimestamp(ts: Timestamp): string {
   }
 }
 
-// ── Photo thumbnail (preview grid) ────────────────────────────────────────────
+// ── Path-based thumbnail (cleaned / ready stages reference plain paths) ───────
 
-function PhotoThumbnail({
-  photo,
-  projectRootPath,
-  onDoubleClick,
-}: {
-  photo: CapturedPhoto
-  projectRootPath: string
-  onDoubleClick: () => void
+function PathThumbnail({ relPath, projectRootPath, onDoubleClick }: {
+  relPath: string; projectRootPath: string; onDoubleClick?: () => void
 }) {
-  const [dataUrl, setDataUrl] = useState<string | null | undefined>(undefined) // undefined=loading, null=error
-
+  const [dataUrl, setDataUrl] = useState<string | null | undefined>(undefined)
   useEffect(() => {
     let cancelled = false
-    const absPath = resolvePhotoPath(photo.picturePath, projectRootPath)
-    // 512px grid thumbnail — full-res base64 per photo OOM-crashed the renderer
-    window.electronAPI.readPhotoThumbnail(absPath, 512)
+    const abs = resolvePhotoPath(relPath, projectRootPath)
+    window.electronAPI.readPhotoThumbnail(abs, 512)
       .then(url => { if (!cancelled) setDataUrl(url) })
       .catch(() => { if (!cancelled) setDataUrl(null) })
     return () => { cancelled = true }
-  }, [photo.picturePath, projectRootPath])
-
+  }, [relPath, projectRootPath])
   return (
     <div
       onDoubleClick={onDoubleClick}
-      className="relative aspect-square rounded overflow-hidden cursor-pointer"
-      style={photo.isSelected ? {
-        border: '2px solid #F59E0B',
-        animation: 'heartbeat 2s ease-in-out infinite',
-      } : { border: '2px solid transparent' }}
+      className={`relative aspect-square rounded overflow-hidden border-2 border-transparent ${onDoubleClick ? 'cursor-pointer' : ''}`}
     >
       {dataUrl === undefined ? (
         <div className="w-full h-full bg-gray-200 dark:bg-gray-700 animate-pulse" />
       ) : dataUrl === null ? (
-        <div className="w-full h-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-          <ImageOff size={14} className="text-gray-400" />
-        </div>
+        <div className="w-full h-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center"><ImageOff size={14} className="text-gray-400" /></div>
       ) : (
-        <img src={dataUrl} alt={photo.filename} className="w-full h-full object-cover" />
+        <img src={dataUrl} alt="" className="w-full h-full object-cover" />
       )}
+    </div>
+  )
+}
 
-      {/* Gold star for selected candidates */}
-      {photo.isSelected && (
-        <div
-          className="absolute bottom-0.5 right-0.5 pointer-events-none"
-          style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
-        >
-          <Star size={14} fill="#F59E0B" className="text-yellow-400" />
+// ── Collapsible photo-stage section (Camera · Selected · Cleaned · Ready) ─────
+
+function PhotoStageSection({ label, count, stageKey, open, onToggle, paths, projectRootPath, onOpen }: {
+  label: string; count: number; stageKey: string; open: boolean
+  onToggle: (key: string) => void
+  paths: string[]; projectRootPath: string
+  onOpen?: (idx: number) => void
+}) {
+  if (count === 0) return null
+  return (
+    <div className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+      <button
+        onClick={() => onToggle(stageKey)}
+        className="w-full flex items-center gap-2 px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+      >
+        <ChevronRight size={13} className={`text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`} />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{label}</span>
+        <span className="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-700 rounded-full px-1.5 py-0.5">{count}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3 grid grid-cols-3 gap-1.5">
+          {paths.map((p, idx) => (
+            <PathThumbnail
+              key={p}
+              relPath={p}
+              projectRootPath={projectRootPath}
+              onDoubleClick={onOpen ? () => onOpen(idx) : undefined}
+            />
+          ))}
         </div>
       )}
-
-      <style>{`
-        @keyframes heartbeat {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.4); }
-          50%       { box-shadow: 0 0 0 6px rgba(245,158,11,0); }
-        }
-      `}</style>
     </div>
   )
 }

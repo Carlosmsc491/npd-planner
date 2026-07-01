@@ -98,6 +98,44 @@ export async function atomicWriteJson(filePath: string, content: unknown): Promi
 }
 
 /**
+ * Last-resort recovery: the manifest may have been written under a recipeUid that
+ * differs from the one we're asked for — e.g. a truncated nanoid from an older
+ * build (`{uid before "_"}.json`), or a Z52↔Firestore divergence. Scan the photos
+ * dir and match by the manifest's OWN recipeUid (most reliable) or by a filename⇄uid
+ * prefix relationship across a separator. Returns the file + parsed manifest so the
+ * caller can heal it to the canonical name.
+ */
+async function recoverManifestByUid(
+  dir: string,
+  recipeUid: string,
+): Promise<{ path: string; manifest: PhotoManifest } | null> {
+  if (!fs.existsSync(dir)) return null
+  let names: string[]
+  try { names = fs.readdirSync(dir) } catch { return null }
+  const candidates = names.filter(n => n.toLowerCase().endsWith('.json') && !n.includes('.tmp-'))
+
+  // Pass 1 — the manifest's own recipeUid matches what we asked for (exact).
+  for (const name of candidates) {
+    const p = path.join(dir, name)
+    const m = await readManifestFile(p)
+    if (m && m.recipeUid === recipeUid) return { path: p, manifest: m }
+  }
+  // Pass 2 — filename is a prefix of the uid (or vice versa) at a separator boundary
+  // (the truncated-nanoid case: file "xYRvk2wVTwwS.json" for uid "xYRvk2wVTwwS_SoN9…").
+  for (const name of candidates) {
+    const base = name.replace(/\.json$/i, '')
+    const related =
+      recipeUid.startsWith(base + '_') || recipeUid.startsWith(base + '-') ||
+      base.startsWith(recipeUid + '_') || base.startsWith(recipeUid + '-')
+    if (!related) continue
+    const p = path.join(dir, name)
+    const m = await readManifestFile(p)
+    if (m) return { path: p, manifest: m }
+  }
+  return null
+}
+
+/**
  * Read the canonical manifest + any conflict copies, merge them, write back the
  * merged result, and delete the conflict copies. Returns the merged manifest
  * (or null if no manifest exists at all).
@@ -109,8 +147,6 @@ export async function readAndHealManifest(
   const dir = manifestsDir(projectRoot)
   const mainPath = manifestPath(projectRoot, recipeUid)
   const conflictPaths = findConflictCopies(dir, recipeUid).filter(p => p !== mainPath)
-
-  if (!fs.existsSync(mainPath) && conflictPaths.length === 0) return null
 
   let current = fs.existsSync(mainPath) ? await readManifestFile(mainPath) : null
 
@@ -126,6 +162,22 @@ export async function readAndHealManifest(
       for (const cPath of conflictPaths) {
         try { await fsp.unlink(cPath) } catch { /* ignore */ }
       }
+    }
+  }
+
+  // Nothing under the canonical/conflict names — try to recover a manifest written
+  // under a divergent uid and HEAL it to the canonical path so photos stop
+  // "disappearing" and future loads hit the exact file.
+  if (!current) {
+    const recovered = await recoverManifestByUid(dir, recipeUid)
+    if (recovered) {
+      recovered.manifest.recipeUid = recipeUid
+      await atomicWriteJson(mainPath, recovered.manifest)
+      if (np(recovered.path) !== np(mainPath)) {
+        try { await fsp.unlink(recovered.path) } catch { /* ignore */ }
+      }
+      current = recovered.manifest
+      console.log(`[manifest] recovered "${path.basename(recovered.path)}" → "${path.basename(mainPath)}" for uid ${recipeUid}`)
     }
   }
 
@@ -200,14 +252,18 @@ export function registerPhotoManifestHandlers(): void {
         if (!fs.existsSync(dir)) return { manifests: [] }
 
         const files = await fsp.readdir(dir)
-        // Group by recipeUid prefix so conflict copies collapse onto the canonical file.
+        // Derive each recipeUid from the manifest's OWN content — never from the
+        // filename. nanoid uids can contain "_" (and "-"), which a filename-prefix
+        // regex truncates; the old code then mis-merged the full-uid file into the
+        // truncated one as a bogus "conflict copy" and deleted it. Reading the
+        // content recipeUid is authoritative and collapses real conflict copies
+        // (same content uid) onto one canonical file via readAndHealManifest.
         const uids = new Set<string>()
         for (const name of files) {
           if (!name.toLowerCase().endsWith('.json')) continue
           if (name.includes('.tmp-')) continue
-          // Extract the recipeUid prefix: everything up to the first non-alphanumeric / hyphen char.
-          const m = name.match(/^([a-zA-Z0-9-]+)/)
-          if (m) uids.add(m[1])
+          const m = await readManifestFile(path.join(dir, name))
+          if (m?.recipeUid) uids.add(m.recipeUid)
         }
 
         const manifests: PhotoManifest[] = []

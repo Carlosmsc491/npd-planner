@@ -55,6 +55,21 @@ export default function RenameRecipeModal({ file, project, effectiveRootPath, ss
     // Build full Excel path
     const excelPath = `${effectiveRootPath.replace(/\\/g, '/')}/${file.relativePath.replace(/\\/g, '/')}`
 
+    // Anchor the rename to a stable recipeUid (Z52). Without one, the photo↔recipe
+    // link is matched by file name/path — which a rename changes, so photos and
+    // notes can be orphaned. Assign + persist a UID first when the recipe lacks one.
+    let recipeUid = file.recipeUid
+    if (!recipeUid) {
+      try {
+        recipeUid = await window.electronAPI.recipeGenerateUid()
+        await window.electronAPI.recipeWriteUid(excelPath, recipeUid)
+      } catch (err) {
+        // Non-fatal: fall back to legacy path-based matching for this rename.
+        console.warn('[Rename] could not assign a recipeUid before rename:', err)
+        recipeUid = ''
+      }
+    }
+
     try {
       const result = await window.electronAPI.recipeRenameWithPhotos({
         excelPath,
@@ -68,7 +83,7 @@ export default function RenameRecipeModal({ file, project, effectiveRootPath, ss
         projectName:    project.name,
         // Manifest-era recipes: the handler also renames the files listed in
         // the photo manifest and rewrites the manifest JSON itself
-        recipeUid:      file.recipeUid || undefined,
+        recipeUid:      recipeUid || undefined,
       })
 
       if (!result.success) {

@@ -13,37 +13,20 @@ until the pipe closes. One JSON object per line on stdin/stdout.
 import json
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
 
 import torch
-from infer import process, load_refiner
+from infer import process, load_refiner, default_args
 from birefnet_model import load_birefnet
 
 ROOT = HERE.parent
 
-# Pipeline defaults — match infer.py argparse defaults exactly
-ARGS = SimpleNamespace(
-    bire_size=2048,
-    gf_radius=8,
-    gf_eps=1e-4,
-    sharp=2.0,
-    decontam_sat=32,
-    decontam_val=200,
-    decontam_cov=0.65,
-    decontam_win=25,
-    no_decontam=False,
-    no_trash=False,
-    min_component=0.005,
-    edge_shift=2,
-    canvas=3600,
-    margin=0.03,
-    dpi=300,
-    compare=False,
-)
+# Pipeline parameters come straight from infer.py's single source of truth, so the
+# warm worker and `python infer.py` can never drift. Retune in infer.DEFAULTS only.
+ARGS = default_args()
 
 
 def emit(obj: dict) -> None:

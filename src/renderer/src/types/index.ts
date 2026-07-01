@@ -346,6 +346,12 @@ export type NotificationType = 'assigned' | 'updated' | 'completed' | 'comment' 
 // ─────────────────────────────────────────
 // CRASH REPORTS (ephemeral — deleted from Firestore after local save)
 // ─────────────────────────────────────────
+export interface CrashBreadcrumb {
+  time: string                                  // ISO 8601
+  category: 'nav' | 'click' | 'action' | 'error'
+  message: string
+}
+
 export interface CrashReport {
   id: string
   message: string        // error message (not shown to end user)
@@ -356,6 +362,14 @@ export interface CrashReport {
   userId: string | null
   userName: string | null
   timestamp: Timestamp
+  // ── Richer report (all optional for backward compat) ──────────────────────
+  errorType?: string             // 'renderer' | 'uncaughtException' | 'unhandledRejection'
+  hostname?: string              // machine name
+  osRelease?: string             // OS version
+  arch?: string                  // cpu arch
+  occurredAt?: string            // ISO timestamp from the client (for fast reading)
+  breadcrumbs?: CrashBreadcrumb[] // the trail of actions that led to the crash
+  resolved?: boolean             // owner can mark it reviewed
 }
 
 export interface AppNotification {

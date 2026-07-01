@@ -1,7 +1,7 @@
 // src/renderer/src/components/recipes/wizard/WizardStep3Structure.tsx
 // Step 3: File manager table layout for folder/recipe structure
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Folder,
   ChevronRight,
@@ -12,8 +12,11 @@ import {
   Search,
   Undo2,
   Redo2,
+  CornerDownLeft,
 } from 'lucide-react'
 import { useStructureState, type TreeNode, type FolderNode, type RecipeNode } from './useStructureState'
+import { parseRecipeNameFromFilename, normalizeRecipeName } from '../../../utils/recipeNaming'
+import { detectHolidayFromName } from '../../../utils/holidayDetect'
 import { DistributionEditor } from './WizardStepRules'
 import {
   RECIPE_CUSTOMER_OPTIONS,
@@ -57,6 +60,8 @@ interface WizardStep3StructureProps {
   defaults?: WizardDefaults
   projectDefaults?: WizardDefaults  // Alias for defaults (backward compatibility)
   sourceMode?: 'from_scratch' | 'import'
+  holidayMap?: Record<string, string>   // keyword → holiday (from settings) for live detection
+  sleeveMap?: Record<string, string>    // "$12.99" → sleeve price (from settings)
   onChange?: (folders: WizardFolder[]) => void
   onValidityChange?: (valid: boolean, message: string) => void
 }
@@ -68,6 +73,12 @@ export type { TreeNode } from './useStructureState'
 
 const OPTION_OPTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
 
+/** Parse one pasted/typed line into recipe fields, e.g. "$12.99 A Valentine Red". */
+function parseRecipeLine(line: string): { name: string; price: string; option: string } {
+  const { price, option, name } = parseRecipeNameFromFilename(line.trim())
+  return { name, price, option }
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function WizardStep3Structure({
@@ -75,6 +86,8 @@ export default function WizardStep3Structure({
   defaults: defaultsProp,
   projectDefaults,
   sourceMode: _sourceMode = 'from_scratch',
+  holidayMap = {},
+  sleeveMap = {},
   onChange,
   onValidityChange,
 }: WizardStep3StructureProps) {
@@ -96,6 +109,7 @@ export default function WizardStep3Structure({
     setFilterQuery,
     addFolder,
     addRecipe,
+    bulkAddRecipes,
     toggleFolder,
     toggleOverride,
     updateRecipeField,
@@ -282,6 +296,9 @@ export default function WizardStep3Structure({
                       onUpdateField={updateRecipeField}
                       onUpdateOverride={updateRecipeOverride}
                       onToggleOverride={() => toggleOverride(recipe.id)}
+                      onAddNext={() => addRecipe(undefined, undefined, true)}
+                      holidayMap={holidayMap}
+                      sleeveMap={sleeveMap}
                     />
                   ))}
                 </div>
@@ -366,17 +383,7 @@ export default function WizardStep3Structure({
 
                     {/* Recipe list — animated collapse */}
                     <div className={`transition-all duration-200 overflow-hidden ${folder.open ? '' : 'max-h-0'}`}>
-                      {folderRecipes.length === 0 ? (
-                        <div className="px-4 py-4 text-center">
-                          <p className="text-xs text-gray-400 dark:text-gray-500 italic">No recipes yet</p>
-                          <button
-                            onClick={() => addRecipe(folder.id)}
-                            className="mt-1.5 text-xs text-green-600 dark:text-green-400 hover:underline font-medium"
-                          >
-                            + Add first recipe
-                          </button>
-                        </div>
-                      ) : (
+                      {folderRecipes.length > 0 && (
                         <div className="divide-y divide-gray-100 dark:divide-gray-700/50 bg-white dark:bg-gray-900">
                           {folderRecipes.map((recipe) => (
                             <RecipeRow
@@ -398,10 +405,19 @@ export default function WizardStep3Structure({
                               onUpdateField={updateRecipeField}
                               onUpdateOverride={updateRecipeOverride}
                               onToggleOverride={() => toggleOverride(recipe.id)}
+                              onAddNext={() => addRecipe(folder.id, undefined, true)}
+                              holidayMap={holidayMap}
+                              sleeveMap={sleeveMap}
                             />
                           ))}
                         </div>
                       )}
+                      {/* Quick add — type a name (or "$12.99 A Name"), Enter adds it and readies
+                          the next. Pasting several lines at once adds them all. */}
+                      <QuickAddRow
+                        onAdd={(line) => addRecipe(folder.id, parseRecipeLine(line), false)}
+                        onBulk={(lines) => bulkAddRecipes(folder.id, lines.map(parseRecipeLine))}
+                      />
                     </div>
                   </div>
                 )
@@ -435,6 +451,39 @@ export default function WizardStep3Structure({
   )
 }
 
+// ── Quick-add row ──────────────────────────────────────────────────────────
+
+function QuickAddRow({ onAdd, onBulk }: { onAdd: (line: string) => void; onBulk: (lines: string[]) => void }) {
+  const [value, setValue] = useState('')
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50/60 dark:bg-gray-800/30 border-t border-gray-100 dark:border-gray-700/50">
+      <CornerDownLeft size={12} className="shrink-0 text-gray-300 dark:text-gray-600" />
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onPaste={(e) => {
+          // Pasting a multi-line list (e.g. a column copied from Excel) adds them all.
+          const lines = e.clipboardData.getData('text').split('\n').map((l) => l.trim()).filter(Boolean)
+          if (lines.length > 1) {
+            e.preventDefault()
+            onBulk(lines)
+            setValue('')
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && value.trim()) {
+            onAdd(value.trim())
+            setValue('') // keep focus for the next one
+          }
+        }}
+        placeholder="Add a recipe — type a name and press Enter (or paste a list)…"
+        className="flex-1 min-w-0 bg-transparent border-none px-1 py-0.5 text-sm text-gray-700 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
+      />
+    </div>
+  )
+}
+
 // ── Recipe row component ───────────────────────────────────────────────────
 
 interface RecipeRowProps {
@@ -455,6 +504,9 @@ interface RecipeRowProps {
   onUpdateField: (id: string, field: 'name' | 'option' | 'price', value: string) => void
   onUpdateOverride: (id: string, field: keyof RecipeNode, value: unknown) => void
   onToggleOverride: () => void
+  onAddNext?: () => void
+  holidayMap: Record<string, string>
+  sleeveMap: Record<string, string>
 }
 
 function RecipeRow({
@@ -475,8 +527,15 @@ function RecipeRow({
   onUpdateField,
   onUpdateOverride,
   onToggleOverride,
+  onAddNext,
+  holidayMap,
+  sleeveMap,
 }: RecipeRowProps) {
   const isEditing = editingId === recipe.id
+  // Live auto-detection from the name/price (same logic used at creation).
+  const detectedHoliday = recipe.name ? detectHolidayFromName(recipe.name, holidayMap) : ''
+  const priceKey = recipe.price ? (recipe.price.startsWith('$') ? recipe.price : `$${recipe.price}`) : ''
+  const detectedSleeve = priceKey ? (sleeveMap[priceKey] ?? '') : ''
 
   return (
     <>
@@ -509,29 +568,58 @@ function RecipeRow({
             className="flex-1 min-w-0 bg-white dark:bg-gray-700 border border-green-500 rounded px-2 py-0.5 text-sm text-gray-900 dark:text-white focus:outline-none"
           />
         ) : (
-          <span
-            className="flex-1 min-w-0 text-sm font-medium text-gray-900 dark:text-white truncate"
+          <div
+            className="flex-1 min-w-0"
             onDoubleClick={(e) => { e.stopPropagation(); onStartEditing() }}
           >
-            {recipe.name || (
-              <span className="italic font-normal text-gray-400 dark:text-gray-500">new recipe...</span>
+            <span className="block text-sm font-medium text-gray-900 dark:text-white truncate">
+              {recipe.name || <span className="italic font-normal text-gray-400 dark:text-gray-500">new recipe...</span>}
+            </span>
+            {/* Live filename preview — shows how price/option/name compose into the file */}
+            {(recipe.name || recipe.price) && (
+              <span className="block text-[9px] font-mono text-gray-400 dark:text-gray-500 truncate">
+                {normalizeRecipeName(recipe.price, recipe.option, recipe.name)}.xlsx
+              </span>
             )}
-          </span>
+            {/* Auto-detected holiday / sleeve (from the name & price) */}
+            {(detectedHoliday || detectedSleeve) && (
+              <span className="flex items-center gap-1 mt-0.5">
+                {detectedHoliday && (
+                  <span className="inline-flex items-center rounded px-1 text-[8px] font-semibold bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300">
+                    🎁 {detectedHoliday}
+                  </span>
+                )}
+                {detectedSleeve && (
+                  <span className="inline-flex items-center rounded px-1 text-[8px] font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                    sleeve {detectedSleeve}
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
         )}
 
-        {/* Price */}
-        {recipe.price && (
-          <span className="text-xs font-mono text-gray-500 dark:text-gray-400 shrink-0 w-14 text-right tabular-nums">
-            {recipe.price}
-          </span>
-        )}
+        {/* Price — inline editable (no need to expand) */}
+        <input
+          type="text"
+          value={recipe.price}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onUpdateField(recipe.id, 'price', e.target.value)}
+          onBlur={(e) => { const raw = e.target.value.trim(); if (raw && !raw.startsWith('$')) onUpdateField(recipe.id, 'price', `$${raw}`) }}
+          placeholder="$0.00"
+          className="shrink-0 w-16 text-xs font-mono text-right tabular-nums bg-transparent rounded px-1 py-0.5 text-gray-600 dark:text-gray-300 border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-green-500 focus:outline-none placeholder-gray-300 dark:placeholder-gray-600"
+        />
 
-        {/* Option */}
-        {recipe.option && (
-          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 shrink-0 w-6 text-center">
-            {recipe.option}
-          </span>
-        )}
+        {/* Option — inline select */}
+        <select
+          value={recipe.option}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onUpdateField(recipe.id, 'option', e.target.value)}
+          className="shrink-0 w-10 text-xs font-semibold text-center bg-transparent rounded px-0.5 py-0.5 text-gray-600 dark:text-gray-300 border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-green-500 focus:outline-none appearance-none cursor-pointer"
+        >
+          <option value="">–</option>
+          {OPTION_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
 
         {/* Chevron + hover actions */}
         <div className="flex items-center gap-1 shrink-0">
@@ -566,6 +654,7 @@ function RecipeRow({
             onUpdateField={onUpdateField}
             onUpdateOverride={onUpdateOverride}
             onToggleOverride={onToggleOverride}
+            onAddNext={onAddNext}
           />
         </div>
       )}
@@ -581,6 +670,7 @@ interface RecipeEditPanelProps {
   onUpdateField: (id: string, field: 'name' | 'option' | 'price', value: string) => void
   onUpdateOverride: (id: string, field: keyof RecipeNode, value: unknown) => void
   onToggleOverride: () => void
+  onAddNext?: () => void   // Enter on Price → add the next recipe
 }
 
 function RecipeEditPanel({
@@ -589,8 +679,12 @@ function RecipeEditPanel({
   onUpdateField,
   onUpdateOverride,
   onToggleOverride,
+  onAddNext,
 }: RecipeEditPanelProps) {
   const fileName = recipe.fileName || `${recipe.price} ${recipe.option} ${recipe.name}`.trim()
+  // Keyboard flow for fast entry: Name → Enter → Price → Enter → next recipe.
+  const nameRef  = useRef<HTMLInputElement>(null)
+  const priceRef = useRef<HTMLInputElement>(null)
 
   // Detect overrides
   const hasCustomerOverride = recipe.customerOverride !== defaults.customerDefault
@@ -612,9 +706,12 @@ function RecipeEditPanel({
             Name
           </label>
           <input
+            ref={nameRef}
+            autoFocus
             type="text"
             value={recipe.name}
             onChange={(e) => onUpdateField(recipe.id, 'name', e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); priceRef.current?.focus() } }}
             placeholder="Recipe name"
             className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
           />
@@ -624,10 +721,19 @@ function RecipeEditPanel({
             Price
           </label>
           <input
+            ref={priceRef}
             type="text"
             inputMode="decimal"
             value={recipe.price}
             onChange={(e) => onUpdateField(recipe.id, 'price', e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                const raw = e.currentTarget.value.trim()
+                if (raw && !raw.startsWith('$')) onUpdateField(recipe.id, 'price', `$${raw}`)
+                onAddNext?.()   // Enter on Price → create the next recipe
+              }
+            }}
             onBlur={(e) => {
               const raw = e.target.value.trim()
               if (raw && !raw.startsWith('$')) {

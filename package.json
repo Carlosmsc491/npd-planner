@@ -1,6 +1,6 @@
 {
   "name": "npd-planner",
-  "version": "1.9.1",
+  "version": "1.10.0",
   "description": "NPD Planner — Elite Flower Operations Hub",
   "main": "./out/main/index.js",
   "author": "Elite Flower",
@@ -54,6 +54,7 @@
     "playwright": "^1.58.2",
     "selfsigned": "^5.5.0",
     "sharp": "^0.34.5",
+    "sileo": "^0.1.5",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.0"
   },

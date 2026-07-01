@@ -16,7 +16,8 @@
  */
 
 import { ipcMain, app } from 'electron'
-import { execFile, exec } from 'child_process'
+import { execFile, exec, spawn } from 'child_process'
+import { runExclusiveExcel } from '../lib/excelQueue'
 import { promisify } from 'util'
 import * as path from 'path'
 import * as os from 'os'
@@ -280,6 +281,96 @@ export function registerExcelHandlers(): void {
   )
 
   /**
+   * excel:install-deps
+   * Installs the Python packages needed for the openpyxl fallback (openpyxl +
+   * Pillow) so the user never has to touch a terminal. Best-effort: tries a
+   * per-user pip install with the detected Python.
+   */
+  ipcMain.handle(
+    'excel:install-deps',
+    async (event): Promise<{ success: boolean; error?: string }> => {
+      const pyExec = await findPythonExec()
+      if (!pyExec) {
+        return { success: false, error: 'Python 3 was not found on this computer. Install Python 3, then try again.' }
+      }
+      // Mirror everything to BOTH the renderer (progress bar) and the terminal
+      // (`npm run dev` console) so a failure is visible while debugging. Split on \r
+      // too — pip's download bar uses carriage returns, so the live line advances
+      // mid-download instead of looking frozen.
+      const send = (line: string): void => {
+        console.log('[excel:install-deps]', line)
+        try { event.sender.send('excel:install-progress', line.slice(0, 140)) } catch { /* window gone */ }
+      }
+      console.log('[excel:install-deps] using python:', pyExec)
+      // Clean env: no version-check noise, unbuffered so output streams promptly.
+      const pipEnv = { ...process.env, PIP_DISABLE_PIP_VERSION_CHECK: '1', PYTHONUNBUFFERED: '1' }
+
+      /** Spawn with a HARD timeout that kills a stalled process — without this a hung
+       *  step spins the button forever ("never installs"). Logs the exact command and
+       *  outcome to the terminal. */
+      const runPy = (args: string[], label: string, timeoutMs = 240_000): Promise<{ ok: boolean; err: string }> =>
+        new Promise(resolve => {
+          send(label)
+          console.log('[excel:install-deps] $', pyExec, args.join(' '))
+          const child = spawn(pyExec, args, { env: pipEnv })
+          let err = ''
+          let settled = false
+          const finish = (ok: boolean, e?: string): void => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            console.log(`[excel:install-deps] → ${ok ? 'OK' : 'FAILED'}${e ? ': ' + e : ''}`)
+            resolve({ ok, err: (e ?? err).trim() })
+          }
+          const pump = (buf: Buffer): void =>
+            buf.toString().split(/[\r\n]+/).forEach(l => { const t = l.trim(); if (t) send(t) })
+          child.stdout?.on('data', pump)
+          child.stderr?.on('data', (buf: Buffer) => { err += buf.toString(); pump(buf) })
+          child.on('error', e => finish(false, e.message))
+          child.on('exit', code => finish(code === 0))
+          const timer = setTimeout(() => {
+            try { child.kill('SIGKILL') } catch { /* */ }
+            finish(false, `Timed out after ${Math.round(timeoutMs / 1000)}s — the step stalled. Check your internet connection and try again.`)
+          }, timeoutMs)
+        })
+
+      // 0) Make sure pip itself is present/usable (a broken pip is a common "stuck").
+      //    Short timeout — ensurepip shouldn't take long; never let it block install.
+      await runPy(['-m', 'ensurepip', '--upgrade'], 'Preparing installer…', 60_000).catch(() => {})
+
+      // --no-cache-dir forces a FRESH download (a corrupt cached wheel was stalling
+      // it); --force-reinstall overrides a half-finished/corrupt previous attempt.
+      const pkgs = ['openpyxl', 'pillow']
+      const common = ['-m', 'pip', 'install', '--no-cache-dir', '--force-reinstall', '--upgrade']
+
+      // Ordered fallbacks, least-invasive first. IMPORTANT: do NOT lead with --user —
+      // it errors hard inside a virtualenv ("User site-packages are not visible in
+      // this virtualenv"), which is exactly what froze the installer when the detected
+      // Python was a venv. Plain install works in a venv and in any writable Python;
+      // the escalations cover the system Python in the packaged app (user site, then
+      // PEP 668 override for Homebrew/Debian "externally managed" pythons).
+      const attempts: Array<{ args: string[]; label: string }> = [
+        { args: [...common, ...pkgs],                                       label: 'Downloading & installing…' },
+        { args: [...common, '--user', ...pkgs],                             label: 'Retrying (user site)…' },
+        { args: [...common, '--user', '--break-system-packages', ...pkgs],  label: 'Retrying (override)…' },
+        { args: [...common, '--break-system-packages', ...pkgs],            label: 'Retrying (system override)…' },
+      ]
+
+      let r: { ok: boolean; err: string } = { ok: false, err: 'Install failed.' }
+      for (const a of attempts) {
+        r = await runPy(a.args, a.label)
+        if (r.ok) break
+        // Fatal — escalating won't help; stop and report.
+        if (/no module named pip|executable file not found|not recognized as|no such file/i.test(r.err)) break
+      }
+
+      return r.ok
+        ? { success: true }
+        : { success: false, error: r.err.split('\n').filter(Boolean).pop() || 'Install failed. Try again, or install Python 3 from python.org.' }
+    }
+  )
+
+  /**
    * excel:insert-photo
    * Inserts a JPG into G8:M35 of the "Spec Sheet" worksheet.
    */
@@ -289,6 +380,8 @@ export function registerExcelHandlers(): void {
       _event,
       { excelPath, jpgPath }: { excelPath: string; jpgPath: string }
     ): Promise<{ success: boolean; error?: string }> => {
+      // Serialized via the global Excel queue (no concurrent Excel automation).
+      return runExclusiveExcel(async () => {
       try {
         if (!fs.existsSync(excelPath)) {
           return { success: false, error: `Excel file not found: ${excelPath}` }
@@ -323,6 +416,7 @@ export function registerExcelHandlers(): void {
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) }
       }
+      })
     }
   )
 }

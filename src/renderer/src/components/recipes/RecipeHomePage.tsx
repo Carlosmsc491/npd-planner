@@ -3,8 +3,9 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, FolderOpen, FolderPlus, Trash2, Loader2, ChevronDown, FolderSearch, CheckCircle2 } from 'lucide-react'
+import { Plus, FolderOpen, FolderPlus, Trash2, Loader2, ChevronDown, FolderSearch, FolderCheck } from 'lucide-react'
 import { subscribeToRecipeProjects, deleteRecipeProject, createRecipeProject } from '../../lib/recipeFirestore'
+import { preloadProjectScan } from '../../lib/recipeScanCache'
 import { useRecipeStore } from '../../store/recipeStore'
 import { useTaskStore } from '../../store/taskStore'
 import { useAuthStore } from '../../store/authStore'
@@ -23,7 +24,10 @@ export default function RecipeHomePage() {
   const user = useAuthStore((s) => s.user)
   const [filter, setFilter] = useState<FilterStatus>('all')
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(true)
+  // Render the cached project list instantly on re-entry — the Zustand store keeps
+  // projects in memory across navigation, so only show the skeleton on a true cold
+  // load (empty store). The onSnapshot below still refreshes in the background.
+  const [loading, setLoading] = useState(projects.length === 0)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -34,6 +38,7 @@ export default function RecipeHomePage() {
 
   const [projectsRoot, setProjectsRoot] = useState(() => localStorage.getItem('npd:projects_root') ?? '')
   const [settingRoot, setSettingRoot] = useState(false)
+  const [pathPopoverOpen, setPathPopoverOpen] = useState(false)
 
   async function handleSetProjectsRoot() {
     const selected = await window.electronAPI.selectFolder()
@@ -142,11 +147,24 @@ export default function RecipeHomePage() {
     return unsub
   }, [setProjects])
 
-  const filtered = projects.filter((p) => {
-    if (filter !== 'all' && p.status !== filter) return false
-    if (search.trim() && !p.name.toLowerCase().includes(search.trim().toLowerCase())) return false
-    return true
-  })
+  const filtered = projects
+    .filter((p) => {
+      if (filter !== 'all' && p.status !== filter) return false
+      if (search.trim() && !p.name.toLowerCase().includes(search.trim().toLowerCase())) return false
+      return true
+    })
+    // Newest first — so "the first row" is the most-recent project (the one we warm).
+    .sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt))
+
+  // Warm the most-recent project's file scan in the background, one at a time, so
+  // it opens instantly. The rarely-used older ones are scanned on demand when opened.
+  useEffect(() => {
+    if (loading || projects.length === 0) return
+    const newest = [...projects].sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt))[0]
+    if (!newest) return
+    const t = setTimeout(() => { void preloadProjectScan(newest.id) }, 1200)
+    return () => clearTimeout(t)
+  }, [loading, projects])
 
   return (
     <AppLayout>
@@ -154,7 +172,42 @@ export default function RecipeHomePage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">NPD Projects</h1>
-        <div className="relative" ref={dropdownRef}>
+        <div className="flex items-center gap-2">
+          {/* Projects-folder location tucked behind an icon so it isn't tapped by
+              accident — still one click away when someone needs to change it. */}
+          {projectsRoot && (
+            <div className="relative">
+              <button
+                onClick={() => setPathPopoverOpen((v) => !v)}
+                title="Projects folder location"
+                className="flex items-center justify-center h-9 w-9 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
+                <FolderCheck size={16} className="text-green-500" />
+              </button>
+              {pathPopoverOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setPathPopoverOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-20 w-[440px] max-w-[80vw] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-3.5">
+                    <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                      <FolderCheck size={12} className="text-green-500" /> Projects folder
+                    </div>
+                    <p className="text-xs font-mono text-gray-600 dark:text-gray-300 break-all leading-relaxed">{projectsRoot}</p>
+                    <div className="flex justify-end mt-2.5">
+                      <button
+                        onClick={() => { setPathPopoverOpen(false); handleSetProjectsRoot() }}
+                        disabled={settingRoot}
+                        className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400 hover:underline disabled:opacity-60"
+                      >
+                        {settingRoot ? <Loader2 size={12} className="animate-spin" /> : <FolderOpen size={12} />}
+                        Change folder
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          <div className="relative" ref={dropdownRef}>
           <div className="flex items-stretch">
             <button
               onClick={() => navigate('/recipes/new')}
@@ -197,6 +250,7 @@ export default function RecipeHomePage() {
               </button>
             </div>
           )}
+          </div>
         </div>
       </div>
 
@@ -214,8 +268,9 @@ export default function RecipeHomePage() {
         </div>
       )}
 
-      {/* NPD Projects root setup banner */}
-      {!projectsRoot ? (
+      {/* Projects-root setup banner — shown only until a folder is chosen. Once set,
+          the path lives behind the folder icon next to "New Project". */}
+      {!projectsRoot && (
         <div className="mb-5 rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-5 py-4 flex items-start gap-4">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-800/40 text-amber-600 dark:text-amber-400">
             <FolderSearch size={20} />
@@ -237,17 +292,6 @@ export default function RecipeHomePage() {
           >
             {settingRoot ? <Loader2 size={12} className="animate-spin" /> : <FolderOpen size={12} />}
             Select Folder
-          </button>
-        </div>
-      ) : (
-        <div className="mb-4 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-xs text-green-700 dark:text-green-400">
-          <CheckCircle2 size={13} className="shrink-0" />
-          <span className="truncate font-mono">{projectsRoot}</span>
-          <button
-            onClick={handleSetProjectsRoot}
-            className="ml-auto shrink-0 text-green-600 dark:text-green-400 hover:underline whitespace-nowrap"
-          >
-            Change
           </button>
         </div>
       )}
@@ -280,7 +324,11 @@ export default function RecipeHomePage() {
 
       {/* Content */}
       {loading ? (
-        <SkeletonTable />
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <Loader2 size={26} className="animate-spin text-green-500 mb-3" />
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Loading your projects…</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Syncing the latest from the cloud</p>
+        </div>
       ) : filtered.length === 0 ? (
         <EmptyState hasSearch={search.length > 0 || filter !== 'all'} onNew={() => navigate('/recipes/new')} />
       ) : (
@@ -397,27 +445,6 @@ function StatusBadge({ status }: { status: RecipeProject['status'] }) {
   )
 }
 
-function SkeletonTable() {
-  return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-      <div className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2.5 flex gap-4">
-        {['w-32', 'w-48', 'w-20', 'w-24'].map((w, i) => (
-          <div key={i} className={`h-3 ${w} rounded bg-gray-200 dark:bg-gray-700 animate-pulse`} />
-        ))}
-      </div>
-      {[1, 2, 3].map((i) => (
-        <div key={i} className="flex items-center gap-4 px-4 py-3.5 border-b border-gray-100 dark:border-gray-800 last:border-0">
-          <div className="h-4 w-4 rounded bg-gray-200 dark:bg-gray-700 animate-pulse shrink-0" />
-          <div className="h-3.5 w-40 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" />
-          <div className="h-3 w-56 rounded bg-gray-100 dark:bg-gray-800 animate-pulse flex-1" />
-          <div className="h-5 w-16 rounded-full bg-gray-100 dark:bg-gray-800 animate-pulse" />
-          <div className="h-3 w-20 rounded bg-gray-100 dark:bg-gray-800 animate-pulse" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
 function EmptyState({ hasSearch, onNew }: { hasSearch: boolean; onNew: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -442,6 +469,16 @@ function EmptyState({ hasSearch, onNew }: { hasSearch: boolean; onNew: () => voi
       )}
     </div>
   )
+}
+
+function tsMillis(ts: Timestamp | null | undefined): number {
+  if (!ts) return 0
+  try {
+    if (ts instanceof Timestamp) return ts.toMillis()
+    return ((ts as { seconds: number }).seconds ?? 0) * 1000
+  } catch {
+    return 0
+  }
 }
 
 function formatTimestamp(ts: Timestamp | null | undefined): string {

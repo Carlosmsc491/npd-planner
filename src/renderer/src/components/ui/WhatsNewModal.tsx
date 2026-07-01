@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import {
-  X, FileText, FolderOpen, Sparkles, LayoutGrid, Table2, Bell, Layers, DownloadCloud,
+  X, FileText, Sparkles, LayoutGrid, Table2, DownloadCloud,
   type LucideIcon,
 } from 'lucide-react'
 
-const CURRENT_VERSION = '1.9.1'
+const CURRENT_VERSION = '1.10.0'
 const LS_KEY = `npd:whats_new_seen_${CURRENT_VERSION}`
 
 interface Feature {
@@ -17,72 +17,48 @@ interface Feature {
 const FEATURES: Feature[] = [
   {
     icon: DownloadCloud,
-    color: '#185FA5',
-    title: 'Smoother Updates & Faster Files',
-    description:
-      'Updates now install cleanly without the "NPD Planner cannot be closed" / ' +
-      '"failed to uninstall" errors. Plus a quick tip on opening shows how to keep your ' +
-      'SharePoint folder offline so attachments and photos open instantly.',
-  },
-  {
-    icon: LayoutGrid,
     color: '#1D9E75',
-    title: 'Build Any Board From Scratch',
+    title: 'Recipe Photos That Stay Put',
     description:
-      'New Board now opens a blank template builder — add your own fields and sections, ' +
-      'rename and drag to reorder, and shape the New Task form however your team works. ' +
-      'No code, no presets you can\'t change.',
+      'Fixed the bug where photos "disappeared" from the Photo Manager and recipe sidebar ' +
+      'after every step even though the files were on disk. Each step now stays in sync, ' +
+      'and older recipes self-heal when you open them.',
   },
   {
     icon: Table2,
     color: '#378ADD',
-    title: 'Smart Fields — Columns, Calendar & Grouping',
+    title: 'Import Recipes From Excel',
     description:
-      'Add Bucket, Status, Priority, Date, Assignees or Labels to ANY board from the ' +
-      '"Smart fields" picker. Bucket powers the board columns, Date powers the calendar & ' +
-      'timeline, and Group By works off all of them.',
-  },
-  {
-    icon: Layers,
-    color: '#8B5CF6',
-    title: 'Sections & New Field Types',
-    description:
-      'Group fields under section headings (drag them anywhere). New property types: ' +
-      'Rich Text, Multiple Dates and Follow-ups — add them to any board. Description, ' +
-      'Event Dates, Follow-ups and Attachments are now reorderable/hideable too.',
-  },
-  {
-    icon: FolderOpen,
-    color: '#F59E0B',
-    title: 'Every Board Knows Where Files Go',
-    description:
-      'Attachments, emails and reports from non-Planner boards now save under ' +
-      '{year}/{Board}/{task} on SharePoint instead of an "Unknown" folder. Planner keeps ' +
-      'its client-based layout.',
-  },
-  {
-    icon: Bell,
-    color: '#EF4444',
-    title: 'Per-Board Notifications',
-    description:
-      'Desktop notifications are no longer Planner-only. Each board has a toggle in its ' +
-      'settings to notify assignees on assignment, changes, completion and @mentions.',
+      'New Project → Import From Excel now works: download a template (Name · Price · ' +
+      'Option · Required Pick with droplists), fill it in, and the app validates every row ' +
+      'before creating anything and normalizes text to UPPERCASE.',
   },
   {
     icon: Sparkles,
-    color: '#14B8A6',
-    title: 'Quick Board Settings',
+    color: '#8B5CF6',
+    title: 'Faster Project Building',
     description:
-      'Every board has a ⚙️ Settings button in its top bar that jumps straight to its ' +
-      'template editor — add or remove buckets, fields and sections in one click.',
+      'Type a recipe name and press Enter to add the next; paste a whole column from Excel; ' +
+      'edit price/option inline; and a new Review step shows the full summary — name, ' +
+      'deadline, location, default rules and the folder tree — before you create.',
+  },
+  {
+    icon: LayoutGrid,
+    color: '#F59E0B',
+    title: 'Photo Manager Polish',
+    description:
+      'Click any photo to expand it (arrows/click to browse) in every tab, a CLEANED ' +
+      'list/grid toggle, a Remove Background button in CAMERA, and holiday/sleeve detected ' +
+      'live from each recipe name.',
   },
   {
     icon: FileText,
     color: '#6B7280',
-    title: 'Cleanups',
+    title: 'Insert Into Excel — One-Click Setup',
     description:
-      'Files and Emails are merged into one "Attachments" section, Subtasks removed, and ' +
-      'creating a task now requires a bucket so nothing lands uncategorized.',
+      'When the Excel photo-insert needs its helper components, the app installs them for ' +
+      'you with a progress bar (one-time, restart after) — no terminal. Excel automation is ' +
+      'also serialized so edits no longer collide.',
   },
 ]
 

@@ -19,6 +19,7 @@ export default function PhotoGalleryPopup({ photos, initialIndex, recipeName, pr
   const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const [dataUrls, setDataUrls] = useState<Record<string, string | null>>({})
   const filmstripRef = useRef<HTMLDivElement>(null)
+  const wheelTsRef = useRef(0)
 
   const currentPhoto = photos[currentIndex]
 
@@ -54,6 +55,9 @@ export default function PhotoGalleryPopup({ photos, initialIndex, recipeName, pr
     }
     function handleWheel(e: WheelEvent) {
       e.preventDefault()
+      const now = Date.now()
+      if (Math.abs(e.deltaY) < 12 || now - wheelTsRef.current < 250) return
+      wheelTsRef.current = now
       if (e.deltaY > 0) setCurrentIndex(i => Math.min(photos.length - 1, i + 1))
       if (e.deltaY < 0) setCurrentIndex(i => Math.max(0, i - 1))
     }

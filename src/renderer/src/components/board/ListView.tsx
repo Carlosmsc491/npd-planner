@@ -53,7 +53,11 @@ export default function ListView({ tasks, clients, labels, users, groupBy, board
     <div className="px-6 pt-4 pb-8">
       {groups.map(([groupKey, groupTasks]) => {
         const active = groupTasks.filter((t) => !t.completed)
-        const completed = groupTasks.filter((t) => t.completed)
+        // Newest completed first — last finished task at the top.
+        const completed = groupTasks.filter((t) => t.completed).sort((a, b) => {
+          const ms = (t: typeof a) => t.completedAt?.toMillis() ?? t.updatedAt?.toMillis() ?? t.createdAt?.toMillis() ?? 0
+          return ms(b) - ms(a)
+        })
         const isShowingCompleted = showCompleted[groupKey] ?? false
         const visible = isShowingCompleted ? [...active, ...completed] : active
 
@@ -74,6 +78,19 @@ export default function ListView({ tasks, clients, labels, users, groupBy, board
                 </div>
               )
             })()}
+
+            {/* Show/Hide completed — pinned at the top so it's reachable without
+                scrolling past the whole list. */}
+            {completed.length > 0 && (
+              <button
+                onClick={() => toggleShowCompleted(groupKey)}
+                className="mt-1.5 mb-0.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              >
+                {isShowingCompleted
+                  ? `Hide completed (${completed.length})`
+                  : `Show completed (${completed.length})`}
+              </button>
+            )}
 
             {/* Table */}
             <table className="w-full">
@@ -206,18 +223,6 @@ export default function ListView({ tasks, clients, labels, users, groupBy, board
                 })}
               </tbody>
             </table>
-
-            {/* Show completed toggle */}
-            {completed.length > 0 && (
-              <button
-                onClick={() => toggleShowCompleted(groupKey)}
-                className="mt-2 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-              >
-                {isShowingCompleted
-                  ? `Hide completed (${completed.length})`
-                  : `Show completed (${completed.length})`}
-              </button>
-            )}
           </div>
         )
       })}
