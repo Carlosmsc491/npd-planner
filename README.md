@@ -4,6 +4,5 @@ Desktop app for the Elite Flower NPD team — task management, trips, vacations 
 
 - **Download:** grab the latest installer from [Releases](https://github.com/Carlosmsc491/npd-planner/releases) (`-setup.exe` for Windows, `.dmg` for Mac).
 - **Access:** requires an approved `@eliteflower.com` account.
-- This repository hosts **binary releases and the PWA only**. The application source code is maintained in a private repository.
 
 `web/` contains the companion PWA deployed to GitHub Pages.
