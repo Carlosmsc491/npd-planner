@@ -236,6 +236,21 @@ export interface FieldPlace {
   geohash: string | null      // standard base32 geohash, precision 9 — see lib/geohash.ts
 }
 
+/**
+ * fieldPlaceClusters/{docId} — precomputed viewport aggregates so the map never
+ * has to scan the 36k-doc fieldPlaces collection at low zoom. One doc per
+ * geohash-prefix cell per level. `key` is the geohash prefix itself (length 2
+ * for 'g2', 3 for 'g3', 4 for 'g4'); `lat`/`lon` are the cluster's centroid,
+ * used to place the bubble marker. See lib/mapPlacesQuery.ts.
+ */
+export interface FieldPlaceCluster {
+  level: 'g2' | 'g3' | 'g4'
+  key: string
+  count: number
+  lat: number
+  lon: number
+}
+
 export interface FieldMissionSection {
   key: string
   label: string
