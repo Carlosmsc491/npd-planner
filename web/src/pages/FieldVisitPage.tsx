@@ -39,6 +39,9 @@ export default function FieldVisitPage() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [submitState, setSubmitState] = useState<SubmitState>('idle')
+  // Marks the visit as a system test rather than a real store report. Kept
+  // off by default so nobody flags a genuine visit by accident.
+  const [isTestVisit, setIsTestVisit] = useState(false)
   const [pendingDistance, setPendingDistance] = useState<number | null>(null)
   const [pendingFlags, setPendingFlags] = useState<VisitFlag[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -122,8 +125,12 @@ export default function FieldVisitPage() {
 
     setSubmitState('locating')
     const { distanceMiles, flags } = await computeDistanceAndFlags()
+    if (isTestVisit) flags.push('test_visit')
 
-    if (flags.includes('far_from_store')) {
+    // A test visit is expected to be sent from anywhere, so the
+    // far-from-store warning would be noise. The real distance is still
+    // recorded, and the dashboard hides these by default.
+    if (flags.includes('far_from_store') && !isTestVisit) {
       setPendingDistance(distanceMiles)
       setPendingFlags(flags)
       setSubmitState('awaiting-far-confirm')
@@ -261,6 +268,15 @@ export default function FieldVisitPage() {
             </p>
           )}
           {error && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+          <label className="flex items-center gap-2 text-xs text-gray-600 select-none">
+            <input
+              type="checkbox"
+              checked={isTestVisit}
+              onChange={(e) => setIsTestVisit(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-green-500 focus:ring-green-500"
+            />
+            <span>Test visit — kept out of reports, and no distance warning</span>
+          </label>
           <button
             onClick={handleSendTap}
             disabled={submitState === 'locating' || submitState === 'submitting'}

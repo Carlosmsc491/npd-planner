@@ -251,7 +251,9 @@ export interface FieldMission {
   active: boolean
 }
 
-export type VisitFlag = 'ok' | 'far_from_store' | 'no_photos' | 'stale_photos'
+// 'test_visit': marcada a mano por quien captura. Ver la nota en
+// src/renderer/src/types/index.ts — el dashboard las oculta por defecto.
+export type VisitFlag = 'ok' | 'far_from_store' | 'no_photos' | 'stale_photos' | 'test_visit'
 
 export interface CompetitorPrice {
   raw: string                 // reconstructed "$4.99 (7 stems) — note" — always kept even though this
