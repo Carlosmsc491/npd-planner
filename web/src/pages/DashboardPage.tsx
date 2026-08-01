@@ -6,6 +6,7 @@ import { auth, db } from '../firebase'
 import { useAuthStore } from '../store/authStore'
 import type { Board, Task, Client } from '../types'
 import { STATUS_COLORS, STATUS_LABELS } from '../types'
+import { queuedVisitCount } from '../lib/fieldCheckDb'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -16,6 +17,7 @@ export default function DashboardPage() {
   const [boards, setBoards] = useState<Board[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [clients, setClients] = useState<Record<string, Client>>({})
+  const [fieldCheckQueued, setFieldCheckQueued] = useState(0)
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db, 'boards'), (snap) => {
@@ -33,6 +35,11 @@ export default function DashboardPage() {
       setClients(map)
     })
     return () => { u1(); u2(); u3() }
+  }, [])
+
+  // Local-only outbox count (IndexedDB), not a Firestore listener — see lib/fieldCheckDb.ts
+  useEffect(() => {
+    queuedVisitCount().then(setFieldCheckQueued).catch(() => {})
   }, [])
 
   const active = useMemo(() => tasks.filter((t) => !t.completed), [tasks])
@@ -102,6 +109,31 @@ export default function DashboardPage() {
           <KpiCard label="Due this week"  value={kpis.weekCount}    accent="#378ADD" />
           <KpiCard label="High priority"  value={kpis.highCount}    accent="#F59E0B" />
         </div>
+
+        {/* Field Check — store visit capture */}
+        <button
+          onClick={() => navigate('/field-check')}
+          className="w-full flex items-center gap-3 bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3.5 text-left hover:bg-gray-50 active:scale-[0.99] transition"
+        >
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-white bg-[#1D9E75]">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="w-5 h-5">
+              <path d="M12 21c-4.5-4.2-7-7.8-7-11a7 7 0 1114 0c0 3.2-2.5 6.8-7 11z" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="12" cy="10" r="2.5" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-gray-900">Field Check</p>
+            <p className="text-xs text-gray-400">
+              {fieldCheckQueued > 0 ? `${fieldCheckQueued} visit${fieldCheckQueued !== 1 ? 's' : ''} queued to send` : 'Capture a store visit'}
+            </p>
+          </div>
+          {fieldCheckQueued > 0 && (
+            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+          )}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 text-gray-300 shrink-0">
+            <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
 
         {/* Boards */}
         <div className="space-y-4">

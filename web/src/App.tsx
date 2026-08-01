@@ -7,6 +7,9 @@ import { useAuthStore } from './store/authStore'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import BoardPage from './pages/BoardPage'
+import FieldCheckPage from './pages/FieldCheckPage'
+import FieldVisitPage from './pages/FieldVisitPage'
+import { startFieldCheckSyncLoop } from './lib/fieldCheckSync'
 import type { AppUser } from './types'
 
 function Spinner() {
@@ -25,7 +28,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { setUser, setLoading } = useAuthStore()
+  const { user, setUser, setLoading } = useAuthStore()
 
   useEffect(() => {
     let unsub: (() => void) | null = null
@@ -43,12 +46,21 @@ export default function App() {
     return () => { offAuth(); unsub?.() }
   }, [setUser, setLoading])
 
+  // Offline outbox retry loop (task E) — tied to an active session so it never
+  // fires unauthenticated writes; torn down on sign-out / user change.
+  useEffect(() => {
+    if (!user || user.status !== 'active') return
+    return startFieldCheckSyncLoop()
+  }, [user])
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/" element={<RequireAuth><DashboardPage /></RequireAuth>} />
       <Route path="/boards" element={<RequireAuth><DashboardPage /></RequireAuth>} />
       <Route path="/board/:boardId" element={<RequireAuth><BoardPage /></RequireAuth>} />
+      <Route path="/field-check" element={<RequireAuth><FieldCheckPage /></RequireAuth>} />
+      <Route path="/field-check/:placeId" element={<RequireAuth><FieldVisitPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
