@@ -36,8 +36,15 @@ jobs:
         working-directory: .
         run: |
           mkdir -p web/public/icons
-          cp resources/icon.png web/public/icons/icon-192.png
-          cp resources/icon.png web/public/icons/icon-512.png
+          # resources/ only exists in the source repo. This repo is
+          # releases-only and already carries the icons under
+          # web/public/icons, so regenerating them is optional here.
+          if [ -f resources/icon.png ]; then
+            cp resources/icon.png web/public/icons/icon-192.png
+            cp resources/icon.png web/public/icons/icon-512.png
+          else
+            echo "resources/icon.png not present - using the committed icons."
+          fi
 
       - name: Install dependencies
         run: npm ci
