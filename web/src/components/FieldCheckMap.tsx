@@ -159,7 +159,19 @@ const FieldCheckMap = forwardRef<FieldCheckMapHandle, FieldCheckMapProps>(functi
     map.on('dragstart', () => { userDraggedMap.current = true })
     scheduleViewportUpdate()
 
+    // Leaflet measures the container once, when the map is created, and then
+    // trusts that number forever. On a phone the container is still 0px tall
+    // at that moment — the flex layout and the bottom sheet settle a frame
+    // later — so the map decides it is 0x0 and never draws a single tile,
+    // even though the div itself clearly occupies the screen. That is the
+    // blank map. Watching the container and re-measuring covers every case
+    // that produces it: first paint, rotating the phone, the sheet being
+    // dragged, and the desktop switching tabs.
+    const observer = new ResizeObserver(() => map.invalidateSize())
+    observer.observe(containerRef.current)
+
     return () => {
+      observer.disconnect()
       if (debounceRef.current) clearTimeout(debounceRef.current)
       map.remove()
       mapRef.current = null

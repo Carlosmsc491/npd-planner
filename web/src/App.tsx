@@ -8,6 +8,7 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import BoardPage from './pages/BoardPage'
 import FieldCheckPage from './pages/FieldCheckPage'
+import FieldMissionListPage from './pages/FieldMissionListPage'
 import FieldVisitPage from './pages/FieldVisitPage'
 import { startFieldCheckSyncLoop } from './lib/fieldCheckSync'
 import type { AppUser } from './types'
@@ -60,7 +61,8 @@ export default function App() {
       <Route path="/boards" element={<RequireAuth><DashboardPage /></RequireAuth>} />
       <Route path="/board/:boardId" element={<RequireAuth><BoardPage /></RequireAuth>} />
       <Route path="/field-check" element={<RequireAuth><FieldCheckPage /></RequireAuth>} />
-      <Route path="/field-check/:placeId" element={<RequireAuth><FieldVisitPage /></RequireAuth>} />
+      <Route path="/field-check/:placeId" element={<RequireAuth><FieldMissionListPage /></RequireAuth>} />
+      <Route path="/field-check/:placeId/:missionId" element={<RequireAuth><FieldVisitPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

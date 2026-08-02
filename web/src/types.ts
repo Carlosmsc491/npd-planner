@@ -4,7 +4,11 @@ export interface AppUser {
   uid: string
   email: string
   name: string
-  role: 'owner' | 'admin' | 'member' | 'photographer'
+  // Mismos valores que UserRole en src/renderer/src/types/index.ts. Faltaban
+  // 'salesperson' y 'merchandiser': el tipo no bloquea nada en runtime, pero
+  // decia que un merchandiser no era un usuario valido — y es justamente
+  // quien mas va a usar esta app.
+  role: 'owner' | 'admin' | 'member' | 'photographer' | 'salesperson' | 'merchandiser'
   status: 'active' | 'awaiting' | 'suspended'
   areaPermissions?: Record<string, string>
 }
@@ -251,19 +255,32 @@ export interface FieldPlaceCluster {
   lon: number
 }
 
+export interface FieldMissionTask {
+  kind: 'photo' | 'text' | 'prices'
+  label: string
+  required: boolean
+  maxPhotos: number
+}
+
 export interface FieldMissionSection {
   key: string
   label: string
   description: string | null
-  maxPhotos: number
+  tasks: FieldMissionTask[]
 }
 
+/**
+ * fieldMissions/{missionId} — admin-managed reference data (three real
+ * documents: sales_team_v1, competitive_intelligence_v1, upc_check_v1).
+ * Read-only from the PWA; see lib/fieldMissions.ts for the fetch + cache.
+ */
 export interface FieldMission {
   id: string
   name: string
   instructions: string
-  sections: FieldMissionSection[]
   active: boolean
+  order: number
+  sections: FieldMissionSection[]
 }
 
 // 'test_visit': marcada a mano por quien captura. Ver la nota en
@@ -313,22 +330,6 @@ export interface FieldVisit {
   sections: FieldVisitSection[]
   syncedAt: Timestamp
 }
-
-/** Fixed "Sales Team" mission — see gospotcheck/README.md §2.1. Hardcoded rather than
- *  read from `fieldMissions` (which is admin-managed reference data, rarely if ever
- *  edited) to avoid a Firestore read on every visit to the capture form. */
-export const FIELD_CHECK_MISSION_ID = 'sales_team_v1'
-export const FIELD_CHECK_MISSION_NAME = 'Sales Team'
-
-export const FIELD_CHECK_SECTIONS: FieldMissionSection[] = [
-  { key: 'entrance', label: 'Entrance with flowers and/or plants', description: null, maxPhotos: 50 },
-  { key: 'floral_department', label: 'Floral Department', description: null, maxPhotos: 50 },
-  { key: 'bouquets', label: 'Bouquets', description: null, maxPhotos: 50 },
-  { key: 'roses', label: 'Roses', description: null, maxPhotos: 50 },
-  { key: 'arrangements', label: 'Arrangements', description: null, maxPhotos: 50 },
-  { key: 'consumer_bunches', label: 'Consumer Bunches', description: null, maxPhotos: 50 },
-  { key: 'bonus', label: 'Bonus — any in store activation from Elite, competitors or other categories', description: null, maxPhotos: 50 },
-]
 
 /** GoSpotCheck README §2.2: "Distance is gold and nobody's using it." Flag anything over half a mile. */
 export const FAR_FROM_STORE_THRESHOLD_MILES = 0.5

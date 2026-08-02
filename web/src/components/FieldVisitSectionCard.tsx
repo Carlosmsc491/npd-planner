@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FieldMissionSection } from '../types'
-import type { DraftPhotoRecord, DraftPriceRow, DraftSectionState } from '../lib/fieldCheckDb'
+import type { FieldMissionSection, FieldMissionTask } from '../types'
+import type { DraftPhotoRecord, DraftPriceRow, DraftSectionState, DraftTaskState } from '../lib/fieldCheckDb'
 import { newId } from '../lib/fieldCheckIds'
 import { compressImage } from '../lib/imageCompress'
+import { isTaskComplete } from '../lib/missionProgress'
 import { livePricePerStem } from '../lib/priceRows'
 
 interface Props {
-  def: FieldMissionSection
+  section: FieldMissionSection
   state: DraftSectionState
   onChange: (next: DraftSectionState) => void
   defaultOpen?: boolean
@@ -15,55 +16,16 @@ interface Props {
 const INPUT =
   'w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500/30'
 
-export default function FieldVisitSectionCard({ def, state, onChange, defaultOpen = false }: Props) {
+export default function FieldVisitSectionCard({ section, state, onChange, defaultOpen = false }: Props) {
   const [open, setOpen] = useState(defaultOpen)
-  const [compressing, setCompressing] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const photoCount = state.photos.length
-  const priceCount = state.priceRows.length
+  const completedCount = section.tasks.filter((t, i) => isTaskComplete(t, state.tasks[i])).length
+  const requiredCount = section.tasks.filter((t) => t.required).length
 
-  async function handleFiles(fileList: FileList | null) {
-    if (!fileList || fileList.length === 0) return
-    setCompressing(true)
-    try {
-      const added: DraftPhotoRecord[] = []
-      for (const file of Array.from(fileList)) {
-        if (!file.type.startsWith('image/')) continue
-        const { blob, width, height } = await compressImage(file)
-        added.push({ id: newId(), blob, width, height })
-      }
-      if (added.length > 0) {
-        onChange({ ...state, photos: [...state.photos, ...added] })
-      }
-    } finally {
-      setCompressing(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  function removePhoto(id: string) {
-    onChange({ ...state, photos: state.photos.filter((p) => p.id !== id) })
-  }
-
-  function setNotes(notes: string) {
-    onChange({ ...state, notes })
-  }
-
-  function addPriceRow() {
-    const row: DraftPriceRow = { id: newId(), priceUsd: '', stemCount: '', note: '' }
-    onChange({ ...state, priceRows: [...state.priceRows, row] })
-  }
-
-  function updatePriceRow(id: string, patch: Partial<DraftPriceRow>) {
-    onChange({
-      ...state,
-      priceRows: state.priceRows.map((r) => (r.id === id ? { ...r, ...patch } : r)),
-    })
-  }
-
-  function removePriceRow(id: string) {
-    onChange({ ...state, priceRows: state.priceRows.filter((r) => r.id !== id) })
+  function updateTask(i: number, next: DraftTaskState) {
+    const tasks = state.tasks.slice()
+    tasks[i] = next
+    onChange({ tasks })
   }
 
   return (
@@ -74,10 +36,10 @@ export default function FieldVisitSectionCard({ def, state, onChange, defaultOpe
         className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
       >
         <div className="min-w-0">
-          <p className="text-sm font-bold text-gray-900">{def.label}</p>
+          <p className="text-sm font-bold text-gray-900">{section.label}</p>
           <p className="text-[11px] text-gray-400 mt-0.5">
-            {photoCount} photo{photoCount !== 1 ? 's' : ''}
-            {priceCount > 0 ? ` · ${priceCount} price${priceCount !== 1 ? 's' : ''}` : ''}
+            {completedCount}/{section.tasks.length} completed
+            {requiredCount > 0 ? ` · ${requiredCount} required` : ''}
           </p>
         </div>
         <svg
@@ -93,88 +55,209 @@ export default function FieldVisitSectionCard({ def, state, onChange, defaultOpe
 
       {open && (
         <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-3">
-          {/* Photos */}
-          <div>
-            <label className="text-xs font-medium text-gray-600 mb-2 block">Photos</label>
-            <div className="flex flex-wrap gap-2">
-              {state.photos.map((photo) => (
-                <PhotoThumb key={photo.id} photo={photo} onRemove={() => removePhoto(photo.id)} />
-              ))}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={compressing}
-                className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:border-green-400 hover:text-green-600 active:scale-95 transition disabled:opacity-50"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 mb-1">
-                  <path d="M12 5v14M5 12h14" strokeLinecap="round" />
-                </svg>
-                <span className="text-[10px] font-medium">{compressing ? 'Compressing…' : 'Add'}</span>
-              </button>
-            </div>
-            {/* capture="environment" opens the rear camera directly on iOS/Android Safari & Chrome;
-                it's a hint only (desktop browsers ignore it and fall back to a normal file picker),
-                and gallery uploads are still technically possible — same verification gap GoSpotCheck
-                had (README §2.1's "Camera Only: No"). Not solvable purely client-side. */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              multiple
-              className="hidden"
-              onChange={(e) => handleFiles(e.target.files)}
+          {section.description && <p className="text-xs text-gray-500 -mt-1">{section.description}</p>}
+          {section.tasks.map((task, i) => (
+            <TaskBlock
+              key={i}
+              task={task}
+              state={state.tasks[i] ?? { text: '', priceRows: [], photos: [] }}
+              onChange={(next) => updateTask(i, next)}
             />
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label className="text-xs font-medium text-gray-600 mb-1 block">Notes</label>
-            <textarea
-              value={state.notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Additional information if required"
-              rows={2}
-              className={`${INPUT} resize-none`}
-            />
-          </div>
-
-          {/* Competitor prices — structured rows instead of GoSpotCheck's free-text field
-              (gospotcheck/README.md §2.3 / §7.6: that's what needed a regex parser and could
-              still only ever be 'medium' confidence at best). */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-medium text-gray-600">Competitor prices</label>
-              <button
-                type="button"
-                onClick={addPriceRow}
-                className="text-xs font-semibold text-green-600 hover:text-green-700 flex items-center gap-1"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5">
-                  <path d="M12 5v14M5 12h14" strokeLinecap="round" />
-                </svg>
-                Add price
-              </button>
-            </div>
-
-            {state.priceRows.length === 0 ? (
-              <p className="text-xs text-gray-400">No competitor prices recorded for this section.</p>
-            ) : (
-              <div className="space-y-2">
-                {state.priceRows.map((row) => (
-                  <PriceRowInput
-                    key={row.id}
-                    row={row}
-                    onChange={(patch) => updatePriceRow(row.id, patch)}
-                    onRemove={() => removePriceRow(row.id)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+          ))}
         </div>
       )}
     </section>
+  )
+}
+
+function TaskHeader({ task }: { task: FieldMissionTask }) {
+  return (
+    <div className="flex items-center justify-between mb-2">
+      <label className="text-xs font-medium text-gray-600">{task.label}</label>
+      <span
+        className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 ${
+          task.required ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-400'
+        }`}
+      >
+        {task.required ? 'Required' : 'Optional'}
+      </span>
+    </div>
+  )
+}
+
+function TaskBlock({
+  task,
+  state,
+  onChange,
+}: {
+  task: FieldMissionTask
+  state: DraftTaskState
+  onChange: (next: DraftTaskState) => void
+}) {
+  if (task.kind === 'photo') return <PhotoTask task={task} state={state} onChange={onChange} />
+  if (task.kind === 'text') return <TextTask task={task} state={state} onChange={onChange} />
+  return <PricesTask task={task} state={state} onChange={onChange} />
+}
+
+function PhotoTask({
+  task,
+  state,
+  onChange,
+}: {
+  task: FieldMissionTask
+  state: DraftTaskState
+  onChange: (next: DraftTaskState) => void
+}) {
+  const [compressing, setCompressing] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const atLimit = state.photos.length >= task.maxPhotos
+
+  async function handleFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return
+    setCompressing(true)
+    try {
+      const added: DraftPhotoRecord[] = []
+      const remaining = Math.max(0, task.maxPhotos - state.photos.length)
+      for (const file of Array.from(fileList).slice(0, remaining)) {
+        if (!file.type.startsWith('image/')) continue
+        const { blob, width, height } = await compressImage(file)
+        added.push({ id: newId(), blob, width, height })
+      }
+      if (added.length > 0) onChange({ ...state, photos: [...state.photos, ...added] })
+    } finally {
+      setCompressing(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  function removePhoto(id: string) {
+    onChange({ ...state, photos: state.photos.filter((p) => p.id !== id) })
+  }
+
+  return (
+    <div>
+      <TaskHeader task={task} />
+      <div className="flex flex-wrap gap-2">
+        {state.photos.map((photo) => (
+          <PhotoThumb key={photo.id} photo={photo} onRemove={() => removePhoto(photo.id)} />
+        ))}
+        {!atLimit && (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={compressing}
+            className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:border-green-400 hover:text-green-600 active:scale-95 transition disabled:opacity-50"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 mb-1">
+              <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+            </svg>
+            <span className="text-[10px] font-medium">{compressing ? 'Compressing…' : 'Add'}</span>
+          </button>
+        )}
+      </div>
+      {atLimit && <p className="text-[11px] text-gray-400 mt-1">Max {task.maxPhotos} photos reached.</p>}
+      {/* capture="environment" opens the rear camera directly on iOS/Android Safari & Chrome;
+          it's a hint only (desktop browsers ignore it and fall back to a normal file picker),
+          and gallery uploads are still technically possible — same verification gap GoSpotCheck
+          had (README §2.1's "Camera Only: No"). Not solvable purely client-side. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        multiple
+        className="hidden"
+        onChange={(e) => handleFiles(e.target.files)}
+      />
+    </div>
+  )
+}
+
+function TextTask({
+  task,
+  state,
+  onChange,
+}: {
+  task: FieldMissionTask
+  state: DraftTaskState
+  onChange: (next: DraftTaskState) => void
+}) {
+  return (
+    <div>
+      <TaskHeader task={task} />
+      <textarea
+        value={state.text}
+        onChange={(e) => onChange({ ...state, text: e.target.value })}
+        placeholder="Additional information if required"
+        rows={2}
+        className={`${INPUT} resize-none`}
+      />
+    </div>
+  )
+}
+
+function PricesTask({
+  task,
+  state,
+  onChange,
+}: {
+  task: FieldMissionTask
+  state: DraftTaskState
+  onChange: (next: DraftTaskState) => void
+}) {
+  function addPriceRow() {
+    const row: DraftPriceRow = { id: newId(), priceUsd: '', stemCount: '', note: '' }
+    onChange({ ...state, priceRows: [...state.priceRows, row] })
+  }
+
+  function updatePriceRow(id: string, patch: Partial<DraftPriceRow>) {
+    onChange({ ...state, priceRows: state.priceRows.map((r) => (r.id === id ? { ...r, ...patch } : r)) })
+  }
+
+  function removePriceRow(id: string) {
+    onChange({ ...state, priceRows: state.priceRows.filter((r) => r.id !== id) })
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-gray-600">{task.label}</label>
+          <span
+            className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 ${
+              task.required ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-400'
+            }`}
+          >
+            {task.required ? 'Required' : 'Optional'}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={addPriceRow}
+          className="text-xs font-semibold text-green-600 hover:text-green-700 flex items-center gap-1"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5">
+            <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+          </svg>
+          Add price
+        </button>
+      </div>
+
+      {state.priceRows.length === 0 ? (
+        <p className="text-xs text-gray-400">No competitor prices recorded.</p>
+      ) : (
+        <div className="space-y-2">
+          {state.priceRows.map((row) => (
+            <PriceRowInput
+              key={row.id}
+              row={row}
+              onChange={(patch) => updatePriceRow(row.id, patch)}
+              onRemove={() => removePriceRow(row.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

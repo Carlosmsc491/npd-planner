@@ -3,37 +3,33 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuthStore } from '../store/authStore'
-import type { FieldPlace, VisitFlag } from '../types'
-import { FAR_FROM_STORE_THRESHOLD_MILES, FIELD_CHECK_MISSION_ID, FIELD_CHECK_MISSION_NAME, FIELD_CHECK_SECTIONS } from '../types'
+import type { FieldMission, FieldPlace, VisitFlag } from '../types'
+import { FAR_FROM_STORE_THRESHOLD_MILES } from '../types'
 import type { DraftSectionState, QueuedVisit, VisitDraft } from '../lib/fieldCheckDb'
-import { deleteDraft, loadDraft, saveDraft } from '../lib/fieldCheckDb'
+import { deleteDraft, draftKey, loadDraft, saveDraft } from '../lib/fieldCheckDb'
 import { newId } from '../lib/fieldCheckIds'
+import { getFieldMissionById, loadFieldMissions } from '../lib/fieldMissions'
 import { getCurrentPosition, type SimpleCoords } from '../lib/geolocation'
 import { haversineMiles } from '../lib/haversine'
-import { toCompetitorPrices } from '../lib/priceRows'
+import { computeMissionProgress, countTotalPhotos, emptyMissionSections } from '../lib/missionProgress'
+import { buildQueuedSections } from '../lib/missionSubmit'
 import { submitVisit } from '../lib/fieldCheckSync'
 import FieldVisitSectionCard from '../components/FieldVisitSectionCard'
 
 type SubmitState = 'idle' | 'locating' | 'awaiting-far-confirm' | 'submitting' | 'sent' | 'queued'
 
-function emptySection(): DraftSectionState {
-  return { notes: '', priceRows: [], photos: [] }
-}
-
-function emptySections(): Record<string, DraftSectionState> {
-  const out: Record<string, DraftSectionState> = {}
-  FIELD_CHECK_SECTIONS.forEach((s) => { out[s.key] = emptySection() })
-  return out
-}
-
 export default function FieldVisitPage() {
-  const { placeId } = useParams<{ placeId: string }>()
+  const { placeId, missionId } = useParams<{ placeId: string; missionId: string }>()
   const navigate = useNavigate()
-  const location = useLocation() as { state?: { place?: FieldPlace; distanceMiles?: number } }
+  const location = useLocation() as {
+    state?: { place?: FieldPlace; distanceMiles?: number; mission?: FieldMission }
+  }
   const { user } = useAuthStore()
 
   const [place, setPlace] = useState<FieldPlace | null>(location.state?.place ?? null)
-  const [sections, setSections] = useState<Record<string, DraftSectionState>>(emptySections())
+  const [mission, setMission] = useState<FieldMission | null>(location.state?.mission ?? null)
+  const [missionError, setMissionError] = useState<string | null>(null)
+  const [sections, setSections] = useState<Record<string, DraftSectionState>>({})
   const [draftLoaded, setDraftLoaded] = useState(false)
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -46,8 +42,8 @@ export default function FieldVisitPage() {
   const [pendingFlags, setPendingFlags] = useState<VisitFlag[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Resolve the place — from router state if we came from the list (no extra read),
-  // otherwise (deep link / reload) a single getDoc.
+  // Resolve the place — from router state if we came from the mission list
+  // (no extra read), otherwise (deep link / reload) a single getDoc.
   useEffect(() => {
     if (place || !placeId) return
     getDoc(doc(db, 'fieldPlaces', placeId)).then((snap) => {
@@ -55,39 +51,68 @@ export default function FieldVisitPage() {
     })
   }, [placeId, place])
 
-  // Restore any in-progress draft for this store (task E — survives closing the tab/app).
+  // Resolve the mission the same way — router state when we came from the
+  // mission list, otherwise fall back to the cached/fetched mission list
+  // (deep link / reload — see lib/fieldMissions.ts for the offline fallback).
   useEffect(() => {
-    if (!placeId) return
-    loadDraft(placeId).then((draft) => {
+    if (mission || !missionId) return
+    loadFieldMissions()
+      .then((missions) => {
+        const found = getFieldMissionById(missions, missionId)
+        if (found) setMission(found)
+        else setMissionError('This mission is no longer available.')
+      })
+      .catch(() => setMissionError('Could not load this mission. Check your connection and try again.'))
+  }, [missionId, mission])
+
+  // Restore any in-progress draft for this (store, mission) pair (task F —
+  // survives closing the tab/app, and doesn't collide with a different
+  // mission half-filled at the same store).
+  useEffect(() => {
+    if (!placeId || !missionId || !mission) return
+    let cancelled = false
+    loadDraft(placeId, missionId).then((draft) => {
+      if (cancelled) return
       if (draft) {
         setSections(draft.sections)
         setLastSavedAt(draft.updatedAt)
+      } else {
+        setSections(emptyMissionSections(mission))
       }
       setDraftLoaded(true)
     })
-  }, [placeId])
+    return () => {
+      cancelled = true
+    }
+  }, [placeId, missionId, mission])
 
   // Autosave to IndexedDB, debounced. Skipped until the initial draft load completes
   // so we don't immediately overwrite a real draft with the blank initial state.
   useEffect(() => {
-    if (!draftLoaded || !placeId || !place) return
+    if (!draftLoaded || !placeId || !missionId || !place || !mission) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
       const draft: VisitDraft = {
-        draftId: placeId,
+        draftId: draftKey(placeId, missionId),
         placeId,
+        missionId,
+        missionName: mission.name,
         placeName: place.name ?? '',
         sections,
         updatedAt: Date.now(),
       }
       saveDraft(draft).then(() => setLastSavedAt(draft.updatedAt))
     }, 600)
-    return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
-  }, [sections, draftLoaded, placeId, place])
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+    }
+  }, [sections, draftLoaded, placeId, missionId, place, mission])
 
-  const totalPhotos = useMemo(
-    () => Object.values(sections).reduce((sum, s) => sum + s.photos.length, 0),
-    [sections]
+  const totalPhotos = useMemo(() => countTotalPhotos(sections), [sections])
+
+  const progress = useMemo(
+    () => (mission ? computeMissionProgress(mission, sections) : null),
+    [mission, sections]
   )
 
   function updateSection(key: string, next: DraftSectionState) {
@@ -114,7 +139,8 @@ export default function FieldVisitPage() {
   }
 
   async function handleSendTap() {
-    if (!place || !user) return
+    if (!place || !user || !mission || !progress) return
+    if (progress.missingRequired.length > 0) return // submit button is disabled in this state too
     setError(null)
 
     // Second tap after a far-from-store warning — send regardless (task D: advise, don't block).
@@ -141,7 +167,7 @@ export default function FieldVisitPage() {
   }
 
   async function doSubmit(distanceMiles: number, flags: VisitFlag[]) {
-    if (!place || !user) return
+    if (!place || !user || !mission) return
     setSubmitState('submitting')
 
     const visitId = newId()
@@ -154,8 +180,8 @@ export default function FieldVisitPage() {
       attempts: 0,
       lastError: null,
       base: {
-        missionId: FIELD_CHECK_MISSION_ID,
-        missionName: FIELD_CHECK_MISSION_NAME,
+        missionId: mission.id,
+        missionName: mission.name,
         placeId: place.id,
         customPlaceId: place.customPlaceId ?? '',
         placeName: place.name ?? '',
@@ -166,21 +192,12 @@ export default function FieldVisitPage() {
         distanceMiles,
         flags,
       },
-      sections: FIELD_CHECK_SECTIONS.map((def) => {
-        const s = sections[def.key]
-        return {
-          key: def.key,
-          label: def.label,
-          notes: s.notes,
-          parsedPrices: toCompetitorPrices(s.priceRows, def.key),
-          photos: s.photos.map((p) => ({ photoId: p.id, blob: p.blob, width: p.width, height: p.height })),
-        }
-      }),
+      sections: buildQueuedSections(mission, sections),
     }
 
     try {
       const outcome = await submitVisit(item)
-      await deleteDraft(place.id)
+      await deleteDraft(place.id, mission.id)
       setSubmitState(outcome)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit visit')
@@ -188,7 +205,21 @@ export default function FieldVisitPage() {
     }
   }
 
-  if (!place) {
+  if (missionError) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6 text-center">
+        <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3 max-w-xs">{missionError}</p>
+        <button
+          onClick={() => navigate(placeId ? `/field-check/${placeId}` : '/field-check')}
+          className="mt-4 rounded-xl bg-green-500 text-white text-sm font-semibold px-5 py-2.5 hover:bg-green-600 active:scale-95 transition"
+        >
+          Back to missions
+        </button>
+      </div>
+    )
+  }
+
+  if (!place || !mission) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="h-8 w-8 rounded-full border-4 border-green-500 border-t-transparent animate-spin" />
@@ -213,8 +244,8 @@ export default function FieldVisitPage() {
         </h1>
         <p className="text-sm text-gray-500 mb-5 max-w-xs">
           {submitState === 'sent'
-            ? `${place.name} has been recorded.`
-            : `No connection right now. This visit for ${place.name} will send automatically once you're back online.`}
+            ? `${mission.name} at ${place.name} has been recorded.`
+            : `No connection right now. This ${mission.name} visit for ${place.name} will send automatically once you're back online.`}
         </p>
         <button
           onClick={() => navigate('/field-check')}
@@ -226,34 +257,40 @@ export default function FieldVisitPage() {
     )
   }
 
+  const canSubmit = !!progress && progress.missingRequired.length === 0
+  const missingPreview = progress ? previewMissing(progress.missingRequired) : ''
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <div className="sticky top-0 z-20 bg-white border-b border-gray-200 safe-top">
         <header className="px-4 py-3 flex items-center gap-3">
-          <button onClick={() => navigate('/field-check')} className="text-gray-400 hover:text-gray-600 p-1">
+          <button onClick={() => navigate(`/field-check/${place.id}`)} className="text-gray-400 hover:text-gray-600 p-1">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
               <path d="M15 18l-6-6 6-6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
           <div className="min-w-0 flex-1">
             <h1 className="font-bold text-gray-900 truncate">{place.name}</h1>
-            <p className="text-xs text-gray-400 truncate">
-              {[place.address, place.city, place.state].filter(Boolean).join(', ')}
-            </p>
+            <p className="text-xs text-gray-400 truncate">{mission.name}</p>
           </div>
         </header>
-        {lastSavedAt && (
-          <p className="px-4 pb-2 text-[11px] text-gray-400">Draft saved locally</p>
+        {progress && (
+          <div className="px-4 pb-3">
+            <p className="text-xs font-semibold text-gray-500">
+              {progress.optionalDone}/{progress.optionalTotal} Optional · {progress.requiredDone}/{progress.requiredTotal} Required
+            </p>
+          </div>
         )}
+        {lastSavedAt && <p className="px-4 pb-2 text-[11px] text-gray-400">Draft saved locally</p>}
       </div>
 
       <main className="flex-1 overflow-y-auto px-4 py-4 max-w-2xl mx-auto w-full space-y-3 pb-32">
-        {FIELD_CHECK_SECTIONS.map((def, i) => (
+        {mission.sections.map((section, i) => (
           <FieldVisitSectionCard
-            key={def.key}
-            def={def}
-            state={sections[def.key]}
-            onChange={(next) => updateSection(def.key, next)}
+            key={section.key}
+            section={section}
+            state={sections[section.key] ?? { tasks: section.tasks.map(() => ({ text: '', priceRows: [], photos: [] })) }}
+            onChange={(next) => updateSection(section.key, next)}
             defaultOpen={i === 0}
           />
         ))}
@@ -267,6 +304,9 @@ export default function FieldVisitPage() {
               You&apos;re {pendingDistance.toFixed(2)} miles from {place.name}. This visit will be flagged. Tap Send again to confirm.
             </p>
           )}
+          {!canSubmit && (
+            <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">Missing required: {missingPreview}</p>
+          )}
           {error && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
           <label className="flex items-center gap-2 text-xs text-gray-600 select-none">
             <input
@@ -279,16 +319,23 @@ export default function FieldVisitPage() {
           </label>
           <button
             onClick={handleSendTap}
-            disabled={submitState === 'locating' || submitState === 'submitting'}
+            disabled={!canSubmit || submitState === 'locating' || submitState === 'submitting'}
             className="w-full rounded-xl bg-green-500 text-white py-3.5 text-sm font-semibold hover:bg-green-600 active:scale-95 transition disabled:opacity-50"
           >
             {submitState === 'locating' && 'Checking location…'}
             {submitState === 'submitting' && 'Sending…'}
             {submitState === 'awaiting-far-confirm' && 'Send anyway'}
-            {(submitState === 'idle') && `Send visit${totalPhotos > 0 ? ` · ${totalPhotos} photo${totalPhotos !== 1 ? 's' : ''}` : ''}`}
+            {submitState === 'idle' && `Send visit${totalPhotos > 0 ? ` · ${totalPhotos} photo${totalPhotos !== 1 ? 's' : ''}` : ''}`}
           </button>
         </div>
       </div>
     </div>
   )
+}
+
+/** Short human-readable list for the submit-blocked banner — full list if it's short, else truncated with a count. */
+function previewMissing(missing: string[]): string {
+  const MAX = 2
+  if (missing.length <= MAX) return missing.join(', ')
+  return `${missing.slice(0, MAX).join(', ')}, and ${missing.length - MAX} more`
 }

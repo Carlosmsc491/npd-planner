@@ -2,8 +2,11 @@
 // dependency, native indexedDB API, matching "no new deps in web/").
 //
 // Two object stores:
-//   drafts — one row per in-progress visit form, autosaved while the
-//            merchandiser is filling it out (survives closing the tab/app)
+//   drafts — one row per in-progress (place, mission) pair, autosaved while
+//            the merchandiser is filling it out (survives closing the tab/app).
+//            Keyed by draftKey(placeId, missionId), not placeId alone — a
+//            merchandiser can have two different missions half-filled at the
+//            same store at once (task F).
 //   queue  — a fully-composed visit that failed to submit (offline or a
 //            transient error), retried by lib/fieldCheckSync.ts until it lands
 
@@ -26,18 +29,31 @@ export interface DraftPriceRow {
   note: string
 }
 
-export interface DraftSectionState {
-  notes: string
+/** Per-task capture state — index-aligned with the owning FieldMissionSection.tasks[]. */
+export interface DraftTaskState {
+  text: string
   priceRows: DraftPriceRow[]
   photos: DraftPhotoRecord[]
 }
 
+export interface DraftSectionState {
+  tasks: DraftTaskState[]
+}
+
+/** One draft per (placeId, missionId) pair — a merchandiser can have two different
+ *  missions half-filled at the same store at once (task F). */
 export interface VisitDraft {
-  draftId: string // == placeId — one in-progress draft per store at a time
+  draftId: string // `${placeId}::${missionId}` — see draftKey()
   placeId: string
+  missionId: string
+  missionName: string
   placeName: string
   sections: Record<string, DraftSectionState>
   updatedAt: number
+}
+
+export function draftKey(placeId: string, missionId: string): string {
+  return `${placeId}::${missionId}`
 }
 
 /** Everything needed to retry a submit: the Firestore payload shape, but photos carry a Blob instead of a remoteUrl yet. */
@@ -109,12 +125,12 @@ export async function saveDraft(draft: VisitDraft): Promise<void> {
   await runTx(DRAFTS_STORE, 'readwrite', (s) => s.put(draft))
 }
 
-export async function loadDraft(placeId: string): Promise<VisitDraft | undefined> {
-  return runTx(DRAFTS_STORE, 'readonly', (s) => s.get(placeId))
+export async function loadDraft(placeId: string, missionId: string): Promise<VisitDraft | undefined> {
+  return runTx(DRAFTS_STORE, 'readonly', (s) => s.get(draftKey(placeId, missionId)))
 }
 
-export async function deleteDraft(placeId: string): Promise<void> {
-  await runTx(DRAFTS_STORE, 'readwrite', (s) => s.delete(placeId))
+export async function deleteDraft(placeId: string, missionId: string): Promise<void> {
+  await runTx(DRAFTS_STORE, 'readwrite', (s) => s.delete(draftKey(placeId, missionId)))
 }
 
 export async function enqueueVisit(item: QueuedVisit): Promise<void> {
