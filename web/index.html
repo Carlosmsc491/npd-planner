@@ -17,6 +17,26 @@
 
     <title>NPD Planner</title>
 
+    <script>
+      // Single Page Apps for GitHub Pages — https://github.com/rafgraph/spa-github-pages
+      // Un-does the redirect public/404.html performs for a deep link GitHub
+      // Pages can't serve directly (e.g. reopening this PWA from the home
+      // screen mid-visit). Must run before React Router mounts below, or it
+      // mounts on '/' and the real route this restores is lost.
+      ;(function (l) {
+        if (l.search[1] === '/') {
+          var decoded = l.search
+            .slice(1)
+            .split('&')
+            .map(function (s) {
+              return s.replace(/~and~/g, '&')
+            })
+            .join('?')
+          window.history.replaceState(null, null, l.pathname.slice(0, -1) + decoded + l.hash)
+        }
+      })(window.location)
+    </script>
+
     <!-- Tailwind Play CDN — works offline after first load (cached by SW) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>

@@ -41,6 +41,54 @@ function clusterDivIcon(count: number): L.DivIcon {
   })
 }
 
+/**
+ * fieldPlaces.lat/lon comes from ZIP-centroid geocoding (see the FieldPlace
+ * type comment), not the real storefront — so several stores in the same ZIP
+ * often share the EXACT coordinate (six Doral stores sit on one point).
+ * Leaflet then stacks their markers on identical pixels, and a tap resolves
+ * to whichever one happens to be on top of the DOM stack rather than the one
+ * visually under the finger — reported live: tapping a pin near Doral
+ * opened a store that was actually in Pompano Beach, because both shared a
+ * ZIP-centroid point. This spreads exact/near-exact duplicates into a small,
+ * id-ordered ring around their shared point so every marker is independently
+ * clickable. Real lat/lon (used for the list below the map and for
+ * distances) is untouched — only where a marker is DRAWN moves.
+ */
+function jitterOverlappingCoords(places: FieldPlace[]): Map<string, SimpleCoords> {
+  const groups = new Map<string, FieldPlace[]>()
+  for (const p of places) {
+    if (p.lat == null || p.lon == null) continue
+    // 4 decimals ≈ 11m at the equator — tight enough to catch true
+    // ZIP-centroid duplicates without merging genuinely distinct next-door stores.
+    const key = `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`
+    const group = groups.get(key)
+    if (group) group.push(p)
+    else groups.set(key, [p])
+  }
+
+  const result = new Map<string, SimpleCoords>()
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      const p = group[0]
+      result.set(p.id, { lat: p.lat as number, lon: p.lon as number })
+      continue
+    }
+    // Sorted by id, not array order, so the same store always lands in the
+    // same ring position on re-render — a jitter that moves on every
+    // refresh would be more confusing than the overlap it fixes.
+    const sorted = [...group].sort((a, b) => a.id.localeCompare(b.id))
+    const RING_DEG = 0.00025 // ≈ 25-28m — visually distinct at street zoom, negligible at any other
+    sorted.forEach((p, i) => {
+      const angle = (2 * Math.PI * i) / sorted.length
+      result.set(p.id, {
+        lat: (p.lat as number) + RING_DEG * Math.cos(angle),
+        lon: (p.lon as number) + RING_DEG * Math.sin(angle),
+      })
+    })
+  }
+  return result
+}
+
 function userDivIcon(): L.DivIcon {
   return L.divIcon({
     className: '',
@@ -117,8 +165,10 @@ const FieldCheckMap = forwardRef<FieldCheckMapHandle, FieldCheckMapProps>(functi
 
   const onSelectPlaceRef = useRef(onSelectPlace)
   const onStartVisitRef = useRef(onStartVisit)
+  const onVisibleChangeRef = useRef(onVisibleChange)
   onSelectPlaceRef.current = onSelectPlace
   onStartVisitRef.current = onStartVisit
+  onVisibleChangeRef.current = onVisibleChange
 
   // Init the Leaflet map once.
   useEffect(() => {
@@ -157,6 +207,19 @@ const FieldCheckMap = forwardRef<FieldCheckMapHandle, FieldCheckMapProps>(functi
     map.on('moveend', scheduleViewportUpdate)
     map.on('zoomend', scheduleViewportUpdate)
     map.on('dragstart', () => { userDraggedMap.current = true })
+    // Reported live: panning from one area to another left the "Stores on
+    // map" list showing the PREVIOUS viewport's stores for the ~400ms+fetch
+    // gap before scheduleViewportUpdate's debounce resolves — e.g. flying
+    // from a Pompano Beach store to Doral, a Pompano row was still visible
+    // in the list while the map itself already showed Doral. movestart
+    // fires the instant ANY pan/zoom begins (drag or programmatic flyTo), so
+    // clearing the list right there means it's briefly empty ("No stores in
+    // view") instead of briefly WRONG — never shows a real store name at
+    // the wrong location, even mid-transition.
+    map.on('movestart', () => {
+      const center = map.getCenter()
+      onVisibleChangeRef.current([], { lat: center.lat, lon: center.lng }, false)
+    })
     scheduleViewportUpdate()
 
     // Leaflet measures the container once, when the map is created, and then
@@ -220,6 +283,9 @@ const FieldCheckMap = forwardRef<FieldCheckMapHandle, FieldCheckMapProps>(functi
     placeMarkersRef.current.clear()
 
     const realPlaces: FieldPlace[] = []
+    const jitteredCoords = jitterOverlappingCoords(
+      points.filter((pt) => pt.kind === 'place').map((pt) => pt.place)
+    )
 
     points.forEach((point) => {
       if (point.kind === 'cluster') {
@@ -234,7 +300,8 @@ const FieldCheckMap = forwardRef<FieldCheckMapHandle, FieldCheckMapProps>(functi
         const p = point.place
         if (p.lat == null || p.lon == null) return
         realPlaces.push(p)
-        const marker = L.marker([p.lat, p.lon], { icon: placeDivIcon(p.id === selectedPlaceId) })
+        const markerPos = jitteredCoords.get(p.id) ?? { lat: p.lat, lon: p.lon }
+        const marker = L.marker([markerPos.lat, markerPos.lon], { icon: placeDivIcon(p.id === selectedPlaceId) })
         marker.bindPopup(buildPopupContent(p, () => onStartVisitRef.current(p)))
         marker.on('click', () => onSelectPlaceRef.current(p))
         marker.addTo(map)
@@ -285,7 +352,34 @@ const FieldCheckMap = forwardRef<FieldCheckMapHandle, FieldCheckMapProps>(functi
 
   useImperativeHandle(ref, () => ({ flyToPlace }), [flyToPlace])
 
-  return <div ref={containerRef} className="absolute inset-0" />
+  const recenterOnUser = useCallback(() => {
+    const map = mapRef.current
+    if (!map || !userLocation) return
+    // The initial auto-center only fires once (autoCenteredOnUser) and stops
+    // forever the moment the user pans — this button is the manual escape
+    // hatch back to "where am I" after that, so it doesn't re-trigger any
+    // further auto-following, just this one fly.
+    map.flyTo([userLocation.lat, userLocation.lon], LOCATED_ZOOM, { duration: 0.6 })
+  }, [userLocation])
+
+  return (
+    <div className="absolute inset-0">
+      <div ref={containerRef} className="absolute inset-0" />
+      {userLocation && (
+        <button
+          type="button"
+          onClick={recenterOnUser}
+          aria-label="Center on my location"
+          className="absolute bottom-4 right-3 z-[1000] flex h-11 w-11 items-center justify-center rounded-full bg-white text-blue-500 shadow-lg border border-gray-200 active:scale-95 transition-transform"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+          </svg>
+        </button>
+      )}
+    </div>
+  )
 })
 
 export default FieldCheckMap

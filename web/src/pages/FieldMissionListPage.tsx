@@ -20,6 +20,10 @@ export default function FieldMissionListPage() {
   const [missions, setMissions] = useState<FieldMission[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [draftMissionIds, setDraftMissionIds] = useState<Set<string>>(new Set())
+  // Bumped by the error banner's "Try again" — a cold device (nothing in
+  // lib/fieldMissions.ts's localStorage fallback yet) has no recourse if
+  // this one fetch fails, same reasoning as FieldVisitPage's retry.
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   useEffect(() => {
     if (place || !placeId) return
@@ -29,10 +33,11 @@ export default function FieldMissionListPage() {
   }, [placeId, place])
 
   useEffect(() => {
+    setError(null)
     loadFieldMissions()
       .then(setMissions)
       .catch(() => setError('Could not load missions. Check your connection and try again.'))
-  }, [])
+  }, [loadAttempt])
 
   // "In progress" badges — cheap local IndexedDB lookups, one per mission.
   useEffect(() => {
@@ -75,7 +80,17 @@ export default function FieldMissionListPage() {
       <main className="flex-1 overflow-y-auto px-4 py-4 max-w-2xl mx-auto w-full space-y-3">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide px-1">Choose a mission</h2>
 
-        {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+        {error && (
+          <div className="flex items-center justify-between gap-3 bg-red-50 rounded-lg px-3 py-2">
+            <p className="text-sm text-red-600">{error}</p>
+            <button
+              onClick={() => setLoadAttempt((n) => n + 1)}
+              className="shrink-0 text-sm font-semibold text-red-700 hover:underline"
+            >
+              Try again
+            </button>
+          </div>
+        )}
 
         {!error && missions === null && (
           <div className="flex items-center justify-center gap-2 py-10 text-gray-400 text-sm">

@@ -260,6 +260,18 @@ export interface FieldMissionTask {
   label: string
   required: boolean
   maxPhotos: number
+  /**
+   * A 'text' task can opt into a camera scan button (added for UPC Check,
+   * see GOSPOTCHECK_PARITY_AUDIT.md §4.1 item 3 — the mission already stores
+   * the code as plain text; this only changes how it gets typed). Uses the
+   * browser-native BarcodeDetector where available (Chrome/Android) and
+   * simply doesn't render the button where it isn't (Safari/iOS has never
+   * shipped it, broken again as of iOS 18) — the field stays a normal text
+   * input there, same as before this existed. No JS decoding library added.
+   * Meaningless on 'photo'/'prices' kinds; optional so the 3 existing
+   * missions don't need a migration.
+   */
+  scannable?: boolean
 }
 
 export interface FieldMissionSection {

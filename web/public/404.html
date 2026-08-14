@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>NPD Planner</title>
+    <script>
+      // Single Page Apps for GitHub Pages — https://github.com/rafgraph/spa-github-pages
+      //
+      // GitHub Pages is a static file server: it has no route for
+      // /npd-planner/field-check/<placeId>/<missionId> (only React Router,
+      // client-side, knows that path), so any reload or fresh open on a
+      // deep link lands here instead of the app. Without this file that's a
+      // dead end — a real "Site not found", not the app's own error UI.
+      //
+      // This redirects to the app root with the real path folded into a
+      // query string; index.html's matching script unfolds it BEFORE React
+      // Router mounts, so the app ends up on the right screen. On iOS,
+      // where the OS aggressively kills a backgrounded/closed PWA and a
+      // relaunch does a fresh navigation to wherever it last was, this is
+      // the difference between "reopens where you left off" and "silently
+      // stuck".
+      var pathSegmentsToKeep = 1 // keeps '/npd-planner' as the app root
+
+      var l = window.location
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
+        l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
+        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+        l.hash
+      )
+    </script>
+  </head>
+  <body></body>
+</html>

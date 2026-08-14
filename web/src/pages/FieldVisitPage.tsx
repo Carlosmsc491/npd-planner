@@ -41,6 +41,10 @@ export default function FieldVisitPage() {
   const [pendingDistance, setPendingDistance] = useState<number | null>(null)
   const [pendingFlags, setPendingFlags] = useState<VisitFlag[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Bumped by the "Try again" button on the mission-load failure screen —
+  // included in the loader effect's deps purely to re-trigger it, its value
+  // is never read.
+  const [missionLoadAttempt, setMissionLoadAttempt] = useState(0)
 
   // Resolve the place — from router state if we came from the mission list
   // (no extra read), otherwise (deep link / reload) a single getDoc.
@@ -54,8 +58,20 @@ export default function FieldVisitPage() {
   // Resolve the mission the same way — router state when we came from the
   // mission list, otherwise fall back to the cached/fetched mission list
   // (deep link / reload — see lib/fieldMissions.ts for the offline fallback).
+  //
+  // A cold load (nothing cached yet — the localStorage fallback in
+  // lib/fieldMissions.ts is empty the very first time a device ever opens
+  // this) has no fallback if this one fetch fails, e.g. a spotty in-store
+  // connection or, on iOS, the PWA relaunching straight into this route
+  // after being backgrounded and killed. One failed attempt used to be a
+  // dead end (Back to missions only) — "Try again" re-runs this same
+  // effect via missionLoadAttempt without leaving the page, which also
+  // means a retry that succeeds keeps whatever's already been typed below
+  // (there isn't anything yet at this point, but the pattern matters once
+  // sections start rendering after mission resolves).
   useEffect(() => {
     if (mission || !missionId) return
+    setMissionError(null)
     loadFieldMissions()
       .then((missions) => {
         const found = getFieldMissionById(missions, missionId)
@@ -63,7 +79,7 @@ export default function FieldVisitPage() {
         else setMissionError('This mission is no longer available.')
       })
       .catch(() => setMissionError('Could not load this mission. Check your connection and try again.'))
-  }, [missionId, mission])
+  }, [missionId, mission, missionLoadAttempt])
 
   // Restore any in-progress draft for this (store, mission) pair (task F —
   // survives closing the tab/app, and doesn't collide with a different
@@ -206,15 +222,30 @@ export default function FieldVisitPage() {
   }
 
   if (missionError) {
+    // "This mission is no longer available" (mission genuinely missing/inactive)
+    // vs a load failure (network blip, cold-start with nothing cached yet) look
+    // the same today on purpose — the fix for the first is going back to pick a
+    // different mission either way, but only the second is worth retrying.
+    const canRetry = missionError.startsWith('Could not load')
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6 text-center">
         <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3 max-w-xs">{missionError}</p>
-        <button
-          onClick={() => navigate(placeId ? `/field-check/${placeId}` : '/field-check')}
-          className="mt-4 rounded-xl bg-green-500 text-white text-sm font-semibold px-5 py-2.5 hover:bg-green-600 active:scale-95 transition"
-        >
-          Back to missions
-        </button>
+        <div className="mt-4 flex items-center gap-2">
+          {canRetry && (
+            <button
+              onClick={() => setMissionLoadAttempt((n) => n + 1)}
+              className="rounded-xl border border-gray-300 bg-white text-gray-700 text-sm font-semibold px-5 py-2.5 hover:bg-gray-50 active:scale-95 transition"
+            >
+              Try again
+            </button>
+          )}
+          <button
+            onClick={() => navigate(placeId ? `/field-check/${placeId}` : '/field-check')}
+            className="rounded-xl bg-green-500 text-white text-sm font-semibold px-5 py-2.5 hover:bg-green-600 active:scale-95 transition"
+          >
+            Back to missions
+          </button>
+        </div>
       </div>
     )
   }
