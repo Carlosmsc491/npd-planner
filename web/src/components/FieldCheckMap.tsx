@@ -182,11 +182,21 @@ const FieldCheckMap = forwardRef<FieldCheckMapHandle, FieldCheckMapProps>(functi
       attributionControl: true,
     }).setView([initialCenter.lat, initialCenter.lon], initialZoom)
 
-    // OSM attribution is required by license (task C) — tileLayer's
-    // `attribution` option wires it into Leaflet's attribution control.
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // CARTO's basemap CDN, not tile.openstreetmap.org directly — the raw OSM
+    // tile server rejects app/production traffic per its usage policy
+    // (https://operations.osmfoundation.org/policies/tiles/); once
+    // carlosmsc491.github.io started sending real requests it came back
+    // `x-blocked: Access denied` on every tile, which is why the map was a
+    // blank gray rectangle (Leaflet itself was fine — nothing to do with the
+    // "location denied" the map was blamed for). CARTO's tiles are the same
+    // OSM data, free, no signup/API key, and explicitly allow this kind of
+    // embedding — still OSM's own data, so OSM attribution stays required
+    // alongside CARTO's.
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      subdomains: 'abcd',
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     }).addTo(map)
 
     mapRef.current = map

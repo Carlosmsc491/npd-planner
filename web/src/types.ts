@@ -235,9 +235,10 @@ export interface FieldPlace {
   chain: string | null
   industry: string | null
   active: boolean
-  lat: number | null          // ZIP-centroid geocode (Census gazetteer) — not the exact storefront
-  lon: number | null
+  lat: number | null          // re-geocoded 14 ago 2026 via Census Bureau batch geocoder (free, interim —
+  lon: number | null          // Google Geocoding API is the planned upgrade once budget is approved).
   geohash: string | null      // standard base32 geohash, precision 9 — see lib/geohash.ts
+  geoPrecision: string | null // 'census_exact' | 'census_non_exact' | 'zip' (unmatched, still ZIP-centroid) | 'rooftop' (one manual fix) — not read by any code yet, just provenance
 }
 
 /**
