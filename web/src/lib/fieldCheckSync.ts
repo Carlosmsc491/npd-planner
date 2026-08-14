@@ -18,6 +18,24 @@ import { enqueueVisit, listQueuedVisits, removeQueuedVisit, updateQueuedVisit } 
 // Phase 6: "Retry queue (every 30 seconds) for failed copies") for consistency.
 const RETRY_INTERVAL_MS = 30_000
 
+// `navigator.onLine` only means the OS sees SOME interface up — connected to
+// a store's WiFi with no real internet, or a weak mobile signal, both still
+// read as "online" while fetch/XHR calls underneath uploadBytes/setDoc hang
+// with no built-in timeout. Reported live: "Sending…" never resolved and
+// never errored, so submitState was stuck on 'submitting' forever — nothing
+// ever threw for the try/catch in submitVisit to catch. Same class of bug as
+// the desktop's recipe-lock freezes (see withTimeout in recipeFirestore.ts);
+// same fix, ported here since web/ is a separate package.
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+  ])
+}
+
+const PHOTO_UPLOAD_TIMEOUT_MS = 30_000
+const VISIT_WRITE_TIMEOUT_MS = 15_000
+
 export type SubmitOutcome = 'sent' | 'queued'
 
 async function uploadPhoto(
@@ -30,8 +48,12 @@ async function uploadPhoto(
 ): Promise<FieldPhoto> {
   const path = `fieldVisits/${visitId}/${sectionKey}/${photoId}.jpg`
   const storageRef = ref(storage, path)
-  await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
-  const remoteUrl = await getDownloadURL(storageRef)
+  await withTimeout(
+    uploadBytes(storageRef, blob, { contentType: 'image/jpeg' }),
+    PHOTO_UPLOAD_TIMEOUT_MS,
+    'Photo upload timed out'
+  )
+  const remoteUrl = await withTimeout(getDownloadURL(storageRef), PHOTO_UPLOAD_TIMEOUT_MS, 'Photo upload timed out')
   return {
     gscPhotoId: photoId,
     remoteUrl,
@@ -62,21 +84,25 @@ async function uploadAllAndWrite(item: QueuedVisit): Promise<void> {
     })
   }
 
-  await setDoc(doc(db, 'fieldVisits', item.visitId), {
-    missionId: item.base.missionId,
-    missionName: item.base.missionName,
-    placeId: item.base.placeId,
-    customPlaceId: item.base.customPlaceId,
-    placeName: item.base.placeName,
-    userUid: item.base.userUid,
-    userEmail: item.base.userEmail,
-    userLabel: item.base.userLabel,
-    completedAt: Timestamp.fromMillis(item.base.completedAt),
-    distanceMiles: item.base.distanceMiles,
-    flags: item.base.flags,
-    sections,
-    syncedAt: Timestamp.now(),
-  })
+  await withTimeout(
+    setDoc(doc(db, 'fieldVisits', item.visitId), {
+      missionId: item.base.missionId,
+      missionName: item.base.missionName,
+      placeId: item.base.placeId,
+      customPlaceId: item.base.customPlaceId,
+      placeName: item.base.placeName,
+      userUid: item.base.userUid,
+      userEmail: item.base.userEmail,
+      userLabel: item.base.userLabel,
+      completedAt: Timestamp.fromMillis(item.base.completedAt),
+      distanceMiles: item.base.distanceMiles,
+      flags: item.base.flags,
+      sections,
+      syncedAt: Timestamp.now(),
+    }),
+    VISIT_WRITE_TIMEOUT_MS,
+    'Visit write timed out'
+  )
 }
 
 /**
